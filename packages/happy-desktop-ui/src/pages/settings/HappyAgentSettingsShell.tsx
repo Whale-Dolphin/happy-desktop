@@ -21,6 +21,11 @@ export type HappyAgentSettingsShellProps = {
     onCategorySelect: (id: string) => void;
     /** Leaves settings and returns to the workspace. */
     onClose: () => void;
+    /**
+     * Present on a page opened from inside the category: the header leads with
+     * a back control that returns to the category instead of with its icon.
+     */
+    onBack?: () => void;
     title: string;
     /** Native macOS window chrome, matching the workspace shell it replaces. */
     windowControls?: boolean;
@@ -71,8 +76,19 @@ export function HappyAgentSettingsShell(props: HappyAgentSettingsShellProps) {
             }
         >
             <PanelHeader>
+                {props.onBack ? (
+                    <button
+                        aria-label={`Back to ${categoryLabel(props)}`}
+                        className="happy-agent-settings__back"
+                        data-happy-desktop-ui="happy-agent-settings-back"
+                        onClick={props.onBack}
+                        type="button"
+                    >
+                        <Icon name="chevron-right" size={16} />
+                    </button>
+                ) : null}
                 <Box className="happy-agent-settings__heading">
-                    <Icon name={categoryIcon(props)} size={16} />
+                    {props.onBack ? null : <Icon name={categoryIcon(props)} size={16} />}
                     <span
                         className="happy-agent-settings__heading-title"
                         data-happy-desktop-ui="happy-agent-settings-heading-title"
@@ -97,6 +113,13 @@ export function HappyAgentSettingsShell(props: HappyAgentSettingsShellProps) {
                 <Box className="happy-agent-settings__content">{props.children}</Box>
             </ScrollArea>
         </AppShell>
+    );
+}
+
+function categoryLabel(props: HappyAgentSettingsShellProps): string {
+    return (
+        props.categories.find((category) => category.id === props.activeCategoryId)?.label ??
+        "Settings"
     );
 }
 

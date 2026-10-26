@@ -18,6 +18,40 @@
     color: var(--text-secondary);
 }
 
+/* The sidebar drill-down's back control, standing where the category icon
+   stands: its 28px hover box is centred on the icon's 16px slot, and the
+   margins take back what the box adds, so the title keeps its coordinate. */
+.happy-agent-settings__back {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 0 -10px 0 -6px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--happy-hover-radius);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    appearance: none;
+}
+
+.happy-agent-settings__back .happy-icon {
+    transform: scaleX(-1);
+}
+
+.happy-agent-settings__back:hover {
+    background: var(--happy-hover-fill);
+    color: var(--text);
+}
+
+.happy-agent-settings__back:focus-visible {
+    outline: 2px solid var(--surface-selected);
+    outline-offset: -2px;
+}
+
 .happy-agent-settings__heading-title {
     flex: none;
     color: var(--text);

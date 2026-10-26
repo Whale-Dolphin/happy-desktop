@@ -18,6 +18,7 @@ import { ComponentPage, FullScreenSpecimen } from "../kit";
 import { devices, direct, relayWaiting } from "./mobilePairingFixtures";
 import {
     directSectionSpecimen,
+    mobileLinkSpecimen,
     pairingOptionsSpecimen,
     setupPairingOptions,
     type PairingVariant,
@@ -159,6 +160,83 @@ const settingsScreens: readonly {
                 direct: direct.closed,
                 pairing: { direct: direct.waiting, relay: relayWaiting, method: "direct" },
             }),
+    },
+    {
+        id: "link-intro",
+        label: "Link a phone · get the app",
+        render: () => mobileLinkSpecimen({ categories, step: { kind: "intro", platform: "ios" } }),
+    },
+    {
+        id: "link-relay",
+        label: "Link a phone · Relay code",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: { kind: "link", phase: { kind: "checking" } },
+                pairing: { direct: direct.closed, relay: relayWaiting, method: "relay" },
+            }),
+    },
+    {
+        id: "link-direct",
+        label: "Link a phone · Direct code",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: { kind: "link", phase: { kind: "checking" } },
+                pairing: { direct: direct.waiting, relay: relayWaiting, method: "direct" },
+            }),
+    },
+    {
+        id: "link-direct-failed",
+        label: "Link a phone · direct pairing failed",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: { kind: "link", phase: { kind: "checking" } },
+                pairing: { direct: direct.failed, relay: relayWaiting, method: "direct" },
+            }),
+    },
+    {
+        id: "link-relay-failed",
+        label: "Link a phone · relay failed",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: {
+                    kind: "link",
+                    phase: { kind: "failed", message: "Happy couldn't reach its server." },
+                },
+                pairing: {
+                    direct: direct.closed,
+                    relay: { kind: "failed", message: "Happy couldn't reach its server." },
+                    method: "relay",
+                },
+            }),
+    },
+    {
+        id: "link-verifying",
+        label: "Link a phone · emoji step",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: { kind: "link", phase: { kind: "checking" } },
+                pairing: { direct: direct.phoneConfirmed, relay: relayWaiting, method: "direct" },
+            }),
+    },
+    {
+        id: "link-completed",
+        label: "Link a phone · paired directly, Done",
+        render: () =>
+            mobileLinkSpecimen({
+                categories,
+                step: { kind: "link", phase: { kind: "checking" } },
+                pairing: { direct: direct.completed, relay: relayWaiting, method: "direct" },
+            }),
+    },
+    {
+        id: "link-connected",
+        label: "Link a phone · linked through the relay",
+        render: () => mobileLinkSpecimen({ categories, step: { kind: "connected", online: true } }),
     },
     {
         id: "codes",
@@ -397,6 +475,9 @@ const setupScreens: readonly {
 const narrowSettingsScreens = new Set([
     "method-relay",
     "method-direct",
+    "link-intro",
+    "link-relay",
+    "link-direct",
     "codes",
     "verifying",
     "older-agent",

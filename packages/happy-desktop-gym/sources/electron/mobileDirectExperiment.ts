@@ -70,8 +70,8 @@ async function pairingOpen(page: Page): Promise<void> {
 
 /** Leaves the pairing page as the person would. */
 async function pairingLeave(page: Page): Promise<void> {
-    const skip = page.getByRole("button", { name: "Skip mobile setup" });
-    if (await skip.isVisible().catch(() => false)) await skip.click();
+    const back = page.getByRole("button", { name: "Back to Mobile access" });
+    if (await back.isVisible().catch(() => false)) await back.click();
     else await page.getByRole("button", { name: "Close" }).first().click();
     await page.waitForTimeout(600);
 }

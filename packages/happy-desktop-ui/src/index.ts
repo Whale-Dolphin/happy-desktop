@@ -942,6 +942,11 @@ export {
     type HappyAgentMobileTerminal,
 } from "./pages/settings/HappyAgentMobileSettings";
 export {
+    HappyAgentMobileLinkSettings,
+    happyAgentMobileLinkHeading,
+    type HappyAgentMobileLinkSettingsProps,
+} from "./pages/settings/HappyAgentMobileLinkSettings";
+export {
     MobileDirectConnectionSection,
     MobileDirectEmoji,
     MobileDirectPairingPanel,
