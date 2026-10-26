@@ -58,7 +58,11 @@ export interface MobilePairingOptionsProps {
     onDirectConfirm(): void;
     onDirectReject(): void;
     onDirectErrorAssist?(): void;
-    /** Closes the pairing UI; its owner cancels whatever is still pending. */
+    /**
+     * Closes the pairing UI; its owner cancels whatever is still pending. In
+     * Settings it brings the card's own heading and Close; a page whose header
+     * already names it and leads back passes none.
+     */
     onClose?(): void;
     readonly "data-testid"?: string;
 }
@@ -128,18 +132,16 @@ export function MobilePairingOptions(props: MobilePairingOptionsProps) {
             data-method={method}
             data-testid={props["data-testid"]}
         >
-            {props.layout === "settings" ? (
+            {props.layout === "settings" && props.onClose ? (
                 <Box className="happy-mobile-pairing-options__header">
                     <span className="happy-mobile-pairing-options__heading">Connect a phone</span>
-                    {props.onClose ? (
-                        <Button
-                            onClick={props.onClose}
-                            size="small"
-                            variant={completed ? "primary" : "ghost"}
-                        >
-                            {completed ? "Done" : "Close"}
-                        </Button>
-                    ) : null}
+                    <Button
+                        onClick={props.onClose}
+                        size="small"
+                        variant={completed ? "primary" : "ghost"}
+                    >
+                        {completed ? "Done" : "Close"}
+                    </Button>
                 </Box>
             ) : null}
             {props.layout === "settings" && props.unavailable ? (

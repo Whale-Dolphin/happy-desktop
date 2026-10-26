@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-    DesktopMobileSetup,
     HappyAgentAccountSettings,
     HappyAgentDebugLogPanel,
     HappyAgentDebugSettings,
@@ -30,8 +29,8 @@ import { settingsDefaultModel, settingsMenus } from "./happyAgentSettingsFixture
 import { direct, relayWaiting } from "./mobilePairingFixtures";
 import {
     directSectionSpecimen,
+    mobileLinkSpecimen,
     pairingOptionsSpecimen,
-    setupPairingOptions,
 } from "./mobilePairingSpecimens";
 
 /** The component plan this page documents. The selector and the page header read the same value. */
@@ -822,46 +821,36 @@ export function HappyAgentSettingsBlueprintPage() {
                 </FullScreenSpecimen>
             ))}
             <FullScreenSpecimen
-                detail="Settings opens the exact first-run component and store. Skip or Continue returns to Mobile Access status."
-                label="Happy Mobile — shared local setup"
+                detail="Settings walks the same store as first-run on its own surface. Back returns to Mobile Access status."
+                label="Happy Mobile — link a phone"
                 number="01f-setup"
             >
-                <DesktopMobileSetup
-                    appearance="light"
-                    step={{ kind: "intro", platform: "ios" }}
-                    onContinue={noop}
-                    onSkip={noop}
-                    onPlatformSelect={noop}
-                    pairingOptions={setupPairingOptions()}
-                />
+                {mobileLinkSpecimen({ categories, step: { kind: "intro", platform: "ios" } })}
             </FullScreenSpecimen>
             <FullScreenSpecimen
                 detail="A failed native status read shows its reason in the relay slot; the direct code stays usable."
                 label="Happy Mobile — native status unavailable"
                 number="01f-read-failed"
             >
-                <DesktopMobileSetup
-                    appearance="light"
-                    step={{
+                {mobileLinkSpecimen({
+                    categories,
+                    step: {
                         kind: "link",
                         phase: {
                             kind: "failed",
                             message:
                                 "Happy cannot reach the local Happy Agent. Reconnect and try again.",
                         },
-                    }}
-                    onContinue={noop}
-                    onSkip={noop}
-                    onPlatformSelect={noop}
-                    pairingOptions={setupPairingOptions({
+                    },
+                    pairing: {
                         direct: direct.waiting,
                         relay: {
                             kind: "failed",
                             message:
                                 "Happy cannot reach the local Happy Agent. Reconnect and try again.",
                         },
-                    })}
-                />
+                    },
+                })}
             </FullScreenSpecimen>
             <FullScreenSpecimen
                 detail="Live debugger controls and a bounded raw renderer profile with React attribution"

@@ -80,7 +80,7 @@ export function MobileAppCopy(props: { onExternalOpen?(url: string): void }) {
 }
 
 /** What to do with the store code, and where encryption is explained. */
-function GetMobileAppCopy(props: { onExternalOpen?(url: string): void }) {
+export function GetMobileAppCopy(props: { onExternalOpen?(url: string): void }) {
     return (
         <>
             Scan with your phone’s camera. End-to-end encrypted.{" "}
@@ -104,6 +104,46 @@ function EncryptionLink(props: { onExternalOpen?(url: string): void }) {
         >
             How it works
         </a>
+    );
+}
+
+/** The platform pick beside the store code it selects. */
+export function MobileStoreDownload(props: {
+    readonly platform: "ios" | "android";
+    onPlatformSelect?(platform: "ios" | "android"): void;
+}) {
+    return (
+        <div className="happy-desktop-mobile-setup__download">
+            <div
+                className="happy-desktop-mobile-setup__platform"
+                role="group"
+                aria-label="Phone platform"
+            >
+                <Button
+                    aria-pressed={props.platform === "ios"}
+                    variant={props.platform === "ios" ? "primary" : "ghost"}
+                    onClick={() => props.onPlatformSelect?.("ios")}
+                    fullWidth
+                >
+                    iPhone
+                </Button>
+                <Button
+                    aria-pressed={props.platform === "android"}
+                    variant={props.platform === "android" ? "primary" : "ghost"}
+                    onClick={() => props.onPlatformSelect?.("android")}
+                    fullWidth
+                >
+                    Android
+                </Button>
+            </div>
+            <QRCode
+                data={STORE_URLS[props.platform]}
+                data-testid="happy-mobile-store-qr"
+                label="QR code to download Happy mobile app"
+                mark={props.platform === "ios" ? "app-store" : "google-play"}
+                size={176}
+            />
+        </div>
     );
 }
 
@@ -147,37 +187,12 @@ export function DesktopMobileSetup(props: DesktopMobileSetupProps) {
                 secondary={skip}
                 title="Get Mobile App"
             >
-                <div className="happy-desktop-mobile-setup__download">
-                    <div
-                        className="happy-desktop-mobile-setup__platform"
-                        role="group"
-                        aria-label="Phone platform"
-                    >
-                        <Button
-                            aria-pressed={step.platform === "ios"}
-                            variant={step.platform === "ios" ? "primary" : "ghost"}
-                            onClick={() => props.onPlatformSelect?.("ios")}
-                            fullWidth
-                        >
-                            iPhone
-                        </Button>
-                        <Button
-                            aria-pressed={step.platform === "android"}
-                            variant={step.platform === "android" ? "primary" : "ghost"}
-                            onClick={() => props.onPlatformSelect?.("android")}
-                            fullWidth
-                        >
-                            Android
-                        </Button>
-                    </div>
-                    <QRCode
-                        data={STORE_URLS[step.platform]}
-                        data-testid="happy-mobile-store-qr"
-                        label="QR code to download Happy mobile app"
-                        mark={step.platform === "ios" ? "app-store" : "google-play"}
-                        size={176}
-                    />
-                </div>
+                <MobileStoreDownload
+                    platform={step.platform}
+                    {...(props.onPlatformSelect
+                        ? { onPlatformSelect: props.onPlatformSelect }
+                        : {})}
+                />
             </SetupPage>
         );
 

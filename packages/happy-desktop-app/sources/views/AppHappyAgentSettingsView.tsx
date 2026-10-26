@@ -64,7 +64,6 @@ import {
 import {
     happyAgentComposerModelControlProps,
     GptLiveVoiceSettings,
-    DesktopMobileSetup,
     HappyAgentAccountSettings,
     HappyAgentGeneralSettings,
     HappyAgentExperimentalSettings,
@@ -75,7 +74,9 @@ import {
     HappyAgentDebugSettings,
     HappyAgentFileTierSettings,
     HappyAgentInstructionsSettings,
+    HappyAgentMobileLinkSettings,
     HappyAgentMobileSettings,
+    happyAgentMobileLinkHeading,
     HappyAgentProviderSettings,
     HappyAgentProfilerSettings,
     HappyAgentProfileSettings,
@@ -687,43 +688,48 @@ export function AppHappyAgentSettingsView(props: AppHappyAgentSettingsViewProps)
             : undefined;
     const sessionClock = host?.session?.clock;
     const mobileSetup = happyIntegrationStore.mobileSetup;
-    if (section === "mobile-access" && happyIntegration.setup && mobileSetup && sessionClock) {
-        const step = happyIntegration.setup;
-        return (
-            <HappyAgentVersionProvider lastKnownVersion={host?.version}>
-                <DesktopMobileSetup
-                    appearance={appearance.mode}
-                    step={step}
-                    onContinue={mobileSetup.continue}
-                    onSkip={mobileSetup.close}
-                    onPlatformSelect={mobileSetup.platformSelect}
-                    pairingOptions={appMobilePairingOptions({
-                        layout: "setup",
-                        method: pairingMethod,
-                        onMethodSelect: pairingMethodSelect,
-                        relay:
-                            step.kind === "link"
-                                ? appMobileRelayFromLink(step.phase)
-                                : { kind: "starting" },
-                        onRelayRetry: mobileSetup.continue,
-                        direct: mobileConnectorStore,
-                        snapshot: mobileConnector,
-                        clock: sessionClock,
-                        online: happyAgentOnline,
-                        ...(unavailable === undefined ? {} : { unavailable }),
-                    })}
-                />
-            </HappyAgentVersionProvider>
-        );
-    }
+    // Linking a phone is a page inside Mobile Access: the same Settings
+    // window, with its header leading back to the category.
+    const mobileLink =
+        section === "mobile-access" && happyIntegration.setup && mobileSetup && sessionClock
+            ? {
+                  step: happyIntegration.setup,
+                  setup: mobileSetup,
+                  pairingOptions: appMobilePairingOptions({
+                      layout: "settings",
+                      method: pairingMethod,
+                      onMethodSelect: pairingMethodSelect,
+                      relay:
+                          happyIntegration.setup.kind === "link"
+                              ? appMobileRelayFromLink(happyIntegration.setup.phase)
+                              : { kind: "starting" },
+                      onRelayRetry: mobileSetup.continue,
+                      direct: mobileConnectorStore,
+                      snapshot: mobileConnector,
+                      clock: sessionClock,
+                      online: happyAgentOnline,
+                      ...(unavailable === undefined ? {} : { unavailable }),
+                  }),
+              }
+            : undefined;
+    const mobileLinkHeading = mobileLink
+        ? happyAgentMobileLinkHeading(mobileLink.step, mobileLink.pairingOptions)
+        : undefined;
     const content = (
         <HappyAgentSettingsShell
             activeCategoryId={section}
             categories={categories}
-            description={CATEGORY_DESCRIPTIONS[section]}
+            description={
+                mobileLinkHeading ? mobileLinkHeading.description : CATEGORY_DESCRIPTIONS[section]
+            }
             onCategorySelect={props.onCategorySelect}
             onClose={props.onClose}
-            title={categories.find((category) => category.id === section)?.label ?? "Settings"}
+            {...(mobileLink ? { onBack: mobileLink.setup.close } : {})}
+            title={
+                mobileLinkHeading?.title ??
+                categories.find((category) => category.id === section)?.label ??
+                "Settings"
+            }
             windowControls={props.platform === "desktop"}
             windowFullScreen={windowState.fullScreen}
             windowTrafficLights={windowState.trafficLights}
@@ -901,6 +907,13 @@ export function AppHappyAgentSettingsView(props: AppHappyAgentSettingsViewProps)
                         }
                     </>
                 ) : null
+            ) : mobileLink ? (
+                <HappyAgentMobileLinkSettings
+                    step={mobileLink.step}
+                    pairingOptions={mobileLink.pairingOptions}
+                    onContinue={mobileLink.setup.continue}
+                    onPlatformSelect={mobileLink.setup.platformSelect}
+                />
             ) : section === "mobile-access" ? (
                 <HappyAgentMobileSettings
                     configured={happyIntegration.configured}
