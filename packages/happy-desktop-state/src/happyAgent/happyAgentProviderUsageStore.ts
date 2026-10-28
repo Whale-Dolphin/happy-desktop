@@ -89,6 +89,12 @@ export interface HappyAgentProviderUsageEntry {
     readonly retryAt?: number;
     /** True while the daemon is reading this account now. */
     readonly refreshing?: boolean;
+    /**
+     * Whether the account is signed in, as the latest check that could tell
+     * found it. Absent when nothing has told the daemon yet, from a pool, which
+     * is not an account, and from a daemon too old to say.
+     */
+    readonly signIn?: "signed_in" | "signed_out";
 }
 
 /**

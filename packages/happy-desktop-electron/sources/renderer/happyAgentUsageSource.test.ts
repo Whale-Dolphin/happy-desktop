@@ -175,6 +175,27 @@ it("reads once, then applies each account change without reading again", async (
     expect(daemon.callCount("getUsage")).toBe(1);
 });
 
+it("follows an account's sign-in, and says nothing while the daemon cannot tell", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    usageSet(daemon, [
+        entry({ providerId: "claude", signIn: "signed_out" }),
+        entry({ providerId: "codex", type: "codex", signIn: "unknown" }),
+    ]);
+    const h = harness(daemon);
+    await vi.waitFor(() => expect(h.claude()?.signIn).toBe("signed_out"));
+    expect(
+        h.seen.at(-1)?.providers.find((provider) => provider.providerId === "codex"),
+    ).not.toHaveProperty("signIn");
+
+    // Signing back in changes nothing else in the entry, and still arrives.
+    daemon.eventEmit(
+        "provider.usage.updated",
+        change({ providerId: "claude", signIn: "signed_in" }),
+    );
+    await vi.waitFor(() => expect(h.claude()?.signIn).toBe("signed_in"));
+    expect(daemon.callCount("getUsage")).toBe(1);
+});
+
 it("keeps a change that arrives while the first read is still on its way", async () => {
     const daemon = fakeHappyAgentDaemonCreate();
     usageSet(daemon, [

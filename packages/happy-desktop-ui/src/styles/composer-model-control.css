@@ -379,17 +379,12 @@
     border-bottom: 1px solid var(--text-secondary);
 }
 
-/* Why the account cannot be read, such as a lapsed sign-in, in place of its
- * gauge. A long reason ends in an ellipsis; the full one is its tooltip. */
-.happy-composer-model-control__member-error {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 60%;
-    overflow: hidden;
+/* A signed-out account says so in place of its gauge, in the colour of a spent one. */
+.happy-composer-model-control__signed-out {
+    flex: 0 0 auto;
     color: var(--warning-critical);
     font-size: 12px;
     line-height: 16px;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 

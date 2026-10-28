@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
+import type { HappyAgentModelOption } from "happy-desktop-state";
 import "./theme.css";
 import "./styles/button.css";
 import "./styles/composer-model-control.css";
@@ -15,6 +16,7 @@ import {
     type ComposerModelService,
     type ComposerModelUsageWatch,
 } from "./ComposerModelControl";
+import { happyAgentComposerModelControlProps } from "./happyAgentComposerModelControl";
 import { createRenderer } from "./testing";
 
 const SOL: ComposerModelChoice = {
@@ -58,7 +60,7 @@ const USAGE: ReadonlyMap<string, ComposerModelAccountUsage> = new Map([
         {
             week: { label: "Week", usedPercent: 18, resets: "resets Mon 9:00 AM" },
             updatedAt: NOW - 50 * 60_000,
-            refreshError: "Codex isn't signed in",
+            signedOut: true,
         },
     ],
     [
@@ -93,6 +95,53 @@ function Fixture(props: {
         </div>
     );
 }
+
+it("hangs a pool's accounts under the pool's account, named as the catalog names them", () => {
+    const option = (providerId: string): HappyAgentModelOption => ({
+        providerId,
+        providerType: "codex",
+        modelId: "sol",
+        name: "GPT-6.1 Sol",
+        disabled: false,
+        current: providerId === "codex_pool",
+        efforts: [],
+        defaultEffort: "high",
+    });
+    const props = happyAgentComposerModelControlProps(
+        {
+            modelOptions: [
+                {
+                    ...option("codex_pool"),
+                    providerName: "Pool",
+                    poolMembers: [
+                        { providerId: "codex", providerName: "Current CLI" },
+                        { providerId: "codex_second" },
+                    ],
+                },
+                { ...option("codex"), providerName: "Current CLI" },
+            ],
+            effortOptions: [],
+            permissionModeOptions: [],
+            serviceTierOptions: [],
+            currentProviderId: "codex_pool",
+            currentModelId: "sol",
+            currentAccount: "available",
+            currentEffort: "high",
+            currentPermissionMode: "auto",
+        },
+        { onModelChange: vi.fn(), onEffortChange: vi.fn() },
+    );
+    expect(props.services[0]!.accounts.map((account) => [account.id, account.members])).toEqual([
+        [
+            "codex_pool",
+            [
+                { id: "codex", label: "Current CLI" },
+                { id: "codex_second", label: "codex_second" },
+            ],
+        ],
+        ["codex", undefined],
+    ]);
+});
 
 it("nests a pool's accounts under it with their state, and never picks one from there", async () => {
     const onSelect = vi.fn();
@@ -164,14 +213,17 @@ it("nests a pool's accounts under it with their state, and never picks one from 
     }
     expect(members[0]!.getBoundingClientRect().height).toBe(28);
 
-    // The signed-out account says why in place of its gauge; the other shows what is left.
-    const error = members[0]!.querySelector<HTMLElement>(
-        '[data-happy-desktop-ui="composer-model-control-member-error"]',
-    )!;
-    expect(error.textContent).toBe("Codex isn't signed in");
-    expect(error.title).toBe("Codex isn't signed in");
-    expect(getComputedStyle(error).color).toBe("rgb(255, 69, 58)");
+    // The signed-out account says so in place of its gauge, under the pool and on
+    // its own row alike; the other shows what is left.
+    const signedOut = (row: Element) =>
+        row.querySelector<HTMLElement>(
+            '[data-happy-desktop-ui="composer-model-control-signed-out"]',
+        );
+    expect(signedOut(members[0]!)?.textContent).toBe("Signed out");
+    expect(getComputedStyle(signedOut(members[0]!)!).color).toBe("rgb(255, 69, 58)");
     expect(members[0]!.querySelector(".happy-composer-model-control__usage-gauge")).toBeNull();
+    expect(signedOut(choices[1]!)?.textContent).toBe("Signed out");
+    expect(choices[1]!.querySelector(".happy-composer-model-control__usage-gauge")).toBeNull();
     expect(members[1]!.textContent).toBe("Second54%");
 
     // Pointing at the pool's Current CLI shows its usage, highlighting that row alone.
@@ -179,7 +231,7 @@ it("nests a pool's accounts under it with their state, and never picks one from 
     expect(members[0]!.hasAttribute("data-shown")).toBe(true);
     expect(choices.some((choice) => choice.hasAttribute("data-shown"))).toBe(false);
     const details = panel.querySelector(".happy-composer-model-control__usage")!;
-    expect(details.textContent).toContain("couldn't refresh");
+    expect(details.textContent).toContain("Signed out");
     await userEvent.hover(members[1]!);
     expect(details.textContent).toContain("Updated 2 min ago");
 

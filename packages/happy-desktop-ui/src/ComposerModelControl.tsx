@@ -59,6 +59,8 @@ export type ComposerModelAccountUsage = {
      * it is usable again, such as "3:05 PM", when the service says.
      */
     limit?: { resets?: string };
+    /** The account's sign-in is missing or was refused, so nothing can be sent to it. */
+    signedOut?: boolean;
 };
 /** Every account's usage, and the moment its ages are told from. */
 export type ComposerModelUsage = {
@@ -437,11 +439,21 @@ function UsageGauge(props: {
  * An account's usage at the end of its row: what is left of its week, or of
  * the window it has when its service reports no week. An account without a
  * reading (an API key, one never read) shows nothing, so its name keeps the
- * whole row. The model picker's account list and the failure card's switch
- * list draw it alike.
+ * whole row. A signed-out account says so instead, since whatever it had
+ * left cannot be used. The model picker's account list and the failure card's
+ * switch list draw it alike.
  */
 export function ComposerModelAccountGauge(props: { usage: ComposerModelAccountUsage | undefined }) {
     const usage = props.usage;
+    if (usage?.signedOut)
+        return (
+            <span
+                className="happy-composer-model-control__signed-out"
+                data-happy-desktop-ui="composer-model-control-signed-out"
+            >
+                Signed out
+            </span>
+        );
     const window = usage?.week ?? usage?.session;
     if (usage === undefined || window === undefined) return null;
     return (
@@ -622,13 +634,26 @@ function UsageFreshness(props: { usage: ComposerModelAccountUsage; now: number }
           : usage.updatedAt === undefined
             ? undefined
             : `Updated ${usageAge(usage.updatedAt, now)}`;
-    if (updated === undefined && behind.length === 0 && usage.limit === undefined) return null;
+    if (
+        updated === undefined &&
+        behind.length === 0 &&
+        usage.limit === undefined &&
+        usage.signedOut !== true
+    )
+        return null;
     return (
         <div
             className="happy-composer-model-control__usage-freshness"
             data-happy-desktop-ui="composer-model-control-usage-freshness"
         >
-            {usage.limit ? (
+            {usage.signedOut ? (
+                <span
+                    className="happy-composer-model-control__usage-limit"
+                    data-happy-desktop-ui="composer-model-control-usage-signed-out"
+                >
+                    Signed out
+                </span>
+            ) : usage.limit ? (
                 <span
                     className="happy-composer-model-control__usage-limit"
                     data-happy-desktop-ui="composer-model-control-usage-limit"
@@ -1074,8 +1099,7 @@ export function ComposerModelControl(props: ComposerModelControlProps) {
     /**
      * A pool's account, under the pool on a branch from it, as a child sits in
      * the sidebar. It is not a choice: pointing at it shows its usage below the
-     * list, and a failed read, such as a lapsed sign-in, is said in place of
-     * its gauge.
+     * list, and one that is signed out says so in place of its gauge.
      */
     const renderMember = (pool: ComposerModelAccount, member: ComposerModelPoolMember) => {
         const usage = liveUsage?.accounts.get(member.id);
@@ -1097,17 +1121,7 @@ export function ComposerModelControl(props: ComposerModelControlProps) {
                 <span className="happy-composer-model-control__option-main">
                     <span className="happy-composer-model-control__name">{member.label}</span>
                 </span>
-                {usage?.refreshError === undefined ? (
-                    <ComposerModelAccountGauge usage={usage} />
-                ) : (
-                    <span
-                        className="happy-composer-model-control__member-error"
-                        data-happy-desktop-ui="composer-model-control-member-error"
-                        title={usage.refreshError}
-                    >
-                        {usage.refreshError}
-                    </span>
-                )}
+                <ComposerModelAccountGauge usage={usage} />
             </div>
         );
     };

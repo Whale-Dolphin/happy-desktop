@@ -108,6 +108,35 @@ describe("hidden and unavailable accounts in the pickers", () => {
     });
 });
 
+describe("pools in the pickers", () => {
+    it("names a pool's accounts in its failover order, hidden ones included", () => {
+        const catalog = catalogWith((base) => ({
+            pool: {
+                ...base,
+                type: "codex",
+                name: "Pool",
+                pool: { strategy: "round_robin", members: ["codex", "second"] },
+            },
+            codex: { ...base, type: "codex" },
+            second: { ...base, type: "codex", name: "Second", hidden: true },
+        }));
+        expect(catalog.providers.find((provider) => provider.id === "pool")?.poolMembers).toEqual([
+            "codex",
+            "second",
+        ]);
+        expect(catalog.providers.find((provider) => provider.id === "codex")?.poolMembers).toBe(
+            undefined,
+        );
+        const menus = happyAgentMenusDerive(catalog, selectionOn("pool"));
+        expect(menus.modelOptions.map((option) => option.providerId)).toEqual(["pool", "codex"]);
+        expect(menus.modelOptions[0]!.poolMembers).toEqual([
+            { providerId: "codex" },
+            { providerId: "second", providerName: "Second" },
+        ]);
+        expect(menus.modelOptions[1]!.poolMembers).toBeUndefined();
+    });
+});
+
 describe("Chief of Staff account requests", () => {
     it("labels an unavailable account with its id, model, and conversation", () => {
         const text = happyAgentChiefOfStaffRequestText({

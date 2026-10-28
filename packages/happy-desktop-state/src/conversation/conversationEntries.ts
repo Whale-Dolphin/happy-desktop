@@ -12,6 +12,7 @@ import {
     type ConversationError,
     type ConversationFailure,
     type ConversationFailureProvider,
+    type ConversationPoolMemberFailure,
     type ConversationFailureResolution,
     type ConversationFileDiff,
     type ConversationJson,
@@ -251,6 +252,25 @@ function payloadEqual(left: ConversationEntry, right: ConversationEntry): boolea
     return false;
 }
 
+function poolMembersEqual(
+    left: readonly ConversationPoolMemberFailure[] | undefined,
+    right: readonly ConversationPoolMemberFailure[] | undefined,
+): boolean {
+    if (left === undefined || right === undefined) return left === right;
+    return (
+        left.length === right.length &&
+        left.every((member, index) => {
+            const other = right[index]!;
+            return (
+                failureProviderEqual(member.provider, other.provider) &&
+                member.reason === other.reason &&
+                member.command === other.command &&
+                member.resetsAt === other.resetsAt
+            );
+        })
+    );
+}
+
 function failureProviderEqual(
     left: ConversationFailureProvider,
     right: ConversationFailureProvider,
@@ -309,7 +329,8 @@ function noticeFailureEqual(
             return (
                 right.kind === left.kind &&
                 left.poolName === right.poolName &&
-                left.resetsAt === right.resetsAt
+                left.resetsAt === right.resetsAt &&
+                poolMembersEqual(left.members, right.members)
             );
         case "rate_limited":
         case "provider_unavailable":

@@ -3,11 +3,13 @@ import {
     type AgentRetrying,
     type MessageFailure,
     type MessageFailureResolution,
+    type PoolMemberFailure,
 } from "@slopus/happy-agent-client";
 import type {
     ConversationFailure,
     ConversationFailureKind,
     ConversationFailureResolution,
+    ConversationPoolMemberFailure,
     ConversationRetrying,
 } from "../conversation/conversationEntry.js";
 import type { HappyAgentModel, HappyAgentModelProvider } from "./happyAgentTypes.js";
@@ -25,6 +27,21 @@ const KNOWN_KINDS: ReadonlySet<string> = new Set<Exclude<ConversationFailureKind
 ]);
 
 const isString = (value: unknown): value is string => typeof value === "string";
+
+const KNOWN_MEMBER_REASONS: ReadonlySet<string> = new Set<
+    Exclude<ConversationPoolMemberFailure["reason"], "other">
+>(["signin_missing", "usage_limit", "rate_limited", "provider_unavailable", "network"]);
+
+function poolMemberProject(member: PoolMemberFailure): ConversationPoolMemberFailure {
+    return {
+        provider: member.provider,
+        reason: KNOWN_MEMBER_REASONS.has(member.reason)
+            ? (member.reason as ConversationPoolMemberFailure["reason"])
+            : "other",
+        command: member.command,
+        resetsAt: member.resetsAt,
+    };
+}
 
 function modelNameOf(models: readonly HappyAgentModel[], modelId: string): string | undefined {
     return models.find((model) => model.id === modelId)?.name;
@@ -107,6 +124,9 @@ export function happyAgentFailureProject(
                 kind: failure.kind,
                 poolName: failure.poolName,
                 resetsAt: failure.resetsAt,
+                ...(failure.members === undefined
+                    ? {}
+                    : { members: failure.members.map(poolMemberProject) }),
             };
         case "rate_limited":
         case "provider_unavailable":

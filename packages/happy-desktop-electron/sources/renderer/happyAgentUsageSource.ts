@@ -283,6 +283,9 @@ function usageProject(
             ...(provider?.refreshError == null ? {} : { refreshError: provider.refreshError }),
             ...(provider?.retryAt == null ? {} : { retryAt: provider.retryAt }),
             ...(provider?.refreshing ? { refreshing: true } : {}),
+            ...(provider?.signIn === "signed_in" || provider?.signIn === "signed_out"
+                ? { signIn: provider.signIn }
+                : {}),
             ...(reading === undefined ? {} : { usage: reading }),
         };
     });

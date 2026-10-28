@@ -2,6 +2,7 @@ import type {
     ConversationErrorAssistance,
     ConversationFailure,
     ConversationFailureResolution,
+    ConversationPoolMemberFailure,
     ConversationRetrying,
 } from "happy-desktop-state";
 import { conversationErrorAssistanceText } from "./conversationErrorAssistanceText";
@@ -35,6 +36,34 @@ function until(resetsAt: number | null, clock: ConversationFailureClock): string
     return resetsAt === null ? "" : ` until ${localMoment(resetsAt, clock.now, clock.zone)}`;
 }
 
+/** One sentence for an account a pool set aside, after the sentence before it. */
+function poolMemberMessage(
+    member: ConversationPoolMemberFailure,
+    clock: ConversationFailureClock,
+): readonly ConversationFailureSegment[] {
+    const name = member.provider.label;
+    switch (member.reason) {
+        case "signin_missing":
+            return member.command === null
+                ? [text(` ${name} isn't signed in.`)]
+                : [
+                      text(` ${name} isn't signed in: run `),
+                      { kind: "code", text: member.command },
+                      text("."),
+                  ];
+        case "usage_limit":
+            return [text(` ${name} is out of usage${until(member.resetsAt, clock)}.`)];
+        case "rate_limited":
+            return [text(` ${name} is rate-limited.`)];
+        case "provider_unavailable":
+            return [text(` ${name} is overloaded.`)];
+        case "network":
+            return [text(` ${name} couldn't be reached.`)];
+        case "other":
+            return [text(` ${name} couldn't be used.`)];
+    }
+}
+
 /** The card's message line, without its action. */
 export function conversationFailureMessage(
     failure: ConversationFailure,
@@ -60,11 +89,18 @@ export function conversationFailureMessage(
                 ),
             ];
         case "no_account_available":
-            return [
-                text(
-                    `Every account in “${failure.poolName}” is out of usage${until(failure.resetsAt, clock)}.`,
-                ),
-            ];
+            // A daemon that names the accounts it set aside says why for each,
+            // so a signed-out one is not mistaken for a spent one.
+            return failure.members === undefined || failure.members.length === 0
+                ? [
+                      text(
+                          `Every account in “${failure.poolName}” is out of usage${until(failure.resetsAt, clock)}.`,
+                      ),
+                  ]
+                : [
+                      text(`No account in “${failure.poolName}” can take this turn.`),
+                      ...failure.members.flatMap((member) => poolMemberMessage(member, clock)),
+                  ];
         case "rate_limited":
             return [text(`${failure.provider.vendorName} is rate-limited. Try again in a minute.`)];
         case "provider_unavailable":

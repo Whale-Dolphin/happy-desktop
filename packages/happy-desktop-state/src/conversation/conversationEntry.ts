@@ -679,6 +679,25 @@ export interface ConversationFailureProvider {
 }
 
 /**
+ * One account a pool set aside before it ran out of accounts. A reason this
+ * client does not know is `other`.
+ */
+export interface ConversationPoolMemberFailure {
+    readonly provider: ConversationFailureProvider;
+    readonly reason:
+        | "signin_missing"
+        | "usage_limit"
+        | "rate_limited"
+        | "provider_unavailable"
+        | "network"
+        | "other";
+    /** The native login command for a missing sign-in, such as `codex login`; else null. */
+    readonly command: string | null;
+    /** When a spent account's limit resets, in Unix milliseconds; else null. */
+    readonly resetsAt: number | null;
+}
+
+/**
  * What was done about a failure, recorded on it so its history reads the same
  * on every client and after a reload. An action this client does not know is
  * `handled`.
@@ -730,6 +749,11 @@ export type ConversationFailure = ConversationFailureBase &
               readonly poolName: string;
               /** Unix milliseconds. */
               readonly resetsAt: number | null;
+              /**
+               * The pool's accounts it tried and set aside, in its failover
+               * order, each with why. Absent from a daemon too old to say.
+               */
+              readonly members?: readonly ConversationPoolMemberFailure[];
           }
         | {
               readonly kind:

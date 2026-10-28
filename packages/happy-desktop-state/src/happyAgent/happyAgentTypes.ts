@@ -293,6 +293,11 @@ export interface HappyAgentModelProvider {
      * offered as a choice. An older daemon does not report it: false.
      */
     readonly hidden: boolean;
+    /**
+     * The accounts a pool routes through, by id, in its failover order; absent
+     * for an account that is not a pool, and from a daemon too old to say.
+     */
+    readonly poolMembers?: readonly string[];
     readonly disabledReason?: "not_authenticated" | "not_enabled" | "no_models";
 }
 
@@ -842,6 +847,15 @@ export interface HappyAgentModelOption {
     readonly defaultEffort: HappyAgentThinkingLevel;
     /** The effort last chosen for this model on this provider, when one is remembered. */
     readonly rememberedEffort?: HappyAgentThinkingLevel;
+    /** The accounts this provider routes through when it is a pool, in failover order. */
+    readonly poolMembers?: readonly HappyAgentPoolMember[];
+}
+
+/** One account a pool routes through, named as the catalog names it. Hidden ones included. */
+export interface HappyAgentPoolMember {
+    readonly providerId: string;
+    /** The configured friendly account name, when supplied by the catalog. */
+    readonly providerName?: string;
 }
 
 /** Looks up the effort last chosen for one model on one provider. */

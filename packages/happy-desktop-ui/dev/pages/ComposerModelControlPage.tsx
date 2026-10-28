@@ -242,7 +242,7 @@ const poolSignedOut = heldUsage(
             {
                 ...USAGE.get("codex")!,
                 updatedAt: NOW - 52 * MINUTE,
-                refreshError: "Codex isn't signed in",
+                signedOut: true,
             },
         ],
         [
@@ -1037,7 +1037,7 @@ export function ComposerModelControlPage() {
             <Specimen
                 number="35"
                 label="Pool and its accounts"
-                detail="Pool takes turns between two Codex accounts, which hang under it like children in the sidebar. They are not choices: the hidden one is reachable only through Pool, and Current CLI is also its own row. Current CLI has signed out, so the reason stands in place of its gauge, and the second account carries the pool."
+                detail="Pool takes turns between two Codex accounts, which hang under it like children in the sidebar. They are not choices: the hidden one is reachable only through Pool, and Current CLI is also its own row. Current CLI has signed out, so both of its rows say Signed out in place of a gauge, and the second account carries the pool."
                 stage="surface"
             >
                 <Open

@@ -101,6 +101,31 @@ const signin = (): ConversationFailure => ({
     command: "claude auth login",
     message: "daemon text",
 });
+/* A pool that set aside a signed-out account, a spent one, and one for a reason this client does not know. */
+const poolMembers = (): ConversationFailure => {
+    const codex = { id: "codex", type: "codex", vendorName: "Codex", label: "Current CLI" };
+    return {
+        kind: "no_account_available",
+        poolName: "Pool",
+        resetsAt: Date.parse("2026-10-19T22:40:00Z"),
+        message: "daemon text",
+        members: [
+            { provider: codex, reason: "signin_missing", command: "codex login", resetsAt: null },
+            {
+                provider: { ...codex, id: "second", label: "Second" },
+                reason: "usage_limit",
+                command: null,
+                resetsAt: Date.parse("2026-10-19T22:40:00Z"),
+            },
+            {
+                provider: { ...codex, id: "third", label: "Third" },
+                reason: "other",
+                command: null,
+                resetsAt: null,
+            },
+        ],
+    };
+};
 const notice = (failure: ConversationFailure): ConversationServiceNoticeEntry => ({
     kind: "notice",
     variant: "notice",
@@ -163,6 +188,34 @@ it.each(["light", "dark"] as const)(
     },
 );
 
+it("says why each account of a spent pool was set aside, at the height the row model gives", async () => {
+    const view = createRenderer();
+    const failure = poolMembers();
+    view.render(
+        () => (
+            <div className="happy-theme-dark" style={{ padding: 24, background: "var(--surface)" }}>
+                <Row
+                    failure={failure}
+                    onRetry={() => undefined}
+                    onSwitch={() => undefined}
+                    targets={TARGETS}
+                />
+            </div>
+        ),
+        { width: 880, height: 240 },
+    );
+    await view.ready();
+    const card = view.container.querySelector<HTMLElement>(".happy-conversation-failure-card")!;
+    const codes = Array.from(
+        card.querySelectorAll('[data-happy-desktop-ui="conversation-failure-code"] code'),
+    );
+    expect(codes.map((code) => code.textContent)).toEqual(["codex login"]);
+    expect(card.textContent).toContain("Second is out of usage until 3:40 PM.");
+    expect(card.getBoundingClientRect().height).toBe(
+        modeled(failure, 832, { retry: true, newChat: false, switch: true }),
+    );
+});
+
 it("writes every kind's text itself, and the daemon's only for an unknown kind", () => {
     const text = (failure: ConversationFailure) =>
         conversationFailureMessage(failure, CLOCK)
@@ -217,6 +270,10 @@ it("writes every kind's text itself, and the daemon's only for an unknown kind",
             resetsAt: Date.parse("2026-10-19T22:40:00Z"),
         }),
     ).toBe("Every account in “Claude pool” is out of usage until 3:40 PM.");
+    expect(text(poolMembers())).toBe(
+        "No account in “Pool” can take this turn. Current CLI isn't signed in: run `codex login`." +
+            " Second is out of usage until 3:40 PM. Third couldn't be used.",
+    );
     expect(text({ ...base, kind: "rate_limited", provider: CLAUDE })).toBe(
         "Claude is rate-limited. Try again in a minute.",
     );

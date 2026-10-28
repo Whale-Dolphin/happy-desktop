@@ -16,6 +16,7 @@ import type {
     HappyAgentModelOption,
     HappyAgentPermissionMode,
     HappyAgentPermissionModeOption,
+    HappyAgentPoolMember,
     HappyAgentSelection,
     HappyAgentServiceTierOption,
     HappyAgentThinkingLevel,
@@ -43,12 +44,22 @@ export function happyAgentMenusDerive(
     const selectedProvider = catalog.providers.find(
         (provider) => provider.id === selection.providerId,
     );
+    // A pool names its accounts by id; each is named as the catalog names it,
+    // hidden ones included, since a pool is the only place those are listed.
+    const poolMembersOf = (
+        provider: Pick<HappyAgentModelProvider, "poolMembers">,
+    ): readonly HappyAgentPoolMember[] | undefined =>
+        provider.poolMembers?.map((memberId) => {
+            const name = catalog.providers.find((candidate) => candidate.id === memberId)?.name;
+            return { providerId: memberId, ...(name === undefined ? {} : { providerName: name }) };
+        });
     const optionOf = (
-        provider: Pick<HappyAgentModelProvider, "id" | "name" | "type">,
+        provider: Pick<HappyAgentModelProvider, "id" | "name" | "type" | "poolMembers">,
         model: HappyAgentModel,
         disabled: boolean,
     ): HappyAgentModelOption => {
         const rememberedEffort = remembered?.(provider.id, model.id);
+        const poolMembers = poolMembersOf(provider);
         return {
             providerId: provider.id,
             ...(provider.name === undefined ? {} : { providerName: provider.name }),
@@ -65,6 +76,7 @@ export function happyAgentMenusDerive(
             ...(rememberedEffort !== undefined && model.thinkingLevels.includes(rememberedEffort)
                 ? { rememberedEffort }
                 : {}),
+            ...(poolMembers === undefined ? {} : { poolMembers }),
         };
     };
     let currentOption: HappyAgentModelOption | undefined;

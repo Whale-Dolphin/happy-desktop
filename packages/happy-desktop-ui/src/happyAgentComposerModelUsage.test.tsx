@@ -98,6 +98,23 @@ it("reports a refresh in progress and a failed one beside the kept reading", () 
     expect(projected.has("grok_api")).toBe(false);
 });
 
+it("marks a signed-out account, even one with no reading, and never a pool or a signed-in one", () => {
+    const projected = happyAgentComposerModelUsageProject(
+        snapshot([
+            { ...CLAUDE, signIn: "signed_out" },
+            { providerId: "codex", signIn: "signed_out" },
+            { providerId: "grok", signIn: "signed_in" },
+            { providerId: "codex_pool" },
+        ]),
+        NOW,
+    );
+    // The kept reading stays beside the mark; the gauge gives way to it.
+    expect(projected.get("claude")).toMatchObject({ signedOut: true, week: { usedPercent: 64 } });
+    expect(projected.get("codex")).toEqual({ signedOut: true });
+    expect(projected.has("grok")).toBe(false);
+    expect(projected.has("codex_pool")).toBe(false);
+});
+
 it("says when a spent account's limit lifts, and drops it once the account is usable", () => {
     const spent: HappyAgentProviderUsageEntry = {
         ...CLAUDE,

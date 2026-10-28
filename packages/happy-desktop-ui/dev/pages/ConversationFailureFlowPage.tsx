@@ -196,6 +196,27 @@ const noAccount = failed({
     resetsAt: RESETS,
     message: "Every account in “Claude pool” is out of usage.",
 });
+/* A daemon that names the accounts it set aside: one spent, one signed out. */
+const noAccountMembers = failed({
+    kind: "no_account_available",
+    poolName: "Claude pool",
+    resetsAt: RESETS,
+    message: "Every account in “Claude pool” is out of usage.",
+    members: [
+        {
+            provider: { ...CLAUDE, id: "claude_extra", label: "work@example.com" },
+            reason: "usage_limit",
+            command: null,
+            resetsAt: RESETS,
+        },
+        {
+            provider: { ...CLAUDE, label: "Current CLI" },
+            reason: "signin_missing",
+            command: "claude auth login",
+            resetsAt: null,
+        },
+    ],
+});
 
 type Screen = {
     readonly id: string;
@@ -282,6 +303,12 @@ const screens: readonly Screen[] = [
         id: "no-account-available",
         label: "No account available · every Claude account spent, Codex preset",
         entries: [...before, noAccount],
+        source: SOURCE_CLAUDE_SPENT,
+    },
+    {
+        id: "no-account-available-members",
+        label: "No account available · each account set aside, and why",
+        entries: [...before, noAccountMembers],
         source: SOURCE_CLAUDE_SPENT,
     },
     {

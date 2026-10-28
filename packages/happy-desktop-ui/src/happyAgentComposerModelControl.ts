@@ -74,7 +74,8 @@ function accountNoticeOf(
  * provider; any other service opens on its first account. A hidden account is
  * not listed, but a selection on it stays, named beside a grey notice; one
  * that is switched off or gone gets a red notice that can ask the Chief of
- * Staff for help.
+ * Staff for help. A pool lists the accounts it routes through under it, hidden
+ * ones included.
  */
 export function happyAgentComposerModelControlProps(
     menus: HappyAgentMenusSnapshot,
@@ -107,6 +108,14 @@ export function happyAgentComposerModelControlProps(
                 id: option.providerId,
                 label: option.providerName ?? option.providerId,
                 models: [],
+                ...(option.poolMembers === undefined
+                    ? {}
+                    : {
+                          members: option.poolMembers.map((member) => ({
+                              id: member.providerId,
+                              label: member.providerName ?? member.providerId,
+                          })),
+                      }),
             };
             service.accounts.push(account);
         }
@@ -222,7 +231,8 @@ export function happyAgentComposerModelUsageProject(
         const updatedAt = entry.refreshedAt ?? (hasPlan ? reading.capturedAt : undefined);
         // Before protocol 29 the daemon's own failed read is the only failure there is.
         const refreshError = entry.refreshError ?? entry.error;
-        if (!hasPlan && !entry.refreshing && refreshError === undefined) continue;
+        const signedOut = entry.signIn === "signed_out";
+        if (!hasPlan && !entry.refreshing && refreshError === undefined && !signedOut) continue;
         const blocking = hasPlan ? blockingWindows(reading) : [];
         const week = hasPlan ? usageWindow("Week", reading.weekly, blocking, now) : undefined;
         const session = hasPlan
@@ -235,6 +245,7 @@ export function happyAgentComposerModelUsageProject(
             ...(updatedAt === undefined ? {} : { updatedAt }),
             ...(entry.refreshing ? { refreshing: true } : {}),
             ...(refreshError === undefined ? {} : { refreshError }),
+            ...(signedOut ? { signedOut: true } : {}),
             ...(hasPlan && reading.exhausted === true
                 ? {
                       limit:

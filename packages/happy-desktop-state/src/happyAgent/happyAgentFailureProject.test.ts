@@ -159,6 +159,45 @@ describe("happyAgentFailureProject", () => {
         });
     });
 
+    it("carries the accounts a pool set aside, in order, reading a new reason as other", () => {
+        const codex = { id: "codex", type: "codex", vendorName: "Codex", label: "Current CLI" };
+        const second = { ...codex, id: "second", label: "Second" };
+        const failure: MessageFailure = {
+            kind: "no_account_available",
+            poolName: "Pool",
+            resetsAt: 1_792_449_600_000,
+            message: "Every account in “Pool” is out of usage.",
+            fallbackProviders: [],
+            members: [
+                {
+                    provider: codex,
+                    reason: "signin_missing",
+                    command: "codex login",
+                    resetsAt: null,
+                },
+                { provider: second, reason: "usage_limit", command: null, resetsAt: 7 },
+                { provider: second, reason: "a_future_reason", command: null, resetsAt: null },
+            ],
+        };
+        expect(happyAgentFailureProject(failure, CATALOG)).toMatchObject({
+            kind: "no_account_available",
+            poolName: "Pool",
+            members: [
+                {
+                    provider: codex,
+                    reason: "signin_missing",
+                    command: "codex login",
+                    resetsAt: null,
+                },
+                { provider: second, reason: "usage_limit", command: null, resetsAt: 7 },
+                { provider: second, reason: "other", command: null, resetsAt: null },
+            ],
+        });
+        // An older daemon names no accounts; the card keeps its pool-wide sentence.
+        const { members: _members, ...older } = failure;
+        expect(happyAgentFailureProject(older, CATALOG)).not.toHaveProperty("members");
+    });
+
     it("reads an unnamed switch as handled", () => {
         const projected = happyAgentFailureProject(
             { ...usageLimit, resolution: { action: "switched", at: 3 } as never },
