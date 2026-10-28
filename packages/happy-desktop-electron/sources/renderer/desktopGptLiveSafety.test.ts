@@ -1185,8 +1185,9 @@ it("keeps edited voice drafts local across navigation and blocks a later questio
         expect(f.voice.draftRead()?.voiceDraft).toBeUndefined();
         f.workspace.composerTextUpdate("Approve");
         f.workspace.composerTextSubmit();
+        // A composer reply is a real message; the question is released once it is accepted.
         await vi.waitFor(() => expect(f.daemon.callCount("answerQuestion")).toBe(1));
-        expect(f.daemon.callCount("sendMessage")).toBe(0);
+        expect(f.daemon.callCount("sendMessage")).toBe(1);
     } finally {
         f.voice[Symbol.dispose]();
     }
