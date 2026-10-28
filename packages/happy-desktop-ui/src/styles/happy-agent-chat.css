@@ -203,6 +203,12 @@
     background: transparent;
 }
 
+/* Settled, the card is the one that was submitted, frozen in place: what was
+   chosen reads at full strength and the options passed over recede. */
+.happy-agent-input[data-state="answered"] .happy-agent-input__option[data-selected] {
+    opacity: 1;
+}
+
 .happy-agent-input__option-body {
     display: flex;
     flex: 1 1 auto;

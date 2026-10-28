@@ -101,17 +101,22 @@ it("gates submit on required questions and reports single/multi select answers",
     );
     await view.ready();
 
+    // Settled, it is the same card frozen: every option where it was, the
+    // answer ticked, nothing editable, and Submit kept in place.
     const answered = view.$('[data-testid="answered-input"]');
     expect(answered.element.getAttribute("data-state")).toBe("answered");
-    expect(answered.element.querySelector('[data-action="submit"]')).toBeNull();
-    expect(answered.element.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    const boxes = [
+        ...answered.element.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    ];
+    expect(boxes).toHaveLength(4);
+    expect(boxes.map((box) => box.checked)).toEqual([true, false, false, false]);
+    expect(boxes.every((box) => box.disabled)).toBe(true);
+    const settled = answered.element.querySelector<HTMLButtonElement>('[data-action="submit"]')!;
+    expect(settled.disabled).toBe(true);
+    expect(settled.textContent).toBe("Submitted");
     expect(
-        answered.element.querySelector('[data-happy-desktop-ui="happy-agent-user-input-answers"]')
-            ?.textContent,
-    ).toContain("One transaction");
-    expect(answered.element.querySelector('[data-question-id="notify"]')?.textContent).toContain(
-        "Skipped",
-    );
+        answered.element.querySelector('[data-happy-desktop-ui="happy-agent-user-input-answers"]'),
+    ).toBeNull();
     await view.screenshot("HappyAgentUserInputPrompt.answered.test");
 }, 120_000);
 

@@ -17,7 +17,10 @@ export type { HappyAgentUserInputPromptVariant };
 
 export type HappyAgentUserInputPromptProps = {
     request: HappyAgentUserInputRequest;
-    /** Authoritative settled answers turn the prompt into compact transcript history. */
+    /**
+     * Authoritative settled answers freeze the prompt in place: the same
+     * questions, options, and footer, read-only, with the answers ticked.
+     */
     resolvedAnswers?: Readonly<Record<string, readonly string[]>>;
     /** Absent when this surface can display choices but cannot submit them. */
     onAnswer?: (requestId: string, answers: HappyAgentUserInputAnswerMap) => void;
@@ -54,7 +57,10 @@ function toggleValue(current: readonly string[], value: string, multiSelect: boo
 
 /**
  * HappyAgentUserInputPrompt — renders a `HappyAgentUserInputRequest` as one or more option
- * pickers, or as compact read-only history when `resolvedAnswers` is present.
+ * pickers. With `resolvedAnswers` it is the same card frozen: every option
+ * stays where it was with the answers ticked, nothing can be changed, and its
+ * height is the height it had when it was submitted. Only an answer no option
+ * names, a reply given through the message box, is added under its question.
  * Single-select questions clear other options; multi-select questions
  * accumulate. Submit calls `onAnswer(requestId, { [questionId]: string[] })`
  * with the chosen option labels, and is blocked until every `required` question
@@ -95,6 +101,8 @@ export function HappyAgentUserInputPrompt(props: HappyAgentUserInputPromptProps)
         props.onSelectionChange?.(request.requestId, next);
     };
 
+    /* Settled or in flight, the options stay where they are and cannot change. */
+    const frozen = resolved || props.pending === true;
     const complete = request.questions.every(
         (question) => !question.required || (answers[question.id]?.length ?? 0) > 0,
     );
@@ -119,6 +127,13 @@ export function HappyAgentUserInputPrompt(props: HappyAgentUserInputPromptProps)
             <div className="happy-agent-input__questions">
                 {request.questions.map((question) => {
                     const selected = answers[question.id] ?? [];
+                    /* A settled answer no option names was given through the
+                       message box; an unanswered free-form question says so. */
+                    const unoffered = selected.filter(
+                        (answer) => !question.options.some((option) => option.label === answer),
+                    );
+                    if (question.options.length === 0 && unoffered.length === 0)
+                        unoffered.push(question.required ? "No answer" : "Skipped");
                     return (
                         <fieldset
                             className="happy-agent-input__question"
@@ -138,101 +153,73 @@ export function HappyAgentUserInputPrompt(props: HappyAgentUserInputPromptProps)
                                         className="happy-agent-input__rule"
                                         data-happy-desktop-ui="happy-agent-user-input-rule"
                                     >
-                                        {userInputRuleText(
-                                            question,
-                                            props.variant ?? "card",
-                                            resolved ? selected : undefined,
-                                        )}
+                                        {userInputRuleText(question, props.variant ?? "card")}
                                     </span>
                                 </span>
                                 <span className="happy-agent-input__prompt">
                                     {question.question}
                                 </span>
                             </legend>
-                            {resolved ? (
+                            <div className="happy-agent-input__options">
+                                {question.options.map((option, optionIndex) => {
+                                    const descriptionId = `${request.requestId}-${question.id}-${optionIndex}-description`;
+                                    return (
+                                        <label
+                                            className="happy-agent-input__option"
+                                            data-disabled={frozen ? "" : undefined}
+                                            data-happy-desktop-ui="happy-agent-user-input-option"
+                                            data-selected={
+                                                selected.includes(option.label) ? "" : undefined
+                                            }
+                                            key={option.label}
+                                            title={option.description || undefined}
+                                        >
+                                            <Checkbox
+                                                aria-describedby={
+                                                    option.description ? descriptionId : undefined
+                                                }
+                                                aria-label={option.label}
+                                                checked={selected.includes(option.label)}
+                                                disabled={frozen}
+                                                onChange={() =>
+                                                    select(
+                                                        question.id,
+                                                        option.label,
+                                                        question.multiSelect,
+                                                    )
+                                                }
+                                            />
+                                            <span className="happy-agent-input__option-body">
+                                                <span className="happy-agent-input__option-label">
+                                                    {option.label}
+                                                </span>
+                                                {option.description ? (
+                                                    <span
+                                                        className="happy-agent-input__option-description"
+                                                        id={descriptionId}
+                                                    >
+                                                        {option.description}
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            {resolved && unoffered.length > 0 ? (
                                 <div
                                     className="happy-agent-input__answers"
                                     data-happy-desktop-ui="happy-agent-user-input-answers"
                                 >
-                                    {(answers[question.id] ?? []).length > 0 ? (
-                                        (answers[question.id] ?? []).map((answer) => {
-                                            const option = question.options.find(
-                                                (candidate) => candidate.label === answer,
-                                            );
-                                            return (
-                                                <div
-                                                    className="happy-agent-input__answer"
-                                                    key={answer}
-                                                >
-                                                    <span className="happy-agent-input__answer-label">
-                                                        {answer}
-                                                    </span>
-                                                    {option?.description ? (
-                                                        <span className="happy-agent-input__answer-description">
-                                                            {option.description}
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <div className="happy-agent-input__answer">
+                                    {unoffered.map((answer) => (
+                                        <div className="happy-agent-input__answer" key={answer}>
                                             <span className="happy-agent-input__answer-label">
-                                                {question.required ? "No answer" : "Skipped"}
+                                                {answer}
                                             </span>
                                         </div>
-                                    )}
+                                    ))}
                                 </div>
-                            ) : (
-                                <div className="happy-agent-input__options">
-                                    {question.options.map((option, optionIndex) => {
-                                        const descriptionId = `${request.requestId}-${question.id}-${optionIndex}-description`;
-                                        return (
-                                            <label
-                                                className="happy-agent-input__option"
-                                                data-disabled={props.pending ? "" : undefined}
-                                                data-happy-desktop-ui="happy-agent-user-input-option"
-                                                data-selected={
-                                                    selected.includes(option.label) ? "" : undefined
-                                                }
-                                                key={option.label}
-                                                title={option.description || undefined}
-                                            >
-                                                <Checkbox
-                                                    aria-describedby={
-                                                        option.description
-                                                            ? descriptionId
-                                                            : undefined
-                                                    }
-                                                    aria-label={option.label}
-                                                    checked={selected.includes(option.label)}
-                                                    disabled={props.pending}
-                                                    onChange={() =>
-                                                        select(
-                                                            question.id,
-                                                            option.label,
-                                                            question.multiSelect,
-                                                        )
-                                                    }
-                                                />
-                                                <span className="happy-agent-input__option-body">
-                                                    <span className="happy-agent-input__option-label">
-                                                        {option.label}
-                                                    </span>
-                                                    {option.description ? (
-                                                        <span
-                                                            className="happy-agent-input__option-description"
-                                                            id={descriptionId}
-                                                        >
-                                                            {option.description}
-                                                        </span>
-                                                    ) : null}
-                                                </span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                            ) : null}
                         </fieldset>
                     );
                 })}
@@ -266,14 +253,14 @@ export function HappyAgentUserInputPrompt(props: HappyAgentUserInputPromptProps)
             ) : null}
             {/* Free-form replies are normal chat messages from the composer.
                 A Submit on a question with no options could only send nothing. */}
-            {resolved ||
-            request.questions.some((question) => question.options.length === 0) ? null : (
+            {request.questions.some((question) => question.options.length === 0) ? null : (
                 <div className="happy-agent-input__footer">
                     <Button
                         aria-busy={props.pending || undefined}
                         className="happy-agent-input__submit"
                         data-action="submit"
                         disabled={
+                            resolved ||
                             !complete ||
                             props.pending ||
                             props.submitDisabled ||
@@ -282,12 +269,18 @@ export function HappyAgentUserInputPrompt(props: HappyAgentUserInputPromptProps)
                         onClick={() => props.onAnswer?.(request.requestId, answers)}
                         size="small"
                         title={
-                            props.submitDisabledReason ??
-                            (props.onAnswer === undefined ? "Answers are unavailable" : undefined)
+                            resolved
+                                ? undefined
+                                : (props.submitDisabledReason ??
+                                  (props.onAnswer === undefined
+                                      ? "Answers are unavailable"
+                                      : undefined))
                         }
                         variant="secondary"
                     >
-                        {props.pending ? (
+                        {resolved ? (
+                            "Submitted"
+                        ) : props.pending ? (
                             <ShimmerText tone="inherit">Submit</ShimmerText>
                         ) : (
                             "Submit"

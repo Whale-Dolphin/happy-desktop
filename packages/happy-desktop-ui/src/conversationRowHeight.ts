@@ -912,7 +912,10 @@ function userInputEyebrowWrap(
     );
 }
 
-/** Height of the structured question form or its compact answered history. */
+/**
+ * Height of the structured question form. Answered, it is the same form
+ * frozen, plus any answer no option names under its question.
+ */
 function userInputRequestHeight(
     request: Extract<ConversationRequest, { kind: "userInput" }>,
     width: number,
@@ -938,30 +941,11 @@ function userInputRequestHeight(
             USER_INPUT_QUESTION_LEGEND_CHROME +
             userInputEyebrowWrap(
                 question.header,
-                userInputRuleText(
-                    question,
-                    "card",
-                    request.status === "answered"
-                        ? (request.answers[question.id] ?? [])
-                        : undefined,
-                ),
+                userInputRuleText(question, "card"),
                 promptMeasure,
                 cache,
             ) +
             uiTextHeight(question.question, 16, 24, promptMeasure, cache);
-        if (request.status === "answered") {
-            total += USER_INPUT_CONTENT_INSET;
-            const answers = request.answers[question.id] ?? [];
-            const shown = answers.length > 0 ? answers : [""];
-            for (const [answerIndex, answer] of shown.entries()) {
-                if (answerIndex > 0) total += USER_INPUT_ANSWER_GAP;
-                const option = question.options.find((candidate) => candidate.label === answer);
-                total += uiTextHeight(answer || "No answer", 16, 24, answerMeasure, cache);
-                if (option?.description)
-                    total += 2 + uiTextHeight(option.description, 14, 20, answerMeasure, cache);
-            }
-            continue;
-        }
         if (question.options.length > 0) total += USER_INPUT_CONTENT_INSET;
         for (const [optionIndex, option] of question.options.entries()) {
             if (optionIndex > 0) total += USER_INPUT_OPTION_GAP;
@@ -972,10 +956,20 @@ function userInputRequestHeight(
                     : 0);
             total += Math.max(32, USER_INPUT_OPTION_VERTICAL_PADDING + contentHeight);
         }
+        if (request.status !== "answered") continue;
+        const unoffered = (request.answers[question.id] ?? []).filter(
+            (answer) => !question.options.some((option) => option.label === answer),
+        );
+        if (question.options.length === 0 && unoffered.length === 0)
+            unoffered.push(question.required ? "No answer" : "Skipped");
+        if (unoffered.length === 0) continue;
+        total += USER_INPUT_CONTENT_INSET;
+        for (const [answerIndex, answer] of unoffered.entries()) {
+            if (answerIndex > 0) total += USER_INPUT_ANSWER_GAP;
+            total += uiTextHeight(answer, 16, 24, answerMeasure, cache);
+        }
     }
-    const submitVisible =
-        request.status === "pending" &&
-        request.questions.every((question) => question.options.length > 0);
+    const submitVisible = request.questions.every((question) => question.options.length > 0);
     return 2 * CHAT_FRAME_TEXT_INSET + total + (submitVisible ? USER_INPUT_FOOTER_HEIGHT : 0);
 }
 
