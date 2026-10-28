@@ -5,14 +5,16 @@ import type { HappyAgentArtifact, HappyAgentArtifactAuthor } from "./artifactTyp
 const BATCH_LIMIT = 100;
 
 /**
- * The names of the people artifacts credit, by user id. One per connection,
- * shared by every artifact surface, so a person named by both the catalog and
- * an open viewer is read once. A standalone installation credits no user ids
- * at all, and this stays empty there.
+ * The names of the people artifacts credit and transcripts mention, by user
+ * id. One per connection, shared by every surface, so a person named by both
+ * the catalog and a conversation is read once. A standalone installation names
+ * no user ids at all, and this stays empty there.
  */
 export interface HappyAgentArtifactPeopleStore {
     get(): ReadonlyMap<string, string>;
     subscribe(listener: () => void): () => void;
+    /** Reads one person's name if it is not known yet, such as one a message mentions. */
+    userNameRequest(userId: string): void;
 }
 
 export interface HappyAgentArtifactPeople {
@@ -41,6 +43,31 @@ export function happyAgentArtifactPeopleCreate(
     /** Ids asked for, answered or not, so a name nobody can read is asked for once. */
     const asked = new Set<string>();
     let names: ReadonlyMap<string, string> = new Map();
+    const namesRead = (userIds: readonly string[]): void => {
+        if (controller.signal.aborted) return;
+        const ids: string[] = [];
+        for (const userId of userIds) {
+            if (asked.has(userId)) continue;
+            asked.add(userId);
+            ids.push(userId);
+        }
+        for (let start = 0; start < ids.length; start += BATCH_LIMIT) {
+            const batch = ids.slice(start, start + BATCH_LIMIT);
+            void client.getUsers(batch, { signal: controller.signal }).then(
+                (response) => {
+                    if (controller.signal.aborted || response.users.length === 0) return;
+                    const next = new Map(names);
+                    for (const user of response.users) next.set(user.id, user.name);
+                    names = next;
+                    for (const listener of listeners) listener();
+                },
+                () => {
+                    // A name that cannot be read leaves the author credited as
+                    // "a person"; asking again on every list would not help.
+                },
+            );
+        }
+    };
     return {
         store: {
             get: () => names,
@@ -48,32 +75,17 @@ export function happyAgentArtifactPeopleCreate(
                 listeners.add(listener);
                 return () => listeners.delete(listener);
             },
+            userNameRequest(userId) {
+                // Asked while a transcript renders; the read starts after it.
+                queueMicrotask(() => namesRead([userId]));
+            },
         },
         request(authors) {
-            if (controller.signal.aborted) return;
-            const ids: string[] = [];
-            for (const author of authors) {
-                if (author?.kind !== "user" || author.userId === null) continue;
-                if (asked.has(author.userId)) continue;
-                asked.add(author.userId);
-                ids.push(author.userId);
-            }
-            for (let start = 0; start < ids.length; start += BATCH_LIMIT) {
-                const batch = ids.slice(start, start + BATCH_LIMIT);
-                void client.getUsers(batch, { signal: controller.signal }).then(
-                    (response) => {
-                        if (controller.signal.aborted || response.users.length === 0) return;
-                        const next = new Map(names);
-                        for (const user of response.users) next.set(user.id, user.name);
-                        names = next;
-                        for (const listener of listeners) listener();
-                    },
-                    () => {
-                        // A name that cannot be read leaves the author credited as
-                        // "a person"; asking again on every list would not help.
-                    },
-                );
-            }
+            namesRead(
+                authors.flatMap((author) =>
+                    author?.kind === "user" && author.userId !== null ? [author.userId] : [],
+                ),
+            );
         },
         [Symbol.dispose]() {
             controller.abort();

@@ -3,6 +3,7 @@ import {
     happyReferencePlaceholder,
     type ConversationSummary,
     type HappyAgentArtifactId,
+    type HappyAgentArtifactPeopleStore,
     type HappyAgentArtifactTitlesSnapshot,
     type HappyAgentArtifactTitlesStore,
     type HappyAgentGroupId,
@@ -226,9 +227,18 @@ export function messageReferencesCreate(input: {
     readonly onGroupOpen?: (groupId: HappyAgentGroupId, agentId?: string) => void;
     /** The Surfaces a reference can name; absent, every one stays inert. */
     readonly surfaces?: MessageReferenceSurfaces;
+    /** The names of the people a message can mention, and how to read one not known yet. */
+    readonly people?: HappyAgentArtifactPeopleStore;
 }): MessageReferences {
+    const peopleNames = input.people?.get();
     return {
         view(reference) {
+            if (reference.kind === "user") {
+                // A person is named, not opened.
+                const name = peopleNames?.get(reference.id);
+                if (name === undefined) input.people?.userNameRequest(reference.id);
+                return { type: "text", label: name === undefined ? "@…" : `@${name}` };
+            }
             if (reference.kind === "surface") {
                 const name = input.surfaces?.names.get(reference.id);
                 if (name === undefined) return inert(reference);

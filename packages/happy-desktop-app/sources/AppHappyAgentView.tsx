@@ -396,6 +396,11 @@ import type {
 } from "./agentUpdate";
 import { agentUpdateCardView, type AgentUpdateCatalog } from "./agentUpdateCardView";
 
+/** The people store of a connection that keeps no artifacts: nobody is named. */
+const PEOPLE_NONE: ReadonlyMap<string, string> = new Map();
+const peopleNoop = () => PEOPLE_NONE;
+const peopleSubscribeNoop = () => () => undefined;
+
 const sidebarDaemonUnavailable: AppHappyAgentDaemonSnapshot = {
     install: { phase: "idle" },
     managed: false,
@@ -9712,6 +9717,14 @@ function HappyAgentConversationSurface(props: {
     // reference row fans out from this snapshot rather than subscribing itself.
     const titlesStore = props.artifacts?.titles() ?? artifactTitlesStoreNoop;
     const titles = useSyncExternalStore(titlesStore.subscribe, titlesStore.get, titlesStore.get);
+    /* The people a transcript mentions, read once per connection; a new name is
+       a new snapshot, so the rows naming that person re-render and re-size. */
+    const peopleStore = props.artifacts?.people();
+    useSyncExternalStore(
+        peopleStore?.subscribe ?? peopleSubscribeNoop,
+        peopleStore?.get ?? peopleNoop,
+        peopleStore?.get ?? peopleNoop,
+    );
     // The artifacts the transcript shows inline, read through one subscription
     // the way its titles are.
     const inlineStore = props.artifacts?.inline() ?? inlineArtifactsStoreNoop;
@@ -9790,6 +9803,7 @@ function HappyAgentConversationSurface(props: {
     const references = messageReferencesCreate({
         titles,
         titlesStore,
+        ...(peopleStore ? { people: peopleStore } : {}),
         entities: props.referenceEntities,
         subagents: conversation.subagents,
         onGroupOpen: (groupId, agentId) => {
