@@ -95,6 +95,8 @@ jobs:
                   Get-Command Invoke-TrustedSigning -ErrorAction Stop | Out-Null
             - name: Build NSIS installer and update metadata
               env:
+                  # Looks up the Happy Agent release the installer bundles.
+                  GH_TOKEN: ${{ github.token }}
                   HAPPY_POSTHOG_API_KEY: ${{ inputs.release_analytics && secrets.HAPPY_POSTHOG_API_KEY || '' }}
               run: pnpm desktop:win:release ${{ matrix.flavor }}
             - name: Install the actual release package

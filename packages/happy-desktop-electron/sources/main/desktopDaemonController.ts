@@ -39,6 +39,7 @@ import {
     happyDaemonPaths,
     type HappyDaemonPaths,
 } from "./happyAgentBinaryPaths";
+import { happyAgentBundledInstall } from "./happyAgentBundled";
 import {
     HappyAgentDownloadError,
     happyAgentReleaseDownload,
@@ -65,6 +66,8 @@ const RELOAD_ALIVE_CHECK_MS = 1_000;
 const RELOAD_SEEN_LIMIT = 32;
 
 export interface DesktopDaemonControllerOptions {
+    /** Where the packaged app carries its bundled Happy Agent, if it carries one. */
+    readonly bundleDirectory?: string;
     readonly channel?: HappyAgentUpdateChannel;
     readonly environment?: NodeJS.ProcessEnv;
     /** Carries release lookups and downloads; Node's own `fetch` when absent. */
@@ -123,11 +126,24 @@ export class DesktopDaemonController {
         options: DesktopDaemonControllerOptions = {},
     ): Promise<DesktopDaemonController> {
         const paths = options.paths ?? happyDaemonPaths(options.environment ?? process.env);
-        const selected = await happyAgentBinarySelected(paths);
+        const managed = options.managed ?? true;
+        // A machine that has never selected an agent starts on the one this app
+        // carries; from then on the agent's own update channel replaces it.
+        const selected =
+            (await happyAgentBinarySelected(paths)) ??
+            (managed && options.bundleDirectory !== undefined
+                ? await happyAgentBundledInstall(paths, options.bundleDirectory).catch(
+                      (error: unknown) => {
+                          // The first-run download is still there to fall back on.
+                          console.warn("Happy could not install its bundled Happy Agent.", error);
+                          return undefined;
+                      },
+                  )
+                : undefined);
         return new DesktopDaemonController(
             paths,
             options.launchEnvironment ?? (async () => options.environment ?? process.env),
-            options.managed ?? true,
+            managed,
             options.channel ?? "stable",
             selected,
             options.fetch,

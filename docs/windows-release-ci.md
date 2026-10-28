@@ -18,8 +18,10 @@ gh workflow run desktop-validate.yml --ref main -f platform=windows
 
 Download `happy-desktop-windows-installer-standard` or
 `happy-desktop-windows-installer-local-web` from the completed run and run its
-`.exe`. The Agent is downloaded separately by Desktop; public
-onboarding requires a Happy Agent release containing its signed Windows x64 archive.
+`.exe`. The one-click installer carries the latest stable Happy Agent's signed
+Windows x64 binary, unaltered, and Desktop installs it on first launch; the
+Agent's update channel keeps it current from there. A build therefore requires a
+published Happy Agent release containing that signed archive.
 
 The existing manual `desktop-release.yml` workflow still publishes from `main`
 after validating the release version and notes. It now waits for this Windows

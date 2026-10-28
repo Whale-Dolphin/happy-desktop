@@ -116,6 +116,8 @@ import { DesktopProfilerController } from "./desktopProfilerController";
 import { DesktopWindowStateStore } from "./windowState";
 import { desktopBuildIdentityRead } from "./buildIdentity";
 import { DesktopDaemonController } from "./desktopDaemonController";
+import { HAPPY_AGENT_BUNDLE_DIRECTORY } from "./happyAgentBundled";
+import { macApplicationsInstall } from "./macApplicationsInstall";
 import { desktopSmokeReportStart } from "./desktopSmokeReport";
 import { cloudAuthProductionRedirectUri } from "../shared/cloudAuthConfig";
 
@@ -1680,6 +1682,9 @@ function applicationMenuInstall(snapshot: ReturnType<DesktopRuntime["get"]>): vo
 void app
     .whenReady()
     .then(async () => {
+        // Opening the downloaded app is what installs it; nothing below runs
+        // in a launch that is leaving for the installed copy.
+        if (await macApplicationsInstall({ hidden: desktopWindowsHidden })) return;
         if (!desktopWindowsHidden && !app.isPackaged && applicationIconPath)
             app.dock?.setIcon(applicationIconPath);
         happyAgentRendererSession = await happyAgentRendererSessionCreate(
@@ -1747,6 +1752,9 @@ void app
             launchEnvironment.HAPPY_AGENT_SERVER_TOKEN_PATH?.trim()
         );
         daemonController = await DesktopDaemonController.create({
+            ...(app.isPackaged
+                ? { bundleDirectory: join(process.resourcesPath, HAPPY_AGENT_BUNDLE_DIRECTORY) }
+                : {}),
             channel: desktopConfigStore.get().previewUpdatesEnabled === true ? "preview" : "stable",
             environment: launchEnvironment,
             launchEnvironment: async () => launchEnvironment,

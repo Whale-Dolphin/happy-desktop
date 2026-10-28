@@ -49,10 +49,13 @@ a native app or switches the Agent binary.
 For combined releases, follow the [cross-project sequence in Happy Agent's release
 master plan](https://github.com/slopus/happy-agent/blob/main/master-plans/25-releases.md).
 After any required SDK is published and pinned, prepare and dispatch requested
-Agent, native Desktop, and renderer previews independently in parallel. Desktop
-does not bundle the Agent binary, so its macOS preview does not wait for Agent
-publication or artifact verification. Stable Windows retains its published-Agent
-signature and boot check. Report completion of a combined release after each
+Agent, native Desktop, and renderer previews independently in parallel. Native
+Desktop builds bundle the latest stable Agent release published when they are
+built (`HAPPY_AGENT_BUNDLE_VERSION` pins another stable one), as a first-run seed
+the Agent update channel then replaces. Agent previews are never bundled, so a
+Desktop preview does not wait for one; dispatch Desktop after a new stable
+Agent only when the download should carry it. Stable Windows retains its
+published-Agent signature and boot check. Report completion of a combined release after each
 requested workflow and any required matching Agent version are verified.
 
 Use `gh workflow run ... --ref main` with `-f version=<chosen-version>` and

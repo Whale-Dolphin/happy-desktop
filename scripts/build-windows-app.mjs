@@ -47,6 +47,21 @@ function run(args) {
 if (flavorName === "standard") run(["exec", "vite", "build"]);
 run(["exec", "vite", "build", "--config", "vite.main.config.ts"]);
 run(["exec", "vite", "build", "--config", "vite.preload.config.ts"]);
+// Happy Agent publishes one Windows binary, x64, which Windows on ARM emulates.
+const happyAgentBundle = join(desktop, "release", ".happy-agent", "win32-x64");
+execFileSync(
+    process.execPath,
+    [
+        "--import",
+        "tsx",
+        "scripts/stage-happy-agent-bundle.ts",
+        "--arch",
+        "x64",
+        "--out",
+        happyAgentBundle,
+    ],
+    { cwd: workspace, env: environment, stdio: "inherit", windowsHide: true },
+);
 const output = join(desktop, "release", flavor.output);
 await rm(output, { recursive: true, force: true });
 // usb ships prebuilds for every platform, and signing every .node file refuses
@@ -61,7 +76,10 @@ await build({
         forceCodeSigning: true,
         win: {
             ...metadata.build.win,
-            signExts: [".exe", ".dll", ".node"],
+            // Every other .exe is signed by default. The bundled agent keeps the
+            // signature its own release gave it, byte for byte as the agent's
+            // update channel would download it.
+            signExts: [".dll", ".node", "!happy-agent.exe"],
             azureSignOptions: signing,
         },
         appId: flavor.appId,
@@ -81,6 +99,7 @@ await build({
                 : metadata.build.files),
             otherPlatformPrebuilds,
         ],
+        extraResources: [{ from: happyAgentBundle, to: "happy-agent" }],
         publish: { ...metadata.build.publish, channel: flavor.channel },
     },
 });
@@ -103,6 +122,14 @@ for (const entry of await readdir(unpacked, { recursive: true, withFileTypes: tr
     }
     console.log(`Packaged Windows native module: ${path}`);
 }
+const bundledAgent = join(output, "win-unpacked", "resources", "happy-agent");
+const bundledManifest = JSON.parse(await readFile(join(bundledAgent, "happy-agent.json"), "utf8"));
+const bundledDigest = createHash("sha256")
+    .update(await readFile(join(bundledAgent, "happy-agent.exe")))
+    .digest("hex");
+if (bundledDigest !== bundledManifest.sha256)
+    throw new Error("The packaged Happy Agent does not match its manifest.");
+console.log(`Bundled Happy Agent ${bundledManifest.version}.`);
 const updater = parse(
     await readFile(join(output, "win-unpacked", "resources", "app-update.yml"), "utf8"),
 );

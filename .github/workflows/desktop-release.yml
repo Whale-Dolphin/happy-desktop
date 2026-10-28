@@ -204,6 +204,8 @@ jobs:
 
             - name: Build, sign, notarize, and verify desktop distribution
               env:
+                  # Looks up the Happy Agent release the download bundles.
+                  GH_TOKEN: ${{ github.token }}
                   HAPPY_POSTHOG_API_KEY: ${{ secrets.HAPPY_POSTHOG_API_KEY }}
                   RELEASE_ARCH: ${{ matrix.arch }}
                   RELEASE_FLAVOR: ${{ matrix.flavor }}
