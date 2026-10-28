@@ -6,6 +6,8 @@ import type {
     DesktopBrowserTunnelFailure,
 } from "../shared/desktopContract";
 import { GuestPageFit, type FitGuestElement } from "./guestPageFit";
+import { BrowserGuestSlot } from "happy-desktop-ui";
+import { desktopBrowserGuests } from "./desktopBrowserGuests";
 
 interface BrowserWebViewEvent extends Event {
     readonly canGoBack?: boolean;
@@ -25,6 +27,7 @@ interface BrowserWebViewElement extends FitGuestElement {
     getTitle(): string;
     getURL(): string;
     getWebContentsId(): number;
+    isLoading(): boolean;
 }
 
 const browserEvents = [
@@ -58,7 +61,9 @@ const browserBodyProbe = `(() => {
  * boundary that attaches to one `<webview>` guest and cleans every listener up;
  * it owns no visual state or styling.
  */
-export class DesktopBrowserView extends Component<BrowserContentProps> {
+export class DesktopBrowserGuest extends Component<
+    BrowserContentProps & { displayLease?: number }
+> {
     state: { partition?: string } = {};
     private element?: BrowserWebViewElement;
     private proxyGeneration = 0;
@@ -287,7 +292,7 @@ export class DesktopBrowserView extends Component<BrowserContentProps> {
         this.proxyApply();
     }
 
-    componentDidUpdate(before: BrowserContentProps): void {
+    componentDidUpdate(before: BrowserContentProps & { displayLease?: number }): void {
         if (
             before.target?.workspaceId !== this.props.target?.workspaceId ||
             before.target?.connectionId !== this.props.target?.connectionId ||
@@ -295,6 +300,14 @@ export class DesktopBrowserView extends Component<BrowserContentProps> {
             before.target?.networkId !== this.props.target?.networkId
         )
             this.proxyApply();
+        else if (before.displayLease !== this.props.displayLease && this.initialized) {
+            this.props.browserControllerReady(this.controller);
+            this.locationPublish();
+            if (this.element) {
+                this.props.browserTitleChanged(this.element.getTitle());
+                this.props.browserLoadingChanged(this.element.isLoading());
+            }
+        }
     }
 
     componentWillUnmount(): void {
@@ -510,6 +523,44 @@ export class DesktopBrowserView extends Component<BrowserContentProps> {
             src: "about:blank",
             webpreferences: "contextIsolation=yes,nodeIntegration=no,sandbox=yes",
         });
+    }
+}
+
+/** A display lease is shorter than a tab: only the owner can close the guest. */
+export class DesktopBrowserView extends Component<BrowserContentProps> {
+    private slot: HTMLDivElement | null = null;
+    private host?: HTMLElement | null;
+    private release?: () => void;
+
+    private readonly slotApply = (slot: HTMLDivElement | null, host?: HTMLElement | null): void => {
+        this.release?.();
+        this.release = undefined;
+        this.slot = slot;
+        this.host = host;
+        if (slot && host !== null && this.props.retention)
+            this.release = desktopBrowserGuests.attach(slot, this.props, host);
+    };
+
+    componentDidUpdate(before: BrowserContentProps): void {
+        if (
+            before.retention?.owner !== this.props.retention?.owner ||
+            before.retention?.id !== this.props.retention?.id
+        )
+            this.slotApply(this.slot, this.host);
+        else if (this.slot && this.props.retention) desktopBrowserGuests.update(this.props);
+    }
+
+    componentWillUnmount(): void {
+        this.slotApply(null);
+    }
+
+    render() {
+        // Inline artifacts are owned by their inline surface, not a browser tab.
+        return this.props.retention ? (
+            <BrowserGuestSlot onSlot={this.slotApply} />
+        ) : (
+            <DesktopBrowserGuest {...this.props} />
+        );
     }
 }
 

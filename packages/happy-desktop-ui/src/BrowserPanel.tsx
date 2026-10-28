@@ -34,6 +34,13 @@ export interface BrowserFailure {
 }
 
 export interface BrowserContentProps {
+    /** A host can retain a guest beyond the displaying component's lifetime. */
+    readonly retention?: {
+        readonly id: string;
+        readonly owner: BrowserGuestOwner;
+    };
+    /** The browser's own start/error page covers the native guest. */
+    readonly visible?: boolean;
     /**
      * Owning workspace, host-published Happy Agent route, the agent the tab was
      * opened for, and the network it is bound to once that has been named.
@@ -66,6 +73,14 @@ export interface BrowserContentProps {
      * reports each height. Absent, the page fills the region it is given.
      */
     readonly fit?: InlinePageFit;
+}
+
+/** One authoritative subscription for all browser lifetimes in a workspace. */
+export interface BrowserGuestOwner {
+    get(): {
+        readonly browserTabs: readonly { readonly id: string; readonly networkId?: string }[];
+    };
+    subscribe(listener: () => void): () => void;
 }
 
 /** Native browser-content adapter supplied by the host (Electron in production). */
@@ -302,6 +317,7 @@ export function BrowserPanel(props: BrowserPanelProps) {
                 {props.renderContent ? (
                     props.renderContent({
                         source,
+                        visible: !view.failure && !view.fresh,
                         browserControllerReady(next) {
                             controllerSet(next);
                         },

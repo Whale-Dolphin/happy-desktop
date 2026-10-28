@@ -11694,6 +11694,7 @@ function HappyAgentToolBodies(props: {
                                 ? (browserProps) =>
                                       props.browserContent!({
                                           ...browserProps,
+                                          retention: { id: tab.id, owner: props.store },
                                           target: {
                                               connectionId: props.browserConnectionId,
                                               workspaceId: tab.workspaceId,
@@ -11710,12 +11711,17 @@ function HappyAgentToolBodies(props: {
                                           // A page's popup opens beside it, on
                                           // its own agent and network.
                                           browserPopupRequested: (url) => {
-                                              if (tab.networkId === undefined) return;
+                                              const networkId = props.store
+                                                  .get()
+                                                  .browserTabs.find(
+                                                      (browser) => browser.id === tab.id,
+                                                  )?.networkId;
+                                              if (networkId === undefined) return;
                                               props.store.browserPopupAdd(
                                                   url,
                                                   tab.workspaceId,
                                                   tab.agentId,
-                                                  tab.networkId,
+                                                  networkId,
                                               );
                                           },
                                       })

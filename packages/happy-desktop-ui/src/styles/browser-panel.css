@@ -58,6 +58,30 @@
     min-height: 0;
 }
 
+.happy-browser-guest-slot {
+    display: flex;
+    flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.happy-browser-guest-frame {
+    position: fixed;
+    display: flex;
+    overflow: hidden;
+}
+
+.happy-browser-guest-frame[hidden] {
+    display: none;
+}
+
+.happy-browser-guest-frame > webview {
+    display: flex;
+    flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
+}
+
 .happy-browser-panel__error {
     /*
      * A failed navigation leaves the guest blank, so the error page covers it

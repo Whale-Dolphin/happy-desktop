@@ -101,6 +101,8 @@ export interface HappyAgentBrowserUpdate {
 export interface HappyAgentPanelSnapshot {
     readonly open: boolean;
     readonly tabs: readonly HappyAgentPanelTabSnapshot[];
+    /** Every live browser, including other groups, until its tab truly closes. */
+    readonly browserTabs: readonly Extract<HappyAgentPanelTabSnapshot, { kind: "browser" }>[];
     /**
      * Whether Files is in the strip. It is closed like any other tab, and the
      * pane closes with the last of them; opening the pane again brings it back.
@@ -481,6 +483,7 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
         floatyHistoryExpanded: false,
         open: false,
         tabs: NO_TABS,
+        browserTabs: [],
     };
 
     const project = (): HappyAgentPanelSnapshot => {
@@ -498,6 +501,22 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
             floatyHistoryExpanded,
             ...(artifactView === undefined ? {} : { artifactView }),
             open,
+            browserTabs: tabs.flatMap((tab) =>
+                tab.kind === "browser" && tab.agentId !== undefined
+                    ? [
+                          {
+                              id: tab.id,
+                              label: tab.label,
+                              placement: tab.placement,
+                              kind: "browser" as const,
+                              url: tab.url ?? "about:blank",
+                              workspaceId: tab.groupId,
+                              agentId: tab.agentId,
+                              ...(tab.networkId === undefined ? {} : { networkId: tab.networkId }),
+                          },
+                      ]
+                    : [],
+            ),
             tabs: visible.flatMap((tab): HappyAgentPanelTabSnapshot[] => {
                 const base = { id: tab.id, label: tab.label, placement: tab.placement };
                 if (tab.kind === "browser")
@@ -545,6 +564,9 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
         const tabsSame =
             next.tabs.length === snapshot.tabs.length &&
             next.tabs.every((tab, index) => tabSame(snapshot.tabs[index], tab));
+        const browsersSame =
+            next.browserTabs.length === snapshot.browserTabs.length &&
+            next.browserTabs.every((tab, index) => tabSame(snapshot.browserTabs[index], tab));
         if (
             next.open === snapshot.open &&
             next.activeViewId === snapshot.activeViewId &&
@@ -562,7 +584,8 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
             next.floatyHistoryExpanded === snapshot.floatyHistoryExpanded &&
             next.artifactView === snapshot.artifactView &&
             next.terminalRefusal === snapshot.terminalRefusal &&
-            tabsSame
+            tabsSame &&
+            browsersSame
         )
             return;
         // Unchanged rows keep their identity so a tab strip re-renders only the
@@ -587,6 +610,12 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
             ...(next.artifactView === undefined ? {} : { artifactView: next.artifactView }),
             open: next.open,
             tabs: projectedTabs,
+            browserTabs: browsersSame
+                ? snapshot.browserTabs
+                : next.browserTabs.map((tab) => {
+                      const before = snapshot.browserTabs.find((item) => item.id === tab.id);
+                      return before && tabSame(before, tab) ? before : tab;
+                  }),
             ...(next.previewEntryId === undefined ? {} : { previewEntryId: next.previewEntryId }),
             ...(next.previewMediaIndex === undefined
                 ? {}
@@ -1074,7 +1103,7 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
             tab.label = tab.title ? tab.title.slice(0, 80) : browserLabel(tab.url ?? "about:blank");
             if (tab.url !== undefined && tab.url !== "about:blank")
                 recentRemember(tab.groupId, tab.url, tab.label);
-            remember();
+            remember(tab.groupId);
             recompute();
         },
         tabSelect(tabId) {
@@ -1090,8 +1119,9 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
             if (disposed) return;
             const index = tabs.findIndex((candidate) => candidate.id === tabId);
             if (index < 0) return;
+            const closedGroupId = tabs[index]!.groupId;
             tabDispose(index);
-            remember();
+            remember(closedGroupId);
             recompute();
         },
         tabPlacementUpdate(tabId, placement) {
@@ -1222,6 +1252,7 @@ export function happyAgentPanelStoreCreate(deps: HappyAgentPanelDeps): HappyAgen
                 tab.terminal?.[Symbol.dispose]();
                 tab.chat?.[Symbol.dispose]();
             }
+            recompute();
             activeByGroup.clear();
             chromeByGroup.clear();
             listeners.clear();

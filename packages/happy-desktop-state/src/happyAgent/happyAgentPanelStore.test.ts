@@ -35,6 +35,38 @@ it("opens a new tab as a blank page beside Files", () => {
     expect(panel.activeViewId).toBe(panel.tabs[0]?.id);
 });
 
+it("projects live browser lifetimes across scopes and saves background navigation to its own group", () => {
+    const memory = new Map<HappyAgentGroupId, HappyAgentPanelMemory>();
+    const { store } = panelCreate(memory);
+    store.browserAdd("https://one.example/");
+    const tab = store.get().tabs[0]!;
+    const browsers = store.get().browserTabs;
+    store.scopeApply(GROUP_B, AGENT);
+    expect(store.get().tabs).toEqual([]);
+    expect(store.get().browserTabs).toBe(browsers);
+    store.browserNetworkBind(tab.id, "network-a" as Parameters<typeof store.browserNetworkBind>[1]);
+    store.browserUpdate(tab.id, { url: "https://one.example/draft", title: "Background draft" });
+    expect(store.get().tabs).toEqual([]);
+    expect(store.get().browserTabs).toMatchObject([
+        { id: tab.id, label: "Background draft", url: "https://one.example/draft" },
+    ]);
+    const restored = panelCreate(memory).store;
+    expect(restored.get().tabs).toMatchObject([
+        { url: "https://one.example/draft", label: "Background draft" },
+    ]);
+    store.tabClose(tab.id);
+    expect(store.get().browserTabs).toEqual([]);
+    expect(panelCreate(memory).store.get().tabs).toEqual([]);
+    store.scopeApply(GROUP_A, AGENT);
+    store.browserAdd();
+    let closed = false;
+    store.subscribe(() => {
+        closed = store.get().browserTabs.length === 0;
+    });
+    store[Symbol.dispose]();
+    expect(closed).toBe(true);
+});
+
 it("turns a new tab into a terminal in its place", () => {
     const { store, terminalsOpened } = panelCreate();
     store.browserAdd("https://example.com/");

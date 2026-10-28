@@ -577,6 +577,7 @@ export {
     type DeferredPaneProps,
 } from "./DeferredPane";
 export { RetainedViews, type RetainedView, type RetainedViewsProps } from "./RetainedViews";
+export { BrowserGuestFrame, BrowserGuestSlot } from "./BrowserGuestFrame";
 export { TransferZone, type TransferZoneProps } from "./TransferZone";
 export {
     TRANSFER_ZONE_ATTRIBUTE,
@@ -782,6 +783,7 @@ export {
     type BrowserController,
     type BrowserFailure,
     type BrowserPanelProps,
+    type BrowserGuestOwner,
     type BrowserStartPage,
     type BrowserStartTool,
 } from "./BrowserPanel";

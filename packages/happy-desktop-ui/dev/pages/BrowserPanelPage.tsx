@@ -5,6 +5,7 @@ import {
     type BrowserFailure,
 } from "../../src/BrowserPanel";
 import { ComponentPage, Specimen } from "../kit";
+import { BrowserGuestFrame, BrowserGuestSlot } from "../../src/BrowserGuestFrame";
 
 /** The component plan this page documents. The selector and the page header read the same value. */
 export const componentNumber = "C-161";
@@ -150,6 +151,24 @@ export function BrowserPanelPage() {
                         renderContent={BrowserPreview}
                         unavailable="Happy Agent is offline. Showing the last loaded page."
                     />
+                </div>
+            </Specimen>
+            <Specimen
+                detail="a native page stays in one frame while its display slot changes; hiding preserves its DOM"
+                label="Retained guest placement"
+                number="06"
+                stage="app"
+            >
+                {/* The transform makes this specimen the fixed frame's containing
+                    block, standing in for the desktop window's viewport. */}
+                <div style={{ ...frame, transform: "translateZ(0)" }}>
+                    <BrowserGuestSlot onSlot={() => undefined} />
+                    <BrowserGuestFrame bounds={{ x: 0, y: 0, width: 760, height: 520 }}>
+                        <div style={preview}>The native page keeps its document and history.</div>
+                    </BrowserGuestFrame>
+                    <BrowserGuestFrame>
+                        <div>Another retained page, hidden until its tab is selected.</div>
+                    </BrowserGuestFrame>
                 </div>
             </Specimen>
         </ComponentPage>

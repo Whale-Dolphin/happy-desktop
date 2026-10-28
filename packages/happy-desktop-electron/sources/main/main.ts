@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DesktopRuntime } from "./desktopRuntime";
+import { browserPermissionsInstall } from "./browserPermissions";
 import { BrowserPasswords } from "./browserPasswords";
 import { browserPasswordGuestAttach } from "./browserPasswordGuest";
 import { desktopInstanceMenuTargets } from "./applicationMenu";
@@ -773,38 +774,27 @@ async function browserSessionConfigure(browserSession: Electron.Session): Promis
     browserSession.setUserAgent(app.userAgentFallback, app.getLocale());
     await browserProxyFailClosed(browserSession);
 
-    const permissionLabels = new Map<string, string>([
-        ["clipboard-read", "read the clipboard"],
-        ["display-capture", "share the screen"],
-        ["geolocation", "use your location"],
-        ["media", "use the camera or microphone"],
-        ["midi", "use MIDI devices"],
-        ["notifications", "show notifications"],
-        ["pointerLock", "capture the pointer"],
-    ]);
-    browserSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-        const label = permissionLabels.get(permission);
-        const requestingUrl = browserWebUrl(details.requestingUrl || webContents.getURL());
-        if (!label || !requestingUrl) {
-            callback(false);
-            return;
-        }
-        const requestingOrigin = new URL(requestingUrl).origin;
-        const host = webContents.hostWebContents;
-        const owner = host ? BrowserWindow.fromWebContents(host) : undefined;
-        const options = {
-            buttons: ["Don't Allow", "Allow"],
-            cancelId: 0,
-            defaultId: 0,
-            detail: `${requestingOrigin} wants to ${label}.`,
-            message: "Website permission",
-            noLink: true,
-            type: "question" as const,
-        };
-        void (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options))
-            .then((result) => callback(result.response === 1))
-            .catch(() => callback(false));
-    });
+    await browserPermissionsInstall(
+        browserSession,
+        async ({ contents, origin, embeddingOrigin, description, remember }) => {
+            const host = contents?.hostWebContents;
+            const owner = host ? BrowserWindow.fromWebContents(host) : undefined;
+            const options = {
+                buttons: ["Don't Allow", "Allow"],
+                cancelId: 0,
+                defaultId: 0,
+                detail: `${origin} wants to ${description}.${origin === embeddingOrigin ? "" : ` Embedded in ${embeddingOrigin}.`}${remember ? " Your choice is remembered for this browser profile." : ""}`,
+                message: "Website permission",
+                noLink: true,
+                type: "question" as const,
+            };
+            const result = await (owner
+                ? dialog.showMessageBox(owner, options)
+                : dialog.showMessageBox(options));
+            return result.response === 1;
+        },
+        (error) => console.error("Could not save website permission", error),
+    );
 }
 
 function htmlPreviewSessionGet() {
