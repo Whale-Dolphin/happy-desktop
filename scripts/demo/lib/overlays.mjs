@@ -150,8 +150,14 @@ async function ringDraw(target) {
 export async function overlaysBuild({ composition, cues, phoneCanvas }) {
     const { output } = composition;
     const items = [];
+    let phoneLabel;
     const { browser, page } = await pageOpen();
     try {
+        if (composition.phone.label)
+            phoneLabel = await spriteDraw(
+                page,
+                `<div class="hint above"><div class="pill">${markup(composition.phone.label)}</div></div>`,
+            );
         const captions = composition.captions ?? [];
         for (const [index, caption] of captions.entries()) {
             const from = at(cues, caption.from);
@@ -253,7 +259,8 @@ export async function overlaysBuild({ composition, cues, phoneCanvas }) {
             );
         return faded.get(key);
     };
-    return async function layersAt(seconds) {
+    return Object.assign(layersAt, { phoneLabel });
+    async function layersAt(seconds) {
         const layers = [];
         for (const item of items) {
             const opacity = Math.min(
@@ -271,5 +278,5 @@ export async function overlaysBuild({ composition, cues, phoneCanvas }) {
                 });
         }
         return layers;
-    };
+    }
 }

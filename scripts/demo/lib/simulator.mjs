@@ -157,41 +157,46 @@ export async function simulatorOpen({
             });
     }, 3000);
     heartbeat.unref();
+    /** The one touch listener must be this Simulator's own Maestro driver. */
+    async function touchListenerCheck() {
+        const { stdout } = await execFile("/usr/sbin/lsof", [
+            "-nP",
+            "-iTCP:22087",
+            "-sTCP:LISTEN",
+            "-t",
+        ]);
+        const pids = [...new Set(stdout.trim().split(/\s+/))];
+        if (pids.length !== 1 || !/^\d+$/.test(pids[0]))
+            throw new Error("Expected one native keyboard touch listener.");
+        const { stdout: command } = await execFile("/bin/ps", ["-p", pids[0], "-o", "command="]);
+        if (
+            !command.includes(`/Devices/${udid}/`) ||
+            !command.includes("maestro-driver-iosUITests-Runner")
+        )
+            throw new Error("The native touch listener belongs to another simulator.");
+    }
     return {
         udid,
         async run(commands) {
             await tool("run", { yaml: `appId: com.slopus.happy.dev\n---\n${commands}` });
         },
-        async tapPoints(points) {
+        /**
+         * Real native touches, one at a time: the driver refuses a touch while
+         * another is still being performed, about 220 ms each. `onTouch(i)`
+         * fires as touch i goes out.
+         */
+        async tapPoints(points, onTouch) {
             const operation = queue.then(async () => {
                 // Use the same Maestro-owned XCTest driver, without its
                 // per-key app-settling delay. These are real native touches.
                 // The caller has just inspected the actual keyboard/control.
                 // Re-reading the whole native hierarchy here adds a visible
-                // idle pause; listener ownership below is the safety check.
-                const { stdout } = await execFile("/usr/sbin/lsof", [
-                    "-nP",
-                    "-iTCP:22087",
-                    "-sTCP:LISTEN",
-                    "-t",
-                ]);
-                const pids = [...new Set(stdout.trim().split(/\s+/))];
-                if (pids.length !== 1 || !/^\d+$/.test(pids[0]))
-                    throw new Error("Expected one native keyboard touch listener.");
-                const { stdout: command } = await execFile("/bin/ps", [
-                    "-p",
-                    pids[0],
-                    "-o",
-                    "command=",
-                ]);
-                if (
-                    !command.includes(`/Devices/${udid}/`) ||
-                    !command.includes("maestro-driver-iosUITests-Runner")
-                )
-                    throw new Error("The native touch listener belongs to another simulator.");
+                // idle pause; listener ownership is the safety check.
+                await touchListenerCheck();
                 const timings = [];
-                for (const point of points) {
+                for (const [index, point] of points.entries()) {
                     if (closing) throw new Error("The recorder's native driver is closing.");
+                    onTouch?.(index);
                     if (!Number.isFinite(point.x) || !Number.isFinite(point.y))
                         throw new Error("Invalid native keyboard coordinates.");
                     lastOperation = Date.now();

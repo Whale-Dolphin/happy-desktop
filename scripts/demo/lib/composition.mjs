@@ -1,10 +1,11 @@
 import { spawn, execFile as exec } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { encode } from "./encode.mjs";
 import { overlaysBuild } from "./overlays.mjs";
+import { soundtrackWrite } from "./sounds.mjs";
 
 /*
  * Stages an already recorded take: the desktop movie and its synchronized
@@ -154,11 +155,26 @@ async function desktopLayersBuild(composition, directory) {
         ])
         .png()
         .toBuffer();
+    // macOS draws its window buttons over the app's reserved lane: 12 px
+    // circles, 20 px apart, the first centred 20 px from the window's corner.
+    const scale = desktop.width / desktop.cssWidth;
+    const trafficLights = desktop.trafficLights
+        ? [
+              ["#ff5f57", "#e0443e"],
+              ["#febc2e", "#dea123"],
+              ["#28c840", "#1aab29"],
+          ]
+              .map(
+                  ([fill, stroke], index) =>
+                      `<circle cx="${desktop.x + (20 + index * 20) * scale}" cy="${desktop.y + 20 * scale}" r="${6 * scale - 0.5}" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
+              )
+              .join("")
+        : "";
     // A dark outer hairline, then the website's light inner one.
     const trim = svg(
         output.width,
         output.height,
-        `<rect x="${desktop.x - 0.5}" y="${desktop.y - 0.5}" width="${desktop.width + 1}" height="${desktop.height + 1}" rx="${radius + 0.5}" fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="1"/>
+        `${trafficLights}<rect x="${desktop.x - 0.5}" y="${desktop.y - 0.5}" width="${desktop.width + 1}" height="${desktop.height + 1}" rx="${radius + 0.5}" fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="1"/>
          <rect x="${desktop.x + 0.75}" y="${desktop.y + 0.75}" width="${desktop.width - 1.5}" height="${desktop.height - 1.5}" rx="${radius - 0.75}" fill="none" stroke="rgba(255,255,255,0.17)" stroke-width="1.5"/>`,
     );
     return { overlay, trim: await sharp(trim).png().toBuffer() };
@@ -357,6 +373,19 @@ async function frameCompose({
     const shadowLeft = Math.round(left - shadow.pad * shadowScale);
     const shadowTop = Math.round(top - shadow.pad * shadowScale);
     const overlays = [];
+    // The phone's label rides above the handset wherever it is.
+    const label = overlaysAt?.phoneLabel;
+    // Only while the handset itself is in frame.
+    if (label && top < output.height)
+        overlays.push(
+            ...(await placed(
+                label.png,
+                Math.round(left + width / 2 - label.width / 2),
+                top - label.height + 4,
+                label.width,
+                label.height,
+            )),
+        );
     for (const layer of overlaysAt ? await overlaysAt(seconds) : []) {
         const { width: w, height: h } = await sharp(layer.input).metadata();
         overlays.push(...(await placed(layer.input, layer.left, layer.top, w, h)));
@@ -376,6 +405,42 @@ async function frameCompose({
         ...(await placed(handsetScaled, left, top, width, height)),
         ...overlays,
     ]);
+}
+
+/**
+ * Editorial speed-ups: between two cues, keep every `rate`-th frame of both
+ * takes, so the stretch plays `rate` times faster and the screens stay in
+ * step. Returns which source frames are kept and where a source frame lands
+ * on the output timeline, for re-timing the take's sounds.
+ */
+function speedUpsRead(composition, cues) {
+    const fps = composition.output.fps;
+    const at = (reference) => {
+        const [name, occurrence = "1"] = reference.split("#");
+        const found = cues.filter((cue) => cue.name === name)[Number(occurrence) - 1];
+        if (!found) throw new Error(`The cues have no "${reference}" cue.`);
+        return Math.round(found.seconds * fps);
+    };
+    const windows = (composition.speedUps ?? []).map((entry) => {
+        if (!Number.isInteger(entry.rate) || entry.rate < 2)
+            throw new Error("A speed-up rate must be a whole number above 1.");
+        return { from: at(entry.from), to: at(entry.to), rate: entry.rate };
+    });
+    return {
+        windows,
+        kept: (frame) =>
+            windows.every(
+                (window) =>
+                    frame < window.from ||
+                    frame >= window.to ||
+                    (frame - window.from) % window.rate === 0,
+            ),
+        outputFrame: (frame) =>
+            windows.reduce((position, window) => {
+                const inside = Math.max(0, Math.min(frame, window.to) - window.from);
+                return position - inside + inside / window.rate;
+            }, frame),
+    };
 }
 
 /** Each phone-enter pairs with the next phone-exit; a take may focus the phone more than once. */
@@ -404,6 +469,7 @@ export async function compositionRender({ composition, directory, desktop, phone
     const { output } = composition;
     const cueList = JSON.parse(await readFile(cues, "utf8"));
     const focus = focusRead(cueList);
+    const speedUps = speedUpsRead(composition, cueList);
     const [desktopInfo, phoneInfo] = await Promise.all([probe(desktop), probe(phone)]);
     if (desktopInfo.video.r_frame_rate !== phoneInfo.video.r_frame_rate)
         throw new Error("The desktop and phone takes must share one frame rate.");
@@ -426,7 +492,7 @@ export async function compositionRender({ composition, directory, desktop, phone
     };
     phoneClearanceCheck(composition, layers.phone.canvas);
     const overlaysAt =
-        composition.captions || composition.hints
+        composition.captions || composition.hints || composition.phone.label
             ? await overlaysBuild({ composition, cues: cueList, phoneCanvas: layers.phone.canvas })
             : undefined;
     const { width: desktopWidth, height: desktopHeight } = composition.desktop;
@@ -444,6 +510,7 @@ export async function compositionRender({ composition, directory, desktop, phone
     const posterFrame = Math.round(composition.poster.seconds * output.fps);
     const poster = join(out, `${composition.id}.poster.png`);
     const inFlight = new Set();
+    let decoded = 0;
     let frames = 0;
     try {
         for (;;) {
@@ -456,6 +523,9 @@ export async function compositionRender({ composition, directory, desktop, phone
                     "The desktop and phone takes end on different frames; they are not one timeline.",
                 );
             if (desktopNext.done) break;
+            const source = decoded;
+            decoded += 1;
+            if (!speedUps.kept(source)) continue;
             const index = frames;
             frames += 1;
             const job = (async () => {
@@ -464,7 +534,8 @@ export async function compositionRender({ composition, directory, desktop, phone
                     layers,
                     desktopRgb: desktopNext.value,
                     phoneRgb: phoneNext.value,
-                    seconds: index / output.fps,
+                    // Poses and overlays follow the takes' own clock.
+                    seconds: source / output.fps,
                     focus,
                     overlaysAt,
                 });
@@ -490,8 +561,18 @@ export async function compositionRender({ composition, directory, desktop, phone
     if (posterFrame >= frames) throw new Error("The poster instant is past the end of the take.");
 
     // The desktop take carries the recorded soundtrack; the phone is silent.
+    // A sped-up take re-mixes its sounds on the output timeline instead, so
+    // the key ticks come faster without being pitched up.
     let soundtrack;
-    if (desktopInfo.audio) {
+    if (speedUps.windows.length > 0) {
+        const events = JSON.parse(await readFile(join(dirname(cues), "sounds.json"), "utf8"));
+        soundtrack = await soundtrackWrite(
+            events.map((event) => ({ ...event, frame: speedUps.outputFrame(event.frame) })),
+            output.fps,
+            frames,
+            join(work, "soundtrack.wav"),
+        );
+    } else if (desktopInfo.audio) {
         soundtrack = join(work, "soundtrack.wav");
         await execFile("ffmpeg", ["-y", "-v", "error", "-i", desktop, "-vn", soundtrack]);
     }
