@@ -225,7 +225,7 @@ export const shipFailure = "The push did not go through. Leaving main untouched.
 
 // The daemon's own verdict on the ship command: the tool message that answers
 // the Bash call, which it flags as an error and closes with the exit code.
-function shipCommandFailed(messages) {
+export function shipCommandFailed(messages) {
     const call = messages.findLastIndex(
         (message) =>
             message.role === "assistant" &&

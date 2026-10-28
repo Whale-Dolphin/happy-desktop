@@ -1,6 +1,5 @@
 import * as world from "./world.mjs";
 import { releaseCoordinatorName, releaseCoordinatorPrepare } from "../core/bots.mjs";
-import { coreProtocolOpen, steve, stevePhoneMessage } from "../core/protocol.mjs";
 import { shipCommand, shippingPrepare, shippingVerify } from "../core/shipping.mjs";
 import { execFile as exec } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -18,6 +17,10 @@ const astra = { providerId: "codex", modelId: "openai/gpt-6-astra" };
 
 let recordedAgentId;
 let recordedSpaceId;
+let recordedTaskId;
+/** Steve's own client into the team daemon: everything he does goes through it. */
+let steve;
+const loopInEvidence = {};
 let framing;
 let checkout;
 let shippingFixture;
@@ -59,8 +62,8 @@ const settled = (locator) =>
             .every((animation) => animation.playState !== "running"),
     );
 
-const spaceRead = async (gym, id) =>
-    (await gym.client.listSpaces()).spaces.find((space) => space.id === id);
+const spaceRead = async (client, id) =>
+    (await client.listSpaces()).spaces.find((space) => space.id === id);
 
 /** The native iOS sidebar's own row identities, top to bottom. */
 const phoneRows = (screen) =>
@@ -70,12 +73,6 @@ const phoneRows = (screen) =>
             const [, kind, label] = item.id.split(":");
             return { kind, label, top: Number(item.bounds?.match(/^\[\d+,(\d+)\]/)?.[1]) };
         });
-
-/** The phone's home is up and lists `title` (when given). */
-const phoneHome = (title) => (screen) =>
-    phoneRows(screen).some((row) => row.kind === "space" && row.label === "Happy") &&
-    (title === undefined ||
-        phoneRows(screen).some((row) => row.kind === "space" && row.label === title));
 
 /** Whether the phone's sidebar lists the row directly in its section's block. */
 function phoneFiledUnder(screen, title, sectionLabel) {
@@ -87,10 +84,17 @@ function phoneFiledUnder(screen, title, sectionLabel) {
     return false;
 }
 
-/** The clay icon the phone draws for a row, read from its row's image. */
-function phoneIcon(screen, title) {
-    const index = screen.findIndex((item) => item.id === `stem-row:space:${title}`);
-    return index < 0 ? undefined : screen[index + 1]?.id?.match(/clay-([\w-]+)\.png$/u)?.[1];
+/** The paired phone is Steve's: his own filed work, none of the owner's rows. */
+function phoneSteveHome(screen) {
+    const labels = new Set(phoneRows(screen).map((row) => row.label));
+    return (
+        world.steveSeeds.every((seed) => {
+            const section = world.steveSections.find((entry) => entry.id === seed.section).label;
+            return phoneFiledUnder(screen, seed.title, section);
+        }) &&
+        !world.seeds.some((seed) => labels.has(seed.title)) &&
+        !labels.has(world.sessionTitle)
+    );
 }
 
 /** A phone accessibility rectangle, in points. */
@@ -116,8 +120,8 @@ const boundsCenter = (item) => {
 };
 
 /** Whether the sidebar document has the row directly under its section's heading block. */
-async function filedUnder(gym, spaceId, sectionId) {
-    const { html } = await gym.client.getSpaceSidebar();
+async function filedUnder(client, spaceId, sectionId) {
+    const { html } = await client.getSpaceSidebar();
     const items = [...html.matchAll(/<happy-(section|separator|space) id="(\w[\w-]*)"/gu)].map(
         (match) => ({ kind: match[1], id: match[2] }),
     );
@@ -130,19 +134,16 @@ async function filedUnder(gym, spaceId, sectionId) {
 }
 
 /**
- * The person's own sidebar, made off camera: their sections above the
- * default Bots and Tasks, and earlier new work Focus filed into them from
- * each first message. Every step uses the daemon's public API; Focus's
+ * A member's own sidebar, made off camera: their sections above the default
+ * Bots and Tasks, and earlier new work Focus filed into them from each first
+ * message. Every step uses the daemon's public API as that member; Focus's
  * placement and icons are its real tools driven by the screenplay.
  */
-async function sidebarPrepare(gym) {
-    for (const [key, value] of [
-        [stemCellsSetting, true],
-        [defaultModelSetting, astra],
-    ])
-        await gym.client.saveUserSetting(key, { value, updatedAt: Date.now() });
-    const sidebar = await gym.client.getSpaceSidebar();
-    const missing = world.sections.filter(
+async function sidebarPrepare(client, { sections, seeds, settings }) {
+    for (const [key, value] of settings)
+        await client.saveUserSetting(key, { value, updatedAt: Date.now() });
+    const sidebar = await client.getSpaceSidebar();
+    const missing = sections.filter(
         (section) => !sidebar.html.includes(`<happy-section id="${section.id}"`),
     );
     if (missing.length > 0) {
@@ -153,29 +154,29 @@ async function sidebarPrepare(gym) {
             /( *)<happy-section id="bots"/u,
             `${headings}$1<happy-section id="bots"`,
         );
-        await gym.client.updateSpaceSidebar({
+        await client.updateSpaceSidebar({
             html,
             baseVersion: sidebar.version,
             mutationId: randomUUID(),
         });
     }
-    for (const seed of world.seeds) {
-        const existing = (await gym.client.listSpaces()).spaces.find(
+    for (const seed of seeds) {
+        const existing = (await client.listSpaces()).spaces.find(
             (space) => space.title === seed.title,
         );
         if (existing) continue;
-        const { space, agent } = await gym.client.createStemCell({ mutationId: randomUUID() });
-        await gym.client.sendMessage(agent.id, {
+        const { space, agent } = await client.createStemCell({ mutationId: randomUUID() });
+        await client.sendMessage(agent.id, {
             text: seed.message,
             mode: { ...world.seedMode, permissionMode: "auto" },
         });
         await wait(
             async () => {
-                const row = await spaceRead(gym, space.id);
+                const row = await spaceRead(client, space.id);
                 return (
                     row?.title === seed.title &&
                     row.icon.type === "library" &&
-                    (await filedUnder(gym, space.id, seed.section))
+                    (await filedUnder(client, space.id, seed.section))
                 );
             },
             `Focus to file ${seed.title}`,
@@ -183,12 +184,96 @@ async function sidebarPrepare(gym) {
         );
         process.stdout.write(`    filed     ${seed.title} under ${seed.section}\n`);
     }
-    // The person has read their earlier work; only the filmed row is new.
-    for (const space of (await gym.client.listSpaces()).spaces)
+    // The member has read their earlier work; only the filmed row is new.
+    for (const space of (await client.listSpaces()).spaces)
         if (space.target?.agentId)
-            await gym.client
+            await client
                 .markAgentRead(space.target.agentId, { mutationId: randomUUID() })
                 .catch(() => undefined);
+}
+
+/**
+ * A real touch at a control's inspected bounds; Maestro's tapOn waits for the
+ * app to idle, seconds on a live transcript.
+ */
+async function touch(phone, screen, id) {
+    const point = boundsCenter(screen.find((item) => item.id === id));
+    if (!point) throw new Error(`The phone has no ${id}.`);
+    await phone.simulator.tapPoints([point]);
+}
+
+const keyboardStartId = "UIKeyboardLayoutStar Preview";
+
+/** The keys of the keyboard on screen now, from iOS accessibility. */
+function keyboardKeys(screen) {
+    const start = screen.findIndex((item) => item.id === keyboardStartId);
+    return start < 0 ? undefined : screen.slice(start);
+}
+
+/** The key that types `character` on this layout, if it has one. */
+function keyFor(keys, character) {
+    return keys.find((item) =>
+        character === " "
+            ? item.id === "space"
+            : /\p{L}/u.test(character)
+              ? item.text?.toLowerCase() === character.toLowerCase()
+              : item.text === character || item.id === character,
+    );
+}
+
+/** The layout switch: "more" to numbers and punctuation, back to letters. */
+const layoutKey = (keys) => keys.find((item) => item.id === "more" || item.text === "more");
+
+/**
+ * Types `message` on the real native keyboard and taps Send. Letters go in
+ * runs; punctuation switches layout, so the keyboard is re-read around it.
+ * iOS capitalizes the first letter itself; the result must read exactly.
+ */
+async function phoneTypeAndSend(demo, phone, screen, message, phase) {
+    await touch(phone, screen, "stem-composer");
+    let keys = keyboardKeys(
+        await until(
+            demo,
+            async () => {
+                const next = await phone.inspect(`${phase}-keyboard`);
+                return keyboardKeys(next) && next;
+            },
+            "the native keyboard",
+            10000,
+        ),
+    );
+    cue(`phone-typing-${phase}`, demo, phone);
+    let index = 0;
+    const capitalized = keys.some((item) => item.text === "Q");
+    if (capitalized !== /\p{Lu}/u.test(message[0])) {
+        const shift = keys.find((item) => item.id === "shift");
+        if (!shift) throw new Error("The native keyboard has no shift key.");
+        await phone.simulator.tapPoints([boundsCenter(shift)]);
+    }
+    while (index < message.length) {
+        const run = [];
+        while (index < message.length && keyFor(keys, message[index]))
+            run.push(boundsCenter(keyFor(keys, message[index++])));
+        if (run.length > 0) await phone.simulator.tapPoints(run);
+        if (index >= message.length) break;
+        // The next character is on the other layout, or the layout just
+        // changed under us after punctuation.
+        keys = keyboardKeys(await phone.inspect(`${phase}-layout`));
+        if (keyFor(keys, message[index])) continue;
+        const toggle = layoutKey(keys);
+        if (!toggle) throw new Error(`Native keyboard key is missing: ${message[index]}`);
+        await phone.simulator.tapPoints([boundsCenter(toggle)]);
+        keys = keyboardKeys(await phone.inspect(`${phase}-layout`));
+        if (!keyFor(keys, message[index]))
+            throw new Error(`Native keyboard key is missing: ${message[index]}`);
+    }
+    const typed = await phone.inspect(`${phase}-typed`);
+    const composer = typed.find((item) => item.id === "stem-composer");
+    if (composer?.value !== message)
+        throw new Error(`The native keyboard typed "${composer?.value}", not "${message}".`);
+    const send = boundsCenter(typed.find((item) => item.text === "Send"));
+    if (!send) throw new Error("The actual native Send control is missing.");
+    await phone.simulator.tapPoints([send]);
 }
 
 /** Archives earlier takes' filmed rows, so the next New row is the only one. */
@@ -216,7 +301,6 @@ export default {
     rawWindow: true,
     inferenceModes: ["screenplay"],
     world,
-    protocolOpen: coreProtocolOpen,
     phoneFrame: {
         frame: "../core/assets/device/iphone-16-pro-black.png",
         alpha: "../core/assets/device/screen-alpha.png",
@@ -234,7 +318,25 @@ export default {
     async run(demo, gym, { phone, output } = {}) {
         releaseCoordinator = await releaseCoordinatorPrepare(gym);
         await rehearsalsArchive(gym);
-        await sidebarPrepare(gym);
+        await sidebarPrepare(gym.client, {
+            sections: world.sections,
+            seeds: world.seeds,
+            settings: [
+                [stemCellsSetting, true],
+                [defaultModelSetting, astra],
+            ],
+        });
+        steve = await gym.memberClient(world.steveKey);
+        const steveProfile = (await steve.getProfile()).profile;
+        world.steveUserIdSet(steveProfile.userId);
+        await sidebarPrepare(steve, {
+            sections: world.steveSections,
+            seeds: world.steveSeeds,
+            settings: [
+                [stemCellsSetting, true],
+                [defaultModelSetting, astra],
+            ],
+        });
         const page = demo.page;
         await page.setViewportSize(viewport);
         await page.reload({ waitUntil: "domcontentloaded" });
@@ -260,6 +362,7 @@ export default {
         );
         recordedSpaceId = created.id;
         recordedAgentId = created.target.agentId;
+        recordedTaskId = created.target.id;
         const { workspace } = await gym.client.getWorkspace(created.target.workspaceId);
         checkout = await realpath(workspace.compute.path);
         if ((await readdir(checkout)).length > 0)
@@ -349,30 +452,9 @@ export default {
                 "--batteryLevel",
                 "100",
             ]);
-            // The relaunched app must load this take's own New row from the
-            // live daemon: proof the direct connection is current.
-            await phone.prepare({ relaunch: true, ready: phoneHome("New") });
-            // The home composer starts new work on the same Opus, set through
-            // its real model menu, off camera.
-            const onOpus = (screen) =>
-                screen.some((item) => item.text?.startsWith("Model: Opus 5.5"));
-            if (!onOpus(await phone.inspect("home-composer"))) {
-                await phone.simulator.run("- tapOn:\n    text: 'Model: .*'");
-                await page.waitForTimeout(650);
-                await phone.simulator.run("- tapOn:\n    text: 'Opus 5.5.*'");
-                await page.waitForTimeout(650);
-            }
-            const opening = await phone.inspect("phone-opening");
-            if (!onOpus(opening))
-                throw new Error("The phone's new-work composer is not on Opus 5.5.");
-            const rows = phoneRows(opening).filter((row) => row.kind === "space");
-            if (rows[0]?.label !== "Happy" || rows[1]?.label !== "New")
-                throw new Error("The phone must open on the same New row, right under Happy.");
-            for (const seed of world.seeds) {
-                const section = world.sections.find((entry) => entry.id === seed.section).label;
-                if (!phoneFiledUnder(opening, seed.title, section))
-                    throw new Error(`The phone does not list ${seed.title} under ${section}.`);
-            }
+            // The phone is paired as Steve. The relaunched app must load his
+            // own sidebar from the live daemon: proof the connection is his.
+            await phone.prepare({ relaunch: true, ready: phoneSteveHome });
             await phone.screenshot("phone-opening");
             await phone.start();
         }
@@ -408,23 +490,18 @@ export default {
         await demo.pointerVisible(false);
         cue("typing-started", demo, phone);
         await demo.type(world.prompt, { perKey: 52, after: 0 });
-        // The phone comes forward for the sidebar's live sync.
-        if (phone) cue("phone-enter", demo, phone);
         await demo.hold(500);
         await demo.press("Enter", { badge: 0, before: 0, after: 200 });
         cue("work-started", demo, phone);
 
         // The first message names the row; Focus grows its icon and files it.
-        // Each step waits for the paired phone to draw the previous one.
-        const sectionLabel = world.sections.find((entry) => entry.id === world.section).label;
-        const phoneShows = (phase, read, label) =>
-            phone ? until(demo, async () => read(await phone.inspect(phase)), label) : undefined;
         await until(demo, () => world.focusHasReached("name"), "the subject naming request");
         await demo.hold(1000);
         world.focusRelease("name");
         await until(
             demo,
-            async () => (await spaceRead(gym, recordedSpaceId))?.title === world.sessionTitle,
+            async () =>
+                (await spaceRead(gym.client, recordedSpaceId))?.title === world.sessionTitle,
             "the stem cell to name itself",
         );
         const row = page
@@ -432,14 +509,12 @@ export default {
             .filter({ hasText: world.sessionTitle })
             .first();
         cue("stem-named", demo, phone, await rectOf(row));
-        await phoneShows("phone-named", phoneHome(world.sessionTitle), "the phone's renamed row");
-        if (phone) cue("phone-named", demo, phone);
         await until(demo, () => world.focusHasReached("icon"), "Focus to read the sidebar");
-        await demo.hold(phone ? 700 : 300);
+        await demo.hold(700);
         world.focusRelease("icon");
         await until(
             demo,
-            async () => (await spaceRead(gym, recordedSpaceId))?.icon.type === "library",
+            async () => (await spaceRead(gym.client, recordedSpaceId))?.icon.type === "library",
             "the stem cell's icon",
         );
         cue(
@@ -454,12 +529,6 @@ export default {
                     .first(),
             ),
         );
-        await phoneShows(
-            "phone-icon",
-            (screen) => phoneIcon(screen, world.sessionTitle) === world.icon,
-            "the phone's grown icon",
-        );
-        if (phone) cue("phone-icon", demo, phone);
         world.focusRelease("work");
         // The work starts thinking while Focus files the row.
         const thinking = page
@@ -474,27 +543,15 @@ export default {
         world.focusRelease("file");
         await until(
             demo,
-            () => filedUnder(gym, recordedSpaceId, world.section),
+            () => filedUnder(gym.client, recordedSpaceId, world.section),
             "Focus to file the row",
         );
         await demo.hold(500);
         cue("stem-filed", demo, phone, await rectOf(row));
-        const phoneFiled = await phoneShows(
-            "phone-filed",
-            (screen) => phoneFiledUnder(screen, world.sessionTitle, sectionLabel) && screen,
-            "the phone to file the row",
-        );
-        if (phone) {
-            cue("phone-filed", demo, phone, {
-                phoneRect: boundsRect(
-                    phoneFiled.find((item) => item.id === `stem-row:space:${world.sessionTitle}`),
-                ),
-            });
-            await phone.screenshot("phone-filed");
-            await demo.hold(1800);
-            cue("phone-exit", demo, phone);
-        }
-        Object.assign(filing, await spaceRead(gym, recordedSpaceId));
+        // Steve is not part of this work yet: his phone has no row for it.
+        if (phone && !phoneSteveHome(await phone.inspect("phone-before-loop-in")))
+            throw new Error("Steve's phone shows the work before he is looped in.");
+        Object.assign(filing, await spaceRead(gym.client, recordedSpaceId));
 
         await thinking;
         await until(
@@ -547,172 +604,138 @@ export default {
         await demo.hold(400);
         cue("artifact-shown", demo, phone, await rectOf(artifactContent));
         await page.screenshot({ path: join(output, "artifact.png") });
+
+        // ---- The agent finds who follows voice work and loops them in.
         await until(
             demo,
-            () => world.hasReached("astra-launch", recordedAgentId),
+            () => world.hasReached("teammates", recordedAgentId),
             "the published artifact",
         );
-        await demo.hold(2800);
-        world.release("astra-launch", recordedAgentId);
+        await demo.hold(2200);
+        world.release("teammates", recordedAgentId);
         await until(
             demo,
-            () => world.hasReached("finishing", recordedAgentId),
-            "Astra’s delegation",
+            () => world.hasReached("notify", recordedAgentId),
+            "the teammate directory read",
         );
-        const spawned = page.getByText(world.astraTask, { exact: true }).first();
-        await spawned.waitFor();
-        await until(demo, () => settled(spawned), "the complete Astra spawn label");
-        cue("astra-spawned", demo, phone, await rectOf(spawned));
-        await demo.hold(2800);
-        world.release("finishing", recordedAgentId);
-        await page.getByText(world.completionText.slice(0, 48)).first().waitFor();
+        await demo.hold(700);
+        world.release("notify", recordedAgentId);
+        await until(
+            demo,
+            () => world.hasReached("loop-in", recordedAgentId),
+            "the teammate notice",
+        );
+        world.release("loop-in", recordedAgentId);
+        const loopIn = page.getByText(world.loopInLead.slice(0, 32)).last();
+        await loopIn.waitFor({ timeout: 20000 });
+        await until(
+            demo,
+            async () => (await loopIn.innerText()).includes(`@${world.steveName}`),
+            "the mention to read as Steve's name",
+        );
+        await until(demo, () => settled(loopIn), "the loop-in reply to finish arriving");
+        cue("looped-in", demo, phone, await rectOf(loopIn));
+        await page.screenshot({ path: join(output, "looped-in.png") });
+        // Steve's own Focus was told; it adds the work to his sidebar.
+        await until(demo, () => world.focusHasReached("join"), "Steve's Focus to be told");
+        await demo.hold(900);
+        world.focusRelease("join");
         await until(
             demo,
             async () =>
-                (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs.every(
-                    (run) => run.status !== "running",
-                ),
-            "the completed first turn",
+                (await steve.getTask(recordedTaskId).catch(() => undefined))?.membership?.unread
+                    ?.reason === "looped_in",
+            "Steve to be looped in",
         );
-        cue("response-settled", demo, phone);
-        await demo.hold(1200);
+        cue("steve-joined", demo, phone);
+        Object.assign(loopInEvidence, {
+            membership: (await steve.getTask(recordedTaskId)).membership,
+            teammate: (await steve.getProfile()).profile,
+        });
 
-        let phoneReturned = Promise.resolve();
+        let steveSent;
         if (phone) {
-            const home = await phone.inspect("completed-home");
-            if (!phoneFiledUnder(home, world.sessionTitle, sectionLabel))
-                throw new Error("The phone lost the filed row before Steve opens it.");
-            await phone.screenshot("phone-home");
-            // Real touches at the controls' inspected bounds; Maestro's
-            // tapOn waits for the app to idle, seconds on a live transcript.
-            const touch = async (screen, id) => {
-                const point = boundsCenter(screen.find((item) => item.id === id));
-                if (!point) throw new Error(`The phone has no ${id}.`);
-                await phone.simulator.tapPoints([point]);
-            };
+            const highlighted = (screen) =>
+                screen.find(
+                    (item) =>
+                        item.id === `stem-row:space:${world.sessionTitle}` &&
+                        item.value?.startsWith("new"),
+                );
+            const home = await until(
+                demo,
+                async () => {
+                    const screen = await phone.inspect("phone-looped-in");
+                    return highlighted(screen) && screen;
+                },
+                "Steve's phone to show the new row",
+                15000,
+            );
+            await phone.screenshot("phone-looped-in");
             cue("phone-enter", demo, phone);
-            await demo.hold(1200);
-            await touch(home, `stem-row:space:${world.sessionTitle}`);
+            await demo.hold(900);
+            cue("phone-row", demo, phone, { phoneRect: boundsRect(highlighted(home)) });
+            await demo.hold(2200);
+            await touch(phone, home, `stem-row:space:${world.sessionTitle}`);
             cue("phone-session-open", demo, phone);
             const transcript = await until(
                 demo,
                 async () => {
                     const screen = await phone.inspect("phone-session");
-                    return screen.some((item) => item.text === world.completionText) && screen;
-                },
-                "the phone's session to show the completed reply",
-                10000,
-            );
-            await demo.hold(2000);
-            await touch(transcript, "stem-composer");
-            const keyboard = await until(
-                demo,
-                async () => {
-                    const screen = await phone.inspect("native-keyboard-visible");
                     return (
-                        screen.some((item) => item.id === "UIKeyboardLayoutStar Preview") && screen
+                        screen.some(
+                            (item) =>
+                                item.id === "stem-message" &&
+                                item.text?.includes(`@${world.steveName}`),
+                        ) && screen
                     );
                 },
-                "the native keyboard",
+                "Steve's phone to show the mention",
                 10000,
             );
-            const keyboardStart = keyboard.findIndex(
-                (item) => item.id === "UIKeyboardLayoutStar Preview",
-            );
-            if (keyboardStart < 0) throw new Error("The actual iPhone keyboard is missing.");
-            const keys = keyboard.slice(keyboardStart);
-            cue("phone-typing", demo, phone);
-            // Tap the actual native keys, resolved from iOS accessibility.
-            const characters = [
-                ...(keys.some((item) => item.text === "S") ? ["shift"] : []),
-                ...stevePhoneMessage,
-            ];
-            const points = characters.map((character) => {
-                const point = boundsCenter(
-                    keys.find((item) =>
-                        character === "shift"
-                            ? item.id === "shift"
-                            : character === " "
-                              ? item.id === "space"
-                              : item.text?.toLowerCase() === character,
-                    ),
-                );
-                if (!point) throw new Error(`Native keyboard key is missing: ${character}`);
-                return point;
-            });
-            const taps = await phone.simulator.tapPoints(points);
-            await writeFile(join(output, "native-key-taps.json"), JSON.stringify(taps, null, 2));
-            const typed = await phone.inspect("native-ship-it-typed");
-            if (
-                !typed.some(
-                    (item) => item.id === "stem-composer" && item.value === stevePhoneMessage,
-                )
-            )
-                throw new Error("The native keyboard did not type the exact requested message.");
-            const send = boundsCenter(typed.find((item) => item.text === "Send"));
-            if (!send) throw new Error("The actual native Send control is missing.");
-            await phone.simulator.tapPoints([send]);
+            await demo.hold(1800);
+            await phoneTypeAndSend(demo, phone, transcript, world.steveFeedback, "feedback");
             cue("phone-sent", demo, phone);
-            // Steve sees the reply start on the phone before putting it away.
-            await until(
-                demo,
-                async () =>
-                    (await phone.inspect("phone-reply")).some((item) =>
-                        item.text?.includes("Pushing to main"),
-                    ),
-                "the phone to show the reply to ship it",
-                15000,
-            );
-            cue("phone-reply", demo, phone);
-            await demo.hold(1400);
-            // Steve returns to the sidebar while the desktop carries on.
-            await touch(typed, "stem-chat-back");
-            cue("phone-exit", demo, phone);
-            phoneReturned = phone.prepare({ ready: phoneHome(world.sessionTitle) });
-            phoneReturned.catch(() => undefined);
         } else {
-            await gym.client.sendMessage(recordedAgentId, {
-                text: stevePhoneMessage,
-                // The session's own model and effort, so no mode change is announced.
+            await steve.sendMessage(recordedAgentId, {
+                text: world.steveFeedback,
                 mode: { ...world.opusMode, permissionMode: "auto" },
             });
         }
-        await page.getByText(steve.name, { exact: true }).first().waitFor({ timeout: 15000 });
-        cue("steve-message-visible", demo, phone);
-        const steveMessage = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
+        steveSent = page.getByText(world.steveFeedback, { exact: true }).last();
+        await steveSent.waitFor({ timeout: 15000 });
+        cue("steve-feedback-visible", demo, phone);
+        const feedback = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
             .flatMap((run) => run.messages)
             .findLast((message) => message.role === "user");
-        if (steveMessage?.mode?.permissionMode !== "auto")
-            throw new Error("Steve's message must stay in Auto.");
-        const greeting = page.getByText(world.shipGreeting.slice(0, 32)).first();
-        await greeting.waitFor({ timeout: 20000 });
-        await until(demo, () => settled(greeting), "the greeting to finish arriving");
-        cue("greeting", demo, phone);
+        if (feedback?.metadata?.userId !== loopInEvidence.teammate.userId)
+            throw new Error("Steve's feedback must arrive as Steve.");
+
+        // ---- The agent narrows the waveform, ships, and tells Steve.
+        await until(demo, () => world.hasReached("narrow", recordedAgentId), "the feedback run");
+        await demo.hold(700);
+        world.release("narrow", recordedAgentId);
+        await until(demo, () => world.hasReached("ship", recordedAgentId), "the narrowed preview");
+        const narrowedContent = page
+            .locator('[data-happy-desktop-ui="inline-page"]')
+            .filter({ hasText: world.narrowedTitle })
+            .last()
+            .locator('[data-happy-desktop-ui="inline-page-content"]');
+        await until(
+            demo,
+            async () => ((await narrowedContent.boundingBox())?.height ?? 0) > 60,
+            "the narrowed waveform to draw inline",
+            20000,
+        );
+        await demo.hold(400);
+        cue("narrowed", demo, phone, await rectOf(narrowedContent));
+        await demo.hold(1800);
+        world.release("ship", recordedAgentId);
         const shell = page
-            .locator('[data-happy-desktop-ui="agent-activity-call"][data-status="running"]')
+            .locator('[data-happy-desktop-ui="agent-activity-call"]')
             .filter({ hasText: "Bash" })
             .last();
         await shell.waitFor({ timeout: 20000 });
         cue("ship-running", demo, phone);
-        await until(demo, () => world.hasReached("astra-running"), "Astra's review");
-        world.release("astra-running");
-        await until(
-            demo,
-            async () => {
-                const { subagents } = await gym.client.getAgentActivity(recordedAgentId);
-                return (
-                    subagents.length > 0 &&
-                    subagents.every(
-                        (child) =>
-                            child.status === "idle" &&
-                            child.subagents.running === 0 &&
-                            child.processes.running === 0,
-                    )
-                );
-            },
-            "Astra's completed review",
-        );
-        cue("astra-completed", demo, phone);
         await until(
             demo,
             async () => (await gym.client.getWorkspaceGit(workspace.id)).git.changedFiles === 0,
@@ -722,40 +745,101 @@ export default {
         cue("changes-cleared", demo, phone);
         await until(
             demo,
-            () => world.hasReached("review-finished", recordedAgentId),
+            () => world.hasReached("shipped", recordedAgentId),
             "the completed shipping command",
         );
-        world.release("review-finished", recordedAgentId);
-        const deployed = page.getByText(world.shipResult.slice(0, 24)).first();
-        await deployed.waitFor({ timeout: 60000 });
-        await until(demo, () => settled(deployed), "the deploy result to finish arriving");
+        world.release("shipped", recordedAgentId);
+        const shipped = page.getByText(world.shippedLead.slice(0, 24)).last();
+        await shipped.waitFor({ timeout: 60000 });
+        await until(demo, () => settled(shipped), "the shipped reply to finish arriving");
         cue("deployed", demo, phone);
         demo.confetti({ duration: 3200 });
+
+        if (phone) {
+            const session = await until(
+                demo,
+                async () => {
+                    const screen = await phone.inspect("phone-shipped");
+                    return (
+                        screen.some(
+                            (item) =>
+                                item.id === "stem-message" &&
+                                item.text?.includes(world.shippedLead.slice(0, 24)),
+                        ) && screen
+                    );
+                },
+                "Steve's phone to show the shipped reply",
+                15000,
+            );
+            await demo.hold(1200);
+            await phoneTypeAndSend(demo, phone, session, world.steveThanks, "thanks");
+            cue("phone-thanks", demo, phone);
+            await demo.hold(1400);
+            cue("phone-exit", demo, phone);
+            // Out of frame, Steve goes back to his sidebar.
+            await demo.hold(1000);
+            await touch(phone, await phone.inspect("phone-away"), "stem-chat-back");
+        } else {
+            await steve.sendMessage(recordedAgentId, {
+                text: world.steveThanks,
+                mode: { ...world.opusMode, permissionMode: "auto" },
+            });
+        }
+        await page.getByText(world.steveThanks, { exact: true }).last().waitFor({ timeout: 15000 });
+        cue("steve-thanks-visible", demo, phone);
+
+        // ---- The owner's Focus hears Steve sign off and archives the shipped work.
         await until(
             demo,
             async () =>
                 (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs.every(
                     (run) => run.status !== "running",
                 ),
-            "the completed shipping turn",
+            "the agent's thanks",
         );
-        await until(
-            demo,
-            async () => !(await page.getByText("Working in subagents", { exact: true }).count()),
-            "the completed collaborator status to reach the UI",
-        );
-        await demo.hold(1400);
-        cue("outro", demo, phone);
-        await demo.hold(3600);
-        cue("end", demo, phone);
-        await phoneReturned;
-        await demo.finish();
+        // The shipped checkout, read before archiving takes its workspace away.
         shippingEvidence = await shippingVerify(gym, workspace.id, {
             origin: shippingFixture.origin,
             baseline: shippingFixture.baseline,
             path: world.logicPath,
             before: world.logicBefore,
         });
+        loopInEvidence.history = await gym.client.getMessages(recordedAgentId, { limit: 64 });
+        await until(demo, () => world.focusHasReached("archive"), "Focus to read Steve's reply");
+        // The person moves on to their next voice work; the shipped row is
+        // still in the sidebar beside it.
+        const next = page
+            .locator('[data-happy-desktop-ui="sidebar-item"]')
+            .filter({ hasText: world.seeds[1].title })
+            .first();
+        await demo.pointerVisible(true);
+        await demo.click(next, { after: 300 });
+        await page.getByText(world.seeds[1].reply.slice(0, 40)).first().waitFor();
+        await demo.pointerVisible(false);
+        cue("moved-on", demo, phone);
+        const rowPlace = await rectOf(row);
+        await demo.hold(1000);
+        cue("archiving", demo, phone, rowPlace);
+        await demo.hold(900);
+        world.focusRelease("archive");
+        await until(
+            demo,
+            async () => (await gym.client.getTask(recordedTaskId)).task.archivedAt !== null,
+            "Focus to archive the shipped task",
+        );
+        await until(
+            demo,
+            async () => (await row.count()) === 0,
+            "the archived row to leave the sidebar",
+            15000,
+        );
+        cue("archived", demo, phone, rowPlace);
+        await page.screenshot({ path: join(output, "archived.png") });
+        await demo.hold(2400);
+        cue("outro", demo, phone);
+        await demo.hold(3600);
+        cue("end", demo, phone);
+        await demo.finish();
         await writeFile(
             join(output, "shipping-verified.json"),
             JSON.stringify(shippingEvidence, null, 2),
@@ -773,10 +857,14 @@ export default {
                 sidebar:
                     "Sections were made off camera as the person's own sidebar edit. Earlier rows are stem cells made through the API and filed by Focus the same way.",
                 picker: "The gym enables today's models through per-provider include_models; GPT-6 Sol is not included.",
+                team: "A team daemon (feature.team) with two seeded members, Alex (the owner, at the desktop) and Steve (Designer, follows every voice feature). The gym signs each member's HS256 token and gives each a socket that speaks to the daemon as them.",
                 collaborator:
-                    "Fictional Steve, one explicit protocol-fixture identity attached to the real ship-it message",
-                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera to this demo daemon through its real direct mobile connector. Its sidebar updates arrive by live sync; each opening step waits until the phone has drawn the previous one. Steve types ship it on the real iOS keyboard. Its new-work composer was set to Opus 5.5 off camera.",
-                spawn: "Real create_agent; Astra's review completes during shipping, before Deployed.",
+                    "Fictional Steve is a real second member. The agent's real list_teammates and notify_teammate tools loop him in; his own Focus answers with its real join_task; his membership carries the looped_in unread mark. His messages are authored by his own token.",
+                steveSidebar:
+                    "Steve's Design section and two rows were made off camera through his own client, filed by his Focus the same way.",
+                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera as Steve to this team daemon through its real direct mobile connector. It shows the looped-in row by live sync; Steve opens it and types both replies on the real iOS keyboard.",
+                archive:
+                    "The owner's Focus hears Steve's reply in the owner's work and calls its real archive_shipped_task; the screenplay chooses to.",
                 artifact:
                     "Real create_artifact and write_artifact_file through the daemon; the screenplay writes the page. Browser-local mode has no artifact page host, so the demo patch artifact-site.patch serves the daemon's own artifact files and renders them in an iframe, where Electron uses its own view.",
                 shipping:
@@ -785,6 +873,8 @@ export default {
             },
             framing,
             filing,
+            loopIn: loopInEvidence,
+            steveSpaces: (await steve.listSpaces()).spaces,
             checkout,
             releaseCoordinator: { id: releaseCoordinator.id, name: releaseCoordinatorName },
             viewport,
@@ -794,8 +884,7 @@ export default {
             spaces: (await gym.client.listSpaces()).spaces,
             health: await gym.client.getHealth(),
             agentId: recordedAgentId,
-            history: await gym.client.getMessages(recordedAgentId, { limit: 64 }),
-            activity: await gym.client.getAgentActivity(recordedAgentId),
+            history: loopInEvidence.history,
             finalVisibleText: await page.locator("body").innerText(),
         };
     },

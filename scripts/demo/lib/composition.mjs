@@ -246,7 +246,7 @@ async function phoneLayersBuild(composition, directory) {
 }
 
 /** Where the phone is at one instant: parked, focused, or easing between. */
-function phonePose(composition, focus, seconds) {
+function phonePose(composition, focus, seconds, canvas) {
     const { output, phone } = composition;
     const ease = cubicBezier(phone.transition.easing);
     const progress = Math.max(
@@ -258,6 +258,13 @@ function phonePose(composition, focus, seconds) {
                   : 1 - ease((seconds - window.exit) / phone.transition.seconds),
         ),
     );
+    // A phone that enters from below rises from out of frame to its pose and
+    // leaves the same way; between its focus windows it is not on screen.
+    if (phone.enter === "bottom") {
+        const height = (phone.width * canvas.height) / canvas.width;
+        const hidden = output.height + height + 40;
+        return { scale: 1, left: phone.left, bottom: hidden + (phone.bottom - hidden) * progress };
+    }
     const scale = 1 + (phone.focusScale - 1) * progress;
     // A phone kept clear of the desktop grows from its left edge, away from
     // the window, and never covers it.
@@ -312,7 +319,7 @@ async function frameCompose({
         ])
         .png({ compressionLevel: 0 })
         .toBuffer();
-    const pose = phonePose(composition, focus, seconds);
+    const pose = phonePose(composition, focus, seconds, layers.phone.canvas);
     const width = Math.round(phone.width * pose.scale);
     const height = Math.round((width * layers.phone.canvas.height) / layers.phone.canvas.width);
     const left = Math.round(pose.left);
