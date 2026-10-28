@@ -17,6 +17,10 @@ import { happyAgentVersionNewer } from "./happyAgentVersion";
  * installed copy that is the same version or newer is simply opened instead;
  * an older one is replaced. Anywhere else, Happy runs where it is.
  *
+ * A launch from the disk image first hands its mount point to
+ * `diskImageOpened`, the one moment what the image carries beside the app can
+ * be read.
+ *
  * Every failure leaves this launch running from where it started, so nothing
  * here can keep Happy from opening.
  *
@@ -26,11 +30,13 @@ import { happyAgentVersionNewer } from "./happyAgentVersion";
 export async function macApplicationsInstall(options: {
     /** A hidden launch reopens hidden, and keeps its Happy home. */
     readonly hidden: boolean;
+    /** Reads what the disk image carries before it is ejected. Its failure is only logged. */
+    readonly diskImageOpened: (mountPoint: string) => Promise<void>;
 }): Promise<boolean> {
     if (process.platform !== "darwin" || !app.isPackaged || app.isInApplicationsFolder())
         return false;
     try {
-        return await install(options.hidden);
+        return await install(options.hidden, options.diskImageOpened);
     } catch (error) {
         console.warn("Happy could not install itself into Applications.", error);
         return false;
@@ -42,7 +48,10 @@ interface BundleInfo {
     readonly version: string;
 }
 
-async function install(hidden: boolean): Promise<boolean> {
+async function install(
+    hidden: boolean,
+    diskImageOpened: (mountPoint: string) => Promise<void>,
+): Promise<boolean> {
     const running = resolve(app.getPath("exe"), "..", "..", "..");
     if (!running.endsWith(".app")) return false;
     const original = translocatedOriginal(running);
@@ -51,6 +60,10 @@ async function install(hidden: boolean): Promise<boolean> {
     const volume = await diskImageMountPoint(source);
     const downloaded = pathInside(source, app.getPath("downloads"));
     if (!translocated && volume === undefined && !downloaded) return false;
+    if (volume !== undefined)
+        await diskImageOpened(volume).catch((error: unknown) =>
+            console.warn(`Happy could not read what ${volume} carries.`, error),
+        );
 
     const directory = await applicationsDirectory();
     if (directory === undefined) return false;

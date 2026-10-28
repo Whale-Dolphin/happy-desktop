@@ -1,11 +1,15 @@
 import { execFile, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { desktopFlavorNames, desktopFlavorRead } from "./desktopFlavors.mjs";
+import {
+    macAgentManifestResource,
+    macDiskImageContents,
+    macFirstInstallVerify,
+} from "./happy-agent-first-install.mjs";
 import { packagedMainModulesVerify } from "./verify-packaged-main-modules.mjs";
 
 const workspace = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -30,7 +34,7 @@ await keychainSigningIdentityValidate();
 
 await run("pnpm", ["desktop:assets"]);
 await run("pnpm", ["--dir", "packages/happy-desktop-electron", "typecheck"]);
-// Every flavor carries the same Happy Agent release, fetched once per architecture.
+// Every flavor's disk image carries the same Happy Agent release, fetched once per architecture.
 const happyAgentBundle = join("release", ".happy-agent");
 for (const selectedArchitecture of architectures)
     await run(process.execPath, [
@@ -96,23 +100,25 @@ for (const selectedFlavorName of flavors) {
     const output = join("release", selectedFlavor.output);
     await rm(join(desktopDirectory, output), { force: true, recursive: true });
     await mkdir(join(desktopDirectory, output), { recursive: true });
-    const config = builderConfiguration(
-        packageJson.build,
-        output,
-        staging,
-        selectedFlavorName,
-        selectedFlavor,
-    );
     try {
-        await build({
-            config,
-            projectDir: join(desktopDirectory, staging),
-            publish: "never",
-            targets: Platform.MAC.createTarget(
-                ["dmg", "zip"],
-                ...architectures.map((value) => (value === "arm64" ? Arch.arm64 : Arch.x64)),
-            ),
-        });
+        // One architecture at a time: each disk image carries its own agent.
+        for (const selectedArchitecture of architectures)
+            await build({
+                config: builderConfiguration(
+                    packageJson.build,
+                    output,
+                    staging,
+                    selectedFlavorName,
+                    selectedFlavor,
+                    selectedArchitecture,
+                ),
+                projectDir: join(desktopDirectory, staging),
+                publish: "never",
+                targets: Platform.MAC.createTarget(
+                    ["dmg", "zip"],
+                    selectedArchitecture === "arm64" ? Arch.arm64 : Arch.x64,
+                ),
+            });
     } finally {
         await rm(join(desktopDirectory, staging), { force: true, recursive: true });
     }
@@ -131,8 +137,9 @@ console.log(
     `Built, signed, notarized, stapled, and verified ${flavors.join(", ")} for ${architectures.join(", ")}.`,
 );
 
-function builderConfiguration(base, output, app, flavorName, selectedFlavor) {
+function builderConfiguration(base, output, app, flavorName, selectedFlavor, selectedArchitecture) {
     const buildResources = join(desktopDirectory, "build");
+    const agent = join(desktopDirectory, happyAgentBundle, `darwin-${selectedArchitecture}`);
     const entitlements = join(buildResources, "entitlements.mac.plist");
     const icon = join(desktopDirectory, "assets", "app-icon", "generated", "app-icon.icns");
     return {
@@ -158,11 +165,13 @@ function builderConfiguration(base, output, app, flavorName, selectedFlavor) {
                     "!.bin{,/**/*}",
                 ],
             },
-            {
-                from: join(desktopDirectory, happyAgentBundle, "darwin-${arch}"),
-                to: "happy-agent",
-            },
+            macAgentManifestResource(agent),
         ],
+        // Only the disk image, which is what installs Happy, carries the agent.
+        dmg: {
+            ...base.dmg,
+            contents: macDiskImageContents(selectedFlavor.productName, agent),
+        },
         ...(flavorName === "local-web"
             ? {
                   files: [
@@ -179,10 +188,6 @@ function builderConfiguration(base, output, app, flavorName, selectedFlavor) {
             entitlements,
             entitlementsInherit: entitlements,
             icon,
-            // The agent arrives signed and notarized by its own release, with
-            // its own entitlements, and is installed byte for byte as the
-            // update channel would download it; re-signing would change both.
-            signIgnore: ["/Contents/Resources/happy-agent/happy-agent$"],
         },
         publish: { ...structuredClone(base.publish), channel: selectedFlavor.channel },
     };
@@ -231,32 +236,17 @@ async function releaseVerify(selectedFlavor, output) {
             "dist/main.js",
             "dist/happyAgentRendererUtility.js",
         ]);
-        await bundledAgentVerify(application, selectedArchitecture);
+        await macFirstInstallVerify({
+            application,
+            architecture: selectedArchitecture,
+            dmg,
+            zip: dmg.replace(/\.dmg$/u, ".zip"),
+        });
         await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", application]);
         await staplerValidate(application);
         await run("spctl", ["--assess", "--type", "execute", "--verbose=4", application]);
         await run("hdiutil", ["verify", dmg]);
     }
-}
-
-/*
- * The app must carry the agent it was meant to: the staged bytes, still under
- * the agent release's own signature, for this architecture.
- */
-async function bundledAgentVerify(application, selectedArchitecture) {
-    const bundled = join(application, "Contents", "Resources", "happy-agent");
-    const manifest = JSON.parse(await readFile(join(bundled, "happy-agent.json"), "utf8"));
-    const binary = join(bundled, "happy-agent");
-    const digest = createHash("sha256")
-        .update(await readFile(binary))
-        .digest("hex");
-    if (digest !== manifest.sha256) throw new Error(`${binary} does not match its manifest.`);
-    await run("codesign", ["--verify", "--strict", "--verbose=2", binary]);
-    const architectures = await runCaptured("lipo", ["-archs", binary]);
-    const expected = selectedArchitecture === "arm64" ? "arm64" : "x86_64";
-    if (architectures.code !== 0 || architectures.output.trim() !== expected)
-        throw new Error(`${binary} is not a ${expected} Happy Agent.`);
-    console.log(`Bundled Happy Agent ${manifest.version} (${expected}) verified.`);
 }
 
 async function stagedPackagePrepare(path, selectedFlavor) {

@@ -116,7 +116,8 @@ import { DesktopProfilerController } from "./desktopProfilerController";
 import { DesktopWindowStateStore } from "./windowState";
 import { desktopBuildIdentityRead } from "./buildIdentity";
 import { DesktopDaemonController } from "./desktopDaemonController";
-import { HAPPY_AGENT_BUNDLE_DIRECTORY } from "./happyAgentBundled";
+import { happyDaemonPaths } from "./happyAgentBinaryPaths";
+import { HAPPY_AGENT_BUNDLE_DIRECTORY, happyAgentDiskImageInstall } from "./happyAgentBundled";
 import { macApplicationsInstall } from "./macApplicationsInstall";
 import { desktopSmokeReportStart } from "./desktopSmokeReport";
 import { cloudAuthProductionRedirectUri } from "../shared/cloudAuthConfig";
@@ -1684,7 +1685,19 @@ void app
     .then(async () => {
         // Opening the downloaded app is what installs it; nothing below runs
         // in a launch that is leaving for the installed copy.
-        if (await macApplicationsInstall({ hidden: desktopWindowsHidden })) return;
+        if (
+            await macApplicationsInstall({
+                hidden: desktopWindowsHidden,
+                // The first-install disk image carries Happy Agent beside the app.
+                diskImageOpened: (mountPoint) =>
+                    happyAgentDiskImageInstall(
+                        happyDaemonPaths(process.env),
+                        mountPoint,
+                        process.resourcesPath,
+                    ),
+            })
+        )
+            return;
         if (!desktopWindowsHidden && !app.isPackaged && applicationIconPath)
             app.dock?.setIcon(applicationIconPath);
         happyAgentRendererSession = await happyAgentRendererSessionCreate(

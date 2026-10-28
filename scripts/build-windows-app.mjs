@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { open, readdir, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
@@ -67,41 +67,41 @@ await rm(output, { recursive: true, force: true });
 // usb ships prebuilds for every platform, and signing every .node file refuses
 // another platform's binary, so the Windows package keeps only win32 prebuilds.
 const otherPlatformPrebuilds = "!node_modules/usb/prebuilds/{android,darwin,linux}-*{,/**}";
+const config = {
+    ...structuredClone(metadata.build),
+    forceCodeSigning: true,
+    win: {
+        ...metadata.build.win,
+        signExts: [".exe", ".dll", ".node"],
+        azureSignOptions: signing,
+    },
+    appId: flavor.appId,
+    productName: flavor.productName,
+    artifactName: `${flavor.artifactPrefix}-\${version}-\${arch}.\${ext}`,
+    extraMetadata: { name: flavor.updaterCacheDirName.replace(/-updater$/u, "") },
+    directories: { ...metadata.build.directories, output },
+    files: [
+        ...(flavorName === "local-web"
+            ? [
+                  "dist/*.js",
+                  "dist/assets/**/*.js",
+                  "dist/preload.cjs",
+                  "assets/app-icon/generated/app-icon.png",
+                  "package.json",
+              ]
+            : metadata.build.files),
+        otherPlatformPrebuilds,
+    ],
+    // The app carries only the agent's manifest; the Setup installer below
+    // carries the agent itself.
+    extraResources: [{ from: happyAgentBundle, to: "happy-agent", filter: ["happy-agent.json"] }],
+    publish: { ...metadata.build.publish, channel: flavor.channel },
+};
 await build({
     projectDir: desktop,
     publish: "never",
     targets: Platform.WINDOWS.createTarget(["nsis"], Arch.x64),
-    config: {
-        ...structuredClone(metadata.build),
-        forceCodeSigning: true,
-        win: {
-            ...metadata.build.win,
-            // Every other .exe is signed by default. The bundled agent keeps the
-            // signature its own release gave it, byte for byte as the agent's
-            // update channel would download it.
-            signExts: [".dll", ".node", "!happy-agent.exe"],
-            azureSignOptions: signing,
-        },
-        appId: flavor.appId,
-        productName: flavor.productName,
-        artifactName: `${flavor.artifactPrefix}-\${version}-\${arch}.\${ext}`,
-        extraMetadata: { name: flavor.updaterCacheDirName.replace(/-updater$/u, "") },
-        directories: { ...metadata.build.directories, output },
-        files: [
-            ...(flavorName === "local-web"
-                ? [
-                      "dist/*.js",
-                      "dist/assets/**/*.js",
-                      "dist/preload.cjs",
-                      "assets/app-icon/generated/app-icon.png",
-                      "package.json",
-                  ]
-                : metadata.build.files),
-            otherPlatformPrebuilds,
-        ],
-        extraResources: [{ from: happyAgentBundle, to: "happy-agent" }],
-        publish: { ...metadata.build.publish, channel: flavor.channel },
-    },
+    config,
 });
 const unpacked = join(output, "win-unpacked", "resources", "app.asar.unpacked");
 const prebuilds = await readdir(join(unpacked, "node_modules", "usb", "prebuilds"));
@@ -123,13 +123,16 @@ for (const entry of await readdir(unpacked, { recursive: true, withFileTypes: tr
     console.log(`Packaged Windows native module: ${path}`);
 }
 const bundledAgent = join(output, "win-unpacked", "resources", "happy-agent");
+const bundledEntries = await readdir(bundledAgent);
+if (bundledEntries.length !== 1 || bundledEntries[0] !== "happy-agent.json")
+    throw new Error(`The update must carry only the agent manifest: ${bundledEntries.join(", ")}.`);
 const bundledManifest = JSON.parse(await readFile(join(bundledAgent, "happy-agent.json"), "utf8"));
+const bundledBinary = join(happyAgentBundle, "payload", "happy-agent.exe");
 const bundledDigest = createHash("sha256")
-    .update(await readFile(join(bundledAgent, "happy-agent.exe")))
+    .update(await readFile(bundledBinary))
     .digest("hex");
 if (bundledDigest !== bundledManifest.sha256)
-    throw new Error("The packaged Happy Agent does not match its manifest.");
-console.log(`Bundled Happy Agent ${bundledManifest.version}.`);
+    throw new Error("The staged Happy Agent does not match the packaged manifest.");
 const updater = parse(
     await readFile(join(output, "win-unpacked", "resources", "app-update.yml"), "utf8"),
 );
@@ -161,6 +164,58 @@ if (
 ) {
     throw new Error(`Windows updater metadata does not match the final installer ${installer}.`);
 }
+
+/*
+ * The first-install installer: the same signed application, plus the Happy
+ * Agent it lays down beside that manifest for the first launch to install.
+ * Updates use the installer above, which carries no agent; Desktop and the
+ * agent update separately.
+ *
+ * It is a second installer built from the already packaged and signed app, so
+ * the two install identical files. NSIS keeps a copy of the installer that ran
+ * as the base of the next differential update; this one's would be the agent
+ * larger and match no published blockmap, so it is removed and the first
+ * update after a fresh install downloads in full. verify-windows-installer.ps1
+ * installs this one and checks the agent it lays down.
+ */
+const setupOutput = join(desktop, "release", `${flavor.output}-setup`);
+await rm(setupOutput, { recursive: true, force: true });
+await mkdir(setupOutput, { recursive: true });
+const setupInclude = join(setupOutput, "happy-agent.nsh");
+await writeFile(
+    setupInclude,
+    [
+        "!macro customInstall",
+        '  SetOutPath "$INSTDIR\\resources\\happy-agent"',
+        `  File "${bundledBinary}"`,
+        '  SetOutPath "$INSTDIR"',
+        // The copy of this installer NSIS keeps as the next differential update's base.
+        '  ${if} $installMode == "all"',
+        "    SetShellVarContext current",
+        "  ${endif}",
+        '  Delete "$LOCALAPPDATA\\${APP_INSTALLER_STORE_FILE}"',
+        '  ${if} $installMode == "all"',
+        "    SetShellVarContext all",
+        "  ${endif}",
+        "!macroend",
+        "",
+    ].join("\r\n"),
+);
+await build({
+    projectDir: desktop,
+    publish: "never",
+    prepackaged: join(output, "win-unpacked"),
+    targets: Platform.WINDOWS.createTarget(["nsis"], Arch.x64),
+    config: {
+        ...config,
+        artifactName: `${flavor.artifactPrefix}-Setup-\${version}-\${arch}.\${ext}`,
+        directories: { ...config.directories, output: setupOutput },
+        nsis: { ...metadata.build.nsis, differentialPackage: false, include: setupInclude },
+    },
+});
+const setupInstaller = `${flavor.artifactPrefix}-Setup-${metadata.version}-x64.exe`;
+await copyFile(join(setupOutput, setupInstaller), join(output, setupInstaller));
+await rm(setupOutput, { recursive: true, force: true });
 console.log(
-    `Built ${flavor.productName} ${metadata.version}; installer and ${flavor.channel}.yml agree.`,
+    `Built ${flavor.productName} ${metadata.version}; installer and ${flavor.channel}.yml agree, and ${setupInstaller} carries Happy Agent ${bundledManifest.version}.`,
 );

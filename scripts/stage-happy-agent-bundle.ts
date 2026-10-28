@@ -20,8 +20,10 @@ import {
 } from "../packages/happy-desktop-electron/sources/main/happyAgentRelease.js";
 
 /**
- * Puts the Happy Agent release the desktop download carries into
- * `<out>/happy-agent[.exe]` and `<out>/happy-agent.json`.
+ * Puts the Happy Agent release the first-install download carries into
+ * `<out>/payload/happy-agent[.exe]` and its manifest into `<out>/happy-agent.json`.
+ * The app carries only the manifest; the disk image or Setup installer carries
+ * the payload beside it, and Happy's own updates carry neither binary.
  *
  * It fetches exactly what Desktop's own first-run download would: the latest
  * stable release for the target, or `HAPPY_AGENT_BUNDLE_VERSION` when a build
@@ -58,11 +60,12 @@ try {
         await run("codesign", ["--verify", "--strict", "--verbose=2", binary.path]);
     await rm(out, { force: true, recursive: true });
     await mkdir(out, { recursive: true });
-    await copyFile(binary.path, join(out, HAPPY_AGENT_BINARY_FILE_NAME));
+    await mkdir(join(out, "payload"));
+    await copyFile(binary.path, join(out, "payload", HAPPY_AGENT_BINARY_FILE_NAME));
     const manifest: HappyAgentBundleManifest = {
         version: release.version,
         sha256: createHash("sha256")
-            .update(await readFile(join(out, HAPPY_AGENT_BINARY_FILE_NAME)))
+            .update(await readFile(join(out, "payload", HAPPY_AGENT_BINARY_FILE_NAME)))
             .digest("hex"),
     };
     if (!happyAgentBundleManifestValid(manifest))

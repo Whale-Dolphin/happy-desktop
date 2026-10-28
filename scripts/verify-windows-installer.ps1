@@ -8,9 +8,13 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
 $definition = & node --input-type=module -e "import { desktopFlavorRead } from './scripts/desktopFlavors.mjs'; console.log(JSON.stringify(desktopFlavorRead(process.argv[1])))" $Flavor | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the desktop distribution' }
 $release = Join-Path $PSScriptRoot "../packages/happy-desktop-electron/release/$($definition.output)"
-$installers = @(Get-ChildItem -LiteralPath $release -Filter 'Happy-*-x64.exe')
-if ($installers.Count -ne 1) { throw 'Expected exactly one Windows x64 installer.' }
-$installer = $installers[0].FullName
+# The update installer carries no Happy Agent; the Setup installer, the first
+# install people download, also lays the agent down. This installs the Setup one.
+$installers = @(Get-ChildItem -LiteralPath $release -Filter 'Happy-*-x64.exe' | Where-Object { $_.Name -notlike '*-Setup-*' })
+if ($installers.Count -ne 1) { throw 'Expected exactly one Windows x64 update installer.' }
+$setups = @(Get-ChildItem -LiteralPath $release -Filter ($definition.artifactPrefix + '-Setup-*-x64.exe'))
+if ($setups.Count -ne 1) { throw 'Expected exactly one Windows x64 Setup installer.' }
+$installer = $setups[0].FullName
 function Assert-ReleaseSignature([string]$Path, [string]$ExpectedPublisher = '') {
     $signature = Get-AuthenticodeSignature -LiteralPath $Path
     if ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) {
@@ -24,6 +28,7 @@ function Assert-ReleaseSignature([string]$Path, [string]$ExpectedPublisher = '')
     }
 }
 Assert-ReleaseSignature $installer $env:WINDOWS_SIGNING_PUBLISHER
+Assert-ReleaseSignature $installers[0].FullName $env:WINDOWS_SIGNING_PUBLISHER
 foreach ($required in @(($definition.channel + '.yml'), ($installers[0].Name + '.blockmap'))) {
     if (-not (Test-Path -LiteralPath (Join-Path $release $required))) {
         throw "Missing updater artifact: $required"
@@ -42,6 +47,12 @@ if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
 $executable = Join-Path $installation ($definition.productName + '.exe')
 if (-not (Test-Path -LiteralPath $executable)) { throw "The installer did not install $executable." }
 Assert-ReleaseSignature $executable $env:WINDOWS_SIGNING_PUBLISHER
+$agentDirectory = Join-Path $installation 'resources\happy-agent'
+$agentManifest = Get-Content -Raw -LiteralPath (Join-Path $agentDirectory 'happy-agent.json') | ConvertFrom-Json
+$agent = Join-Path $agentDirectory 'happy-agent.exe'
+if ((Get-FileHash -LiteralPath $agent -Algorithm SHA256).Hash.ToLowerInvariant() -ne $agentManifest.sha256) {
+    throw 'The Setup installer did not lay down the Happy Agent its manifest names.'
+}
 $nativeFiles = @(Get-ChildItem -LiteralPath $installation -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll', '.node' })
 foreach ($file in $nativeFiles) { Assert-ReleaseSignature $file.FullName }
 "HAPPY_DESKTOP_ELECTRON_EXECUTABLE=$executable" >> $env:GITHUB_ENV

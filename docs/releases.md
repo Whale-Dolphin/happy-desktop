@@ -50,9 +50,11 @@ For combined releases, follow the [cross-project sequence in Happy Agent's relea
 master plan](https://github.com/slopus/happy-agent/blob/main/master-plans/25-releases.md).
 After any required SDK is published and pinned, prepare and dispatch requested
 Agent, native Desktop, and renderer previews independently in parallel. Native
-Desktop builds bundle the latest stable Agent release published when they are
-built (`HAPPY_AGENT_BUNDLE_VERSION` pins another stable one), as a first-run seed
-the Agent update channel then replaces. Agent previews are never bundled, so a
+Desktop first-install downloads (the macOS disk images and Windows
+`Happy-Setup-*.exe`) carry the latest stable Agent release published when they
+are built (`HAPPY_AGENT_BUNDLE_VERSION` pins another stable one), as a first-run
+seed the Agent update channel then replaces. Desktop updates (macOS zips, the
+Windows installer in `latest.yml`) never carry it. Agent previews are never bundled, so a
 Desktop preview does not wait for one; dispatch Desktop after a new stable
 Agent only when the download should carry it. Stable Windows retains its
 published-Agent signature and boot check. Report completion of a combined release after each

@@ -66,7 +66,7 @@ const RELOAD_ALIVE_CHECK_MS = 1_000;
 const RELOAD_SEEN_LIMIT = 32;
 
 export interface DesktopDaemonControllerOptions {
-    /** Where the packaged app carries its bundled Happy Agent, if it carries one. */
+    /** Where the Windows Setup installer laid down a Happy Agent beside its manifest, if it did. */
     readonly bundleDirectory?: string;
     readonly channel?: HappyAgentUpdateChannel;
     readonly environment?: NodeJS.ProcessEnv;
@@ -127,8 +127,10 @@ export class DesktopDaemonController {
     ): Promise<DesktopDaemonController> {
         const paths = options.paths ?? happyDaemonPaths(options.environment ?? process.env);
         const managed = options.managed ?? true;
-        // A machine that has never selected an agent starts on the one this app
-        // carries; from then on the agent's own update channel replaces it.
+        // A machine that has never selected an agent starts on the one the
+        // first-install download carried; from then on the agent's own update
+        // channel replaces it. (macOS installs the disk image's while it is
+        // mounted, in macApplicationsInstall.)
         const selected =
             (await happyAgentBinarySelected(paths)) ??
             (managed && options.bundleDirectory !== undefined

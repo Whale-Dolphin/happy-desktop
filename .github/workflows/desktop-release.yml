@@ -345,7 +345,8 @@ jobs:
                     for (const name of desktopFlavorNames) {
                       const flavor = desktopFlavorRead(name);
                       const installer = `${flavor.artifactPrefix}-${process.env.RELEASE_VERSION}-x64.exe`;
-                      for (const file of [installer, `${installer}.blockmap`, `${flavor.channel}.yml`]) {
+                      const setup = `${flavor.artifactPrefix}-Setup-${process.env.RELEASE_VERSION}-x64.exe`;
+                      for (const file of [installer, `${installer}.blockmap`, `${flavor.channel}.yml`, setup]) {
                         const path = `packages/happy-desktop-electron/release/windows/${file}`;
                         const info = await stat(path);
                         if (!info.isFile() || info.size === 0) throw new Error(`Missing or empty release asset: ${path}`);
