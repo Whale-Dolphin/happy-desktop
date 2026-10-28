@@ -8,6 +8,8 @@ import { happyAgentDirectoryNotifies } from "./happyAgentListed";
 
 let completionChimeContext: AudioContext | undefined;
 let completionChimeBuffer: AudioBuffer | undefined;
+const completionChimeSources = new Set<AudioBufferSourceNode>();
+let completionChimeSuspendTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Plays a short two-note completion chime. The samples are computed here, once,
@@ -21,13 +23,32 @@ export function completionChimePlay(): void {
         completionChimeContext ??= new window.AudioContext();
         const context = completionChimeContext;
         completionChimeBuffer ??= completionChimeRender(context);
-        if (context.state === "suspended") void context.resume();
+        clearTimeout(completionChimeSuspendTimer);
+        completionChimeSuspendTimer = undefined;
+        // Resume even if state is still "running": an idle suspend may be queued.
+        void context.resume().catch(() => {});
         const source = context.createBufferSource();
         source.buffer = completionChimeBuffer;
         source.connect(context.destination);
-        // Release the audio device once the chime ends; the next chime resumes it.
-        source.onended = () => void context.suspend();
+        source.onended = () => {
+            source.disconnect();
+            completionChimeSources.delete(source);
+            if (completionChimeSources.size > 0) return;
+            // `ended` follows rendering, so allow the device's buffered output to
+            // drain before releasing it. A new chime cancels this idle timer.
+            const drainSeconds = context.baseLatency + context.outputLatency;
+            completionChimeSuspendTimer = setTimeout(
+                () => {
+                    completionChimeSuspendTimer = undefined;
+                    if (completionChimeSources.size === 0) {
+                        void context.suspend().catch(() => {});
+                    }
+                },
+                Math.max(250, drainSeconds * 1000 + 100),
+            );
+        };
         source.start();
+        completionChimeSources.add(source);
     } catch {
         // A missing or policy-blocked audio device must not interrupt reconciliation.
     }
