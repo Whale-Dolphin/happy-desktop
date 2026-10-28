@@ -134,7 +134,9 @@ export function messageReferencesResolve(
             const view = referenceView(reference, references);
             const label =
                 labelEscape(view.label) || labelEscape(happyReferencePlaceholder(reference));
-            return view.type === "link" ? `[${label}](${referenceHref(reference)})` : label;
+            const shown = view.type === "link" ? `[${label}](${referenceHref(reference)})` : label;
+            // A person a message mentions stands out from the words around them.
+            return reference.kind === USER_REFERENCE_KIND ? `**${shown}**` : shown;
         },
         { streaming },
     );
