@@ -528,12 +528,15 @@ function unixSocketFetch(socketPath: string): typeof fetch {
                         if (value === undefined) continue;
                         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
                     }
+                    const status = response.statusCode ?? 500;
+                    // A null-body status cannot carry a stream; drain the empty one.
+                    const empty = status === 204 || status === 205 || status === 304;
+                    if (empty) response.resume();
                     resolve(
-                        new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, {
-                            headers,
-                            status: response.statusCode ?? 500,
-                            statusText: response.statusMessage,
-                        }),
+                        new Response(
+                            empty ? null : (Readable.toWeb(response) as ReadableStream<Uint8Array>),
+                            { headers, status, statusText: response.statusMessage },
+                        ),
                     );
                 },
             );
