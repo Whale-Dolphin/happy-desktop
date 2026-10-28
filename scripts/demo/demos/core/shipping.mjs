@@ -59,7 +59,7 @@ export const deployRun = { id: "17482913402", workflow: "Deploy" };
  * baseline; the ordinary Git watcher then genuinely observes a clean checkout.
  * Initial private-repository preparation below happens off camera.
  */
-export async function shippingPrepare(gym, { path, before, after }) {
+export async function shippingPrepare(gym, { path, before, after, checkouts }) {
     gitBinary = await gitResolve();
     const gitOnPath = join(gym.paths.bin, "git");
     await rm(gitOnPath, { force: true });
@@ -113,8 +113,8 @@ if (args[0] !== "commit" && args[0] !== "push") {
     process.exit(child.status ?? 1);
 }
 const cwd = fs.realpathSync(process.cwd());
-if (!cwd.startsWith(${JSON.stringify(join(root, "ws", "happy") + "/")}))
-    throw new Error("The shipping fixture is confined to this gym's happy worktrees.");
+if (!cwd.startsWith(${JSON.stringify((checkouts ?? join(root, "ws", "happy")) + "/")}))
+    throw new Error("The shipping fixture is confined to this gym's happy checkouts.");
 const file = fs.realpathSync(path.join(cwd, ${JSON.stringify(path)}));
 if (file !== path.join(cwd, ${JSON.stringify(path)}))
     throw new Error("The waveform fixture must not be a symlink.");

@@ -70,12 +70,14 @@ export async function coreProtocolOpen(gym) {
             response.end(JSON.stringify({ users: [steve] }));
             return;
         }
+        // The proxy rewrites JSON bodies, so it asks for them uncompressed.
+        const { "accept-encoding": _encoding, ...headers } = request.headers;
         const upstream = httpRequest(
             {
                 socketPath: gym.paths.socketPath,
                 path: request.url,
                 method: request.method,
-                headers: request.headers,
+                headers,
             },
             (incoming) => {
                 const headers = { ...incoming.headers };

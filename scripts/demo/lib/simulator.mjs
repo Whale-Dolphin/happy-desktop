@@ -223,7 +223,15 @@ export async function simulatorOpen({
             const visit = (nodes) =>
                 nodes.flatMap((node) => [
                     ...(node.a11y || node.txt || node.rid
-                        ? [{ bounds: node.b, text: node.a11y || node.txt, id: node.rid }]
+                        ? [
+                              {
+                                  bounds: node.b,
+                                  text: node.a11y || node.txt,
+                                  // A labelled text field's own contents.
+                                  ...(node.a11y && node.txt ? { value: node.txt } : {}),
+                                  id: node.rid,
+                              },
+                          ]
                         : []),
                     ...visit(node.c ?? []),
                 ]);

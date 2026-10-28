@@ -107,7 +107,13 @@ export async function frameBuild(directory) {
 }
 
 /** One concurrently captured phone source supplies both phone deliverables. */
-export async function phoneVideoOpen({ udid, output, work, frame }) {
+export async function phoneVideoOpen({
+    udid,
+    output,
+    work,
+    frame,
+    source: description = "Concurrent iPhone 17 Pro Simulator capture, connected through the real Happy encrypted integration",
+}) {
     const directory = join(work, "phone");
     await mkdir(directory, { recursive: true });
     const simulator = await simulatorOpen({ udid });
@@ -121,7 +127,19 @@ export async function phoneVideoOpen({ udid, output, work, frame }) {
         get simulator() {
             return simulator;
         },
-        async prepare({ sessionTitle, relaunch = false } = {}) {
+        /**
+         * Waits for the phone's home screen. `ready` reads one accessibility
+         * snapshot; the default is the session list's "Sessions" header and,
+         * when given, the session row.
+         */
+        async prepare({
+            sessionTitle,
+            relaunch = false,
+            ready = (screen) =>
+                screen.some((item) => item.text === "Sessions") &&
+                (sessionTitle === undefined ||
+                    screen.some((item) => item.text?.startsWith(`${sessionTitle},`))),
+        } = {}) {
             if (relaunch) {
                 // Each take restarts its private daemon. Reopen only this
                 // Simulator development app off camera so its socket lifetime
@@ -133,11 +151,7 @@ export async function phoneVideoOpen({ udid, output, work, frame }) {
             const deadline = Date.now() + 45000;
             for (;;) {
                 const screen = await simulator.inspect();
-                if (
-                    screen.some((item) => item.text === "Sessions") &&
-                    (sessionTitle === undefined ||
-                        screen.some((item) => item.text?.startsWith(`${sessionTitle},`)))
-                ) {
+                if (ready(screen)) {
                     nativeScreens.push({ phase: "prepared", screen });
                     await writeFile(
                         join(output, "phone-prepared.json"),
@@ -240,7 +254,7 @@ export async function phoneVideoOpen({ udid, output, work, frame }) {
                     join(output, "phone-capture.json"),
                     JSON.stringify(
                         {
-                            source: "Concurrent iPhone 17 Pro Simulator capture, connected through the real Happy encrypted integration",
+                            source: description,
                             clock,
                             cues,
                             nativeScreens,

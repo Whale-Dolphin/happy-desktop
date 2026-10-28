@@ -59,6 +59,7 @@ function parse(argv) {
         else if (argument === "--mobile-server") options.mobileServerUrl = rest.shift();
         else if (argument === "--mobile-run") options.mobileRun = resolve(rest.shift());
         else if (argument === "--phone-udid") options.phoneUdid = rest.shift();
+        else if (argument === "--phone-direct") options.phoneDirect = true;
         else if (argument === "--out") options.out = resolve(workspace, rest.shift());
         else if (argument === "--desktop") options.desktop = resolve(rest.shift());
         else if (argument === "--phone") options.phone = resolve(rest.shift());
@@ -88,8 +89,13 @@ function parse(argv) {
         );
     if (options.mobileRun && options.mobileServerUrl)
         throw new Error("Choose --mobile-run or --mobile-server, not both.");
-    if (options.phoneUdid && !options.mobileServerUrl && !options.mobileRun)
-        throw new Error("A synchronized phone capture requires --mobile-run or --mobile-server.");
+    if (options.phoneDirect && (options.mobileServerUrl || options.mobileRun || !options.phoneUdid))
+        throw new Error("--phone-direct needs --phone-udid and no mobile server.");
+    // A directly paired phone reaches the demo daemon's own mobile connector.
+    if (options.phoneUdid && !options.mobileServerUrl && !options.mobileRun && !options.phoneDirect)
+        throw new Error(
+            "A synchronized phone capture requires --mobile-run, --mobile-server, or --phone-direct.",
+        );
     return options;
 }
 
@@ -178,6 +184,11 @@ async function record(demo, stage, gym, options) {
     const phone = options.phoneUdid
         ? await phoneVideoOpen({
               udid: options.phoneUdid,
+              ...(options.phoneDirect
+                  ? {
+                        source: "Concurrent iPhone 17 Pro Simulator capture of the native Happy iOS app, paired to the demo daemon through its real direct mobile connector",
+                    }
+                  : {}),
               output,
               work,
               frame: demo.phoneFrame

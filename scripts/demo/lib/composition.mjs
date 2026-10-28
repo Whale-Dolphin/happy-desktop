@@ -248,12 +248,15 @@ async function phoneLayersBuild(composition, directory) {
 function phonePose(composition, focus, seconds) {
     const { output, phone } = composition;
     const ease = cubicBezier(phone.transition.easing);
-    const progress =
-        seconds < focus.enter
-            ? 0
-            : seconds < focus.exit
-              ? ease((seconds - focus.enter) / phone.transition.seconds)
-              : 1 - ease((seconds - focus.exit) / phone.transition.seconds);
+    const progress = Math.max(
+        ...focus.map((window) =>
+            seconds < window.enter
+                ? 0
+                : seconds < window.exit
+                  ? ease((seconds - window.enter) / phone.transition.seconds)
+                  : 1 - ease((seconds - window.exit) / phone.transition.seconds),
+        ),
+    );
     const scale = 1 + (phone.focusScale - 1) * progress;
     // The website moves only the excess beyond the frame's right margin.
     const shift = Math.min(
@@ -338,14 +341,20 @@ async function frameCompose({ composition, layers, desktopRgb, phoneRgb, seconds
     ]);
 }
 
+/** Each phone-enter pairs with the next phone-exit; a take may focus the phone more than once. */
 function focusRead(cues) {
-    const at = (name) => {
-        const cue = cues.find((entry) => entry.name === name);
-        if (!cue) throw new Error(`The cues have no "${name}" cue.`);
-        return cue.seconds;
-    };
-    const focus = { enter: at("phone-enter"), exit: at("phone-exit") };
-    if (!(focus.exit > focus.enter)) throw new Error("phone-exit must follow phone-enter.");
+    const at = (name) => cues.filter((entry) => entry.name === name).map((cue) => cue.seconds);
+    const enters = at("phone-enter");
+    const exits = at("phone-exit");
+    if (enters.length === 0) throw new Error('The cues have no "phone-enter" cue.');
+    if (enters.length !== exits.length)
+        throw new Error("Every phone-enter needs exactly one phone-exit.");
+    const focus = enters.map((enter, index) => ({ enter, exit: exits[index] }));
+    focus.forEach((window, index) => {
+        if (!(window.exit > window.enter)) throw new Error("phone-exit must follow phone-enter.");
+        if (index > 0 && !(window.enter > focus[index - 1].exit))
+            throw new Error("A phone-enter must follow the previous phone-exit.");
+    });
     return focus;
 }
 

@@ -39,6 +39,8 @@ const workspace = resolve(import.meta.dirname, "../../..");
 // private socket's 103-byte Unix limit even when `server.sock` itself fits.
 const root = join(workspace, ".d");
 const marker = join(root, "demo-gym.json");
+/** The gym daemon's mobile connector port, beside the default 24781. */
+const mobileConnectorPort = 24963;
 let nativeCredentialDispose;
 let nativeDaemonStop;
 
@@ -291,6 +293,11 @@ async function runtimeConfigurationWrite(p, models, native = false, nativeEffort
             ...(models?.claude ? [`include_models = ${JSON.stringify(models.claude)}`] : []),
             "enabled = true",
             "auto_enable = true",
+            "",
+            // The person's own daemon holds the default connector port; a
+            // paired demo phone dials this gym's own.
+            "[feature.mobile_connector]",
+            `port = ${mobileConnectorPort}`,
             "",
         ].join("\n"),
         "utf8",

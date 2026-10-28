@@ -51,6 +51,7 @@ async function patchedSourcePrepare(patches, assets) {
         await copyFile(join(workspace, file), join(mirror, file));
     }
     for (const name of [
+        "happy-desktop-analytics",
         "happy-desktop-app",
         "happy-desktop-electron",
         "happy-desktop-gym",
