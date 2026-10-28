@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 const execFile = promisify(exec);
 
 /** The whole app, delivered as one static window: a narrow sidebar beside a compact main pane. */
-const viewport = { width: 780, height: 664 };
+const viewport = { width: 668, height: 664 };
 const stemCellsSetting = "happy-desktop.experiments.stemCells";
 const defaultModelSetting = "happy-desktop.model.default";
 const astra = { providerId: "codex", modelId: "openai/gpt-6-astra" };
@@ -25,8 +25,9 @@ let shippingEvidence;
 let releaseCoordinator;
 const filing = {};
 const cues = [];
-const cue = (name, demo, phone) => {
-    cues.push({ name, seconds: demo.timing.frames / demo.timing.fps });
+/** `place` is what a captioned cut may point at: `{ rect }` in CSS pixels or `{ phoneRect }` in phone points. */
+const cue = (name, demo, phone, place = {}) => {
+    cues.push({ name, seconds: demo.timing.frames / demo.timing.fps, ...place });
     phone?.cue(name, demo);
 };
 
@@ -90,6 +91,21 @@ function phoneFiledUnder(screen, title, sectionLabel) {
 function phoneIcon(screen, title) {
     const index = screen.findIndex((item) => item.id === `stem-row:space:${title}`);
     return index < 0 ? undefined : screen[index + 1]?.id?.match(/clay-([\w-]+)\.png$/u)?.[1];
+}
+
+/** A phone accessibility rectangle, in points. */
+const boundsRect = (item) => {
+    const rectangle = item?.bounds?.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/);
+    if (!rectangle) return undefined;
+    const [, left, top, right, bottom] = rectangle.map(Number);
+    return { x: left, y: top, width: right - left, height: bottom - top };
+};
+
+/** Where a desktop element is, for a captioned cut's hint. */
+async function rectOf(locator) {
+    const box = await locator.boundingBox();
+    if (!box) throw new Error("A hinted element is not on screen.");
+    return { rect: box };
 }
 
 const boundsCenter = (item) => {
@@ -213,6 +229,7 @@ export default {
     patches: [
         { scope: "shared", source: "browser-daemon.patch" },
         { scope: "demo", source: "patches/gym-provider.patch" },
+        { scope: "demo", source: "patches/artifact-site.patch" },
     ],
     async run(demo, gym, { phone, output } = {}) {
         releaseCoordinator = await releaseCoordinatorPrepare(gym);
@@ -335,21 +352,19 @@ export default {
             // The relaunched app must load this take's own New row from the
             // live daemon: proof the direct connection is current.
             await phone.prepare({ relaunch: true, ready: phoneHome("New") });
-            // The home composer starts new work on the same Fable, set through
+            // The home composer starts new work on the same Opus, set through
             // its real model menu, off camera.
-            if (
-                !(await phone.inspect("home-composer")).some(
-                    (item) => item.text === "Model: Fable 5.1",
-                )
-            ) {
+            const onOpus = (screen) =>
+                screen.some((item) => item.text?.startsWith("Model: Opus 5.5"));
+            if (!onOpus(await phone.inspect("home-composer"))) {
                 await phone.simulator.run("- tapOn:\n    text: 'Model: .*'");
                 await page.waitForTimeout(650);
-                await phone.simulator.run("- tapOn:\n    text: Fable 5.1");
+                await phone.simulator.run("- tapOn:\n    text: 'Opus 5.5.*'");
                 await page.waitForTimeout(650);
             }
             const opening = await phone.inspect("phone-opening");
-            if (!opening.some((item) => item.text === "Model: Fable 5.1"))
-                throw new Error("The phone's new-work composer is not on Fable 5.1.");
+            if (!onOpus(opening))
+                throw new Error("The phone's new-work composer is not on Opus 5.5.");
             const rows = phoneRows(opening).filter((row) => row.kind === "space");
             if (rows[0]?.label !== "Happy" || rows[1]?.label !== "New")
                 throw new Error("The phone must open on the same New row, right under Happy.");
@@ -363,7 +378,7 @@ export default {
         }
 
         // ---- On camera: the opened stem cell, its empty composer.
-        await demo.hold(1400);
+        await demo.hold(1000);
         const model = page
             .locator('[data-happy-desktop-ui="composer-model-control-trigger"]')
             .first();
@@ -376,27 +391,25 @@ export default {
         cue("picker-open", demo, phone);
         const choices = page.locator('[data-happy-desktop-ui="composer-model-control-row"]');
         const choice = (name) => choices.filter({ hasText: name }).first();
-        const fable = choice("Fable 5.1");
+        const opus = choice("Opus 5.5");
         if ((await choices.filter({ hasText: "GPT-6 Sol" }).count()) > 0)
             throw new Error("GPT-6 Sol must not be offered in the cleaned-up picker.");
-        await demo.moveTo(choice("GPT-6 Astra"), { duration: 700 });
-        await demo.hold(450);
         await demo.moveTo(choice("Grok 4.7"), { duration: 600 });
-        await demo.hold(450);
-        await demo.moveTo(choice("Opus 5.5"), { duration: 950 });
-        await demo.hold(400);
-        await demo.moveTo(fable, { duration: 500 });
-        await demo.hold(850);
+        await demo.hold(350);
+        await demo.moveTo(opus, { duration: 650 });
+        await demo.hold(600);
         await page.screenshot({ path: join(output, "picker-hover.png") });
-        await demo.click(fable, { after: 550 });
+        await demo.click(opus, { after: 300 });
         cue("picker-chosen", demo, phone);
         await demo.click(composer, { after: 150 });
-        await demo.type(world.prompt, { perKey: 49, after: 0 });
+        // The pointer hides while typing, as macOS hides it, so it never sits on the words.
+        await demo.pointerVisible(false);
+        cue("typing-started", demo, phone);
+        await demo.type(world.prompt, { perKey: 52, after: 0 });
         // The phone comes forward for the sidebar's live sync.
         if (phone) cue("phone-enter", demo, phone);
         await demo.hold(500);
         await demo.press("Enter", { badge: 0, before: 0, after: 200 });
-        await demo.pointerVisible(false);
         cue("work-started", demo, phone);
 
         // The first message names the row; Focus grows its icon and files it.
@@ -412,7 +425,11 @@ export default {
             async () => (await spaceRead(gym, recordedSpaceId))?.title === world.sessionTitle,
             "the stem cell to name itself",
         );
-        cue("stem-named", demo, phone);
+        const row = page
+            .locator('[data-happy-desktop-ui="sidebar-item"]')
+            .filter({ hasText: world.sessionTitle })
+            .first();
+        cue("stem-named", demo, phone, await rectOf(row));
         await phoneShows("phone-named", phoneHome(world.sessionTitle), "the phone's renamed row");
         if (phone) cue("phone-named", demo, phone);
         await until(demo, () => world.focusHasReached("icon"), "Focus to read the sidebar");
@@ -423,7 +440,18 @@ export default {
             async () => (await spaceRead(gym, recordedSpaceId))?.icon.type === "library",
             "the stem cell's icon",
         );
-        cue("stem-icon", demo, phone);
+        cue(
+            "stem-icon",
+            demo,
+            phone,
+            await rectOf(
+                page
+                    .locator(
+                        '[data-happy-desktop-ui="make-stuff-intro"] [data-happy-desktop-ui="stem-cell-growth"]',
+                    )
+                    .first(),
+            ),
+        );
         await phoneShows(
             "phone-icon",
             (screen) => phoneIcon(screen, world.sessionTitle) === world.icon,
@@ -439,21 +467,27 @@ export default {
             .then(() => cue("thinking-visible", demo, phone));
         thinking.catch(() => undefined);
         await until(demo, () => world.focusHasReached("file"), "Focus's queued placement");
-        await demo.hold(1500);
+        // The mark takes 2.5 s to grow into its icon; it settles before the row moves.
+        await demo.hold(2500);
         world.focusRelease("file");
         await until(
             demo,
             () => filedUnder(gym, recordedSpaceId, world.section),
             "Focus to file the row",
         );
-        cue("stem-filed", demo, phone);
-        await phoneShows(
+        await demo.hold(500);
+        cue("stem-filed", demo, phone, await rectOf(row));
+        const phoneFiled = await phoneShows(
             "phone-filed",
-            (screen) => phoneFiledUnder(screen, world.sessionTitle, sectionLabel),
+            (screen) => phoneFiledUnder(screen, world.sessionTitle, sectionLabel) && screen,
             "the phone to file the row",
         );
         if (phone) {
-            cue("phone-filed", demo, phone);
+            cue("phone-filed", demo, phone, {
+                phoneRect: boundsRect(
+                    phoneFiled.find((item) => item.id === `stem-row:space:${world.sessionTitle}`),
+                ),
+            });
             await phone.screenshot("phone-filed");
             await demo.hold(1800);
             cue("phone-exit", demo, phone);
@@ -476,7 +510,7 @@ export default {
         );
         await demo.hold(900);
         world.release("implementation", recordedAgentId);
-        await until(demo, () => world.hasReached("astra-launch", recordedAgentId), "the file edit");
+        await until(demo, () => world.hasReached("artifact", recordedAgentId), "the file edit");
         cue("logic-edited", demo, phone);
         await until(
             demo,
@@ -495,6 +529,28 @@ export default {
             15000,
         );
         await demo.hold(1600);
+        world.release("artifact", recordedAgentId);
+        const artifact = page
+            .locator('[data-happy-desktop-ui="inline-page"]')
+            .filter({ hasText: world.artifactTitle })
+            .last();
+        await artifact.waitFor({ timeout: 20000 });
+        const artifactContent = artifact.locator('[data-happy-desktop-ui="inline-page-content"]');
+        await until(
+            demo,
+            async () => ((await artifactContent.boundingBox())?.height ?? 0) > 60,
+            "the waveform artifact to draw inline",
+            20000,
+        );
+        await demo.hold(400);
+        cue("artifact-shown", demo, phone, await rectOf(artifactContent));
+        await page.screenshot({ path: join(output, "artifact.png") });
+        await until(
+            demo,
+            () => world.hasReached("astra-launch", recordedAgentId),
+            "the published artifact",
+        );
+        await demo.hold(2800);
         world.release("astra-launch", recordedAgentId);
         await until(
             demo,
@@ -504,7 +560,7 @@ export default {
         const spawned = page.getByText(world.astraTask, { exact: true }).first();
         await spawned.waitFor();
         await until(demo, () => settled(spawned), "the complete Astra spawn label");
-        cue("astra-spawned", demo, phone);
+        cue("astra-spawned", demo, phone, await rectOf(spawned));
         await demo.hold(2800);
         world.release("finishing", recordedAgentId);
         await page.getByText(world.completionText.slice(0, 48)).first().waitFor();
@@ -517,7 +573,7 @@ export default {
             "the completed first turn",
         );
         cue("response-settled", demo, phone);
-        await demo.hold(3000);
+        await demo.hold(1200);
 
         let phoneReturned = Promise.resolve();
         if (phone) {
@@ -533,7 +589,7 @@ export default {
                 await phone.simulator.tapPoints([point]);
             };
             cue("phone-enter", demo, phone);
-            await demo.hold(1600);
+            await demo.hold(1200);
             await touch(home, `stem-row:space:${world.sessionTitle}`);
             cue("phone-session-open", demo, phone);
             const transcript = await until(
@@ -545,7 +601,7 @@ export default {
                 "the phone's session to show the completed reply",
                 10000,
             );
-            await demo.hold(3200);
+            await demo.hold(2000);
             await touch(transcript, "stem-composer");
             const keyboard = await until(
                 demo,
@@ -595,7 +651,18 @@ export default {
             if (!send) throw new Error("The actual native Send control is missing.");
             await phone.simulator.tapPoints([send]);
             cue("phone-sent", demo, phone);
-            await demo.hold(900);
+            // Steve sees the reply start on the phone before putting it away.
+            await until(
+                demo,
+                async () =>
+                    (await phone.inspect("phone-reply")).some((item) =>
+                        item.text?.includes("Pushing to main"),
+                    ),
+                "the phone to show the reply to ship it",
+                15000,
+            );
+            cue("phone-reply", demo, phone);
+            await demo.hold(1400);
             // Steve returns to the sidebar while the desktop carries on.
             await touch(typed, "stem-chat-back");
             cue("phone-exit", demo, phone);
@@ -605,7 +672,7 @@ export default {
             await gym.client.sendMessage(recordedAgentId, {
                 text: stevePhoneMessage,
                 // The session's own model and effort, so no mode change is announced.
-                mode: { ...world.fableMode, effort: "medium", permissionMode: "auto" },
+                mode: { ...world.opusMode, permissionMode: "auto" },
             });
         }
         await page.getByText(steve.name, { exact: true }).first().waitFor({ timeout: 15000 });
@@ -675,6 +742,8 @@ export default {
             async () => !(await page.getByText("Working in subagents", { exact: true }).count()),
             "the completed collaborator status to reach the UI",
         );
+        await demo.hold(1400);
+        cue("outro", demo, phone);
         await demo.hold(3600);
         cue("end", demo, phone);
         await phoneReturned;
@@ -704,8 +773,10 @@ export default {
                 picker: "The gym enables today's models through per-provider include_models; GPT-6 Sol is not included.",
                 collaborator:
                     "Fictional Steve, one explicit protocol-fixture identity attached to the real ship-it message",
-                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera to this demo daemon through its real direct mobile connector. Its sidebar updates arrive by live sync; each opening step waits until the phone has drawn the previous one. Steve types ship it on the real iOS keyboard. Its new-work composer was set to Fable 5.1 off camera.",
+                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera to this demo daemon through its real direct mobile connector. Its sidebar updates arrive by live sync; each opening step waits until the phone has drawn the previous one. Steve types ship it on the real iOS keyboard. Its new-work composer was set to Opus 5.5 off camera.",
                 spawn: "Real create_agent; Astra's review completes during shipping, before Deployed.",
+                artifact:
+                    "Real create_artifact and write_artifact_file through the daemon; the screenplay writes the page. Browser-local mode has no artifact page host, so the demo patch artifact-site.patch serves the daemon's own artifact files and renders them in an iframe, where Electron uses its own view.",
                 shipping:
                     "Auto throughout. The Bash process executes offline Git and gh screenplay fixtures. The simulated push restores only the prepared waveform file to its baseline. No real commit, push, deployment, or permission-review verdict.",
                 shipCommand,

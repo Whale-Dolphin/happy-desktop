@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { encode } from "./encode.mjs";
+import { overlaysBuild } from "./overlays.mjs";
 
 /*
  * Stages an already recorded take: the desktop movie and its synchronized
@@ -282,7 +283,15 @@ function phoneClearanceCheck(composition, canvas) {
 }
 
 /** One output frame, from one desktop frame and the phone screen at the same instant. */
-async function frameCompose({ composition, layers, desktopRgb, phoneRgb, seconds, focus }) {
+async function frameCompose({
+    composition,
+    layers,
+    desktopRgb,
+    phoneRgb,
+    seconds,
+    focus,
+    overlaysAt,
+}) {
     const { output, desktop, phone } = composition;
     const screen = phone.screen;
     const masked = await sharp(phoneRgb, {
@@ -340,6 +349,11 @@ async function frameCompose({ composition, layers, desktopRgb, phoneRgb, seconds
     };
     const shadowLeft = Math.round(left - shadow.pad * shadowScale);
     const shadowTop = Math.round(top - shadow.pad * shadowScale);
+    const overlays = [];
+    for (const layer of overlaysAt ? await overlaysAt(seconds) : []) {
+        const { width: w, height: h } = await sharp(layer.input).metadata();
+        overlays.push(...(await placed(layer.input, layer.left, layer.top, w, h)));
+    }
     return sharp({
         create: { width: output.width, height: output.height, channels: 3, background: "#000" },
     }).composite([
@@ -353,6 +367,7 @@ async function frameCompose({ composition, layers, desktopRgb, phoneRgb, seconds
         { input: layers.desktop.trim },
         ...(await placed(shadowScaled, shadowLeft, shadowTop, shadowWidth, shadowHeight)),
         ...(await placed(handsetScaled, left, top, width, height)),
+        ...overlays,
     ]);
 }
 
@@ -380,7 +395,8 @@ function focusRead(cues) {
 export async function compositionRender({ composition, directory, desktop, phone, cues, out }) {
     const started = Date.now();
     const { output } = composition;
-    const focus = focusRead(JSON.parse(await readFile(cues, "utf8")));
+    const cueList = JSON.parse(await readFile(cues, "utf8"));
+    const focus = focusRead(cueList);
     const [desktopInfo, phoneInfo] = await Promise.all([probe(desktop), probe(phone)]);
     if (desktopInfo.video.r_frame_rate !== phoneInfo.video.r_frame_rate)
         throw new Error("The desktop and phone takes must share one frame rate.");
@@ -402,6 +418,10 @@ export async function compositionRender({ composition, directory, desktop, phone
         phone: await phoneLayersBuild(composition, directory),
     };
     phoneClearanceCheck(composition, layers.phone.canvas);
+    const overlaysAt =
+        composition.captions || composition.hints
+            ? await overlaysBuild({ composition, cues: cueList, phoneCanvas: layers.phone.canvas })
+            : undefined;
     const { width: desktopWidth, height: desktopHeight } = composition.desktop;
     const desktopDecoder = decoderOpen(
         desktop,
@@ -439,6 +459,7 @@ export async function compositionRender({ composition, directory, desktop, phone
                     phoneRgb: phoneNext.value,
                     seconds: index / output.fps,
                     focus,
+                    overlaysAt,
                 });
                 const { data, info } = await frame.raw().toBuffer({ resolveWithObject: true });
                 if (index === posterFrame) await sharp(data, { raw: info }).png().toFile(poster);

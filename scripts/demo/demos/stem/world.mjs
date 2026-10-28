@@ -1,10 +1,11 @@
 // The stem-cell take reuses the core demo's fixtures: the waveform code,
 // Steve's phone message, and the offline shipping screenplay. Its opening is
 // new work in the Spaces sidebar: the first message names it, Focus (the
-// daemon's sidebar helper, still titled Prioritizing in this release) gives it
-// an icon from the clay library and files it into its section.
+// daemon's sidebar helper) gives it an icon from the clay library and files it
+// into its section. The work itself also publishes a small inline artifact.
 export * from "../core/world.mjs";
 import * as core from "../core/world.mjs";
+import { stevePhoneMessage } from "../core/protocol.mjs";
 
 export const id = "stem";
 
@@ -22,9 +23,58 @@ export const models = {
 export const sessions = [];
 export const worktrees = [];
 
+/** What the person types: short, the way new work is usually started. */
+export const prompt = "Add an animated waveform to the voice agent.";
 /** A subject title: what the sidebar row is called once it is named. */
 export const sessionTitle = "Voice waveform";
-export const icon = "new-feature";
+/** The clay icon Focus gives the row; `waveform` needs a daemon whose slug list has it. */
+export const icon = process.env.STEM_DEMO_ICON ?? "new-feature";
+/** The model picked on camera, and the mode later messages keep. */
+export const opusMode = {
+    ...core.seedMode,
+    effort: "medium",
+    modelId: "anthropic/opus-5-5",
+    providerId: "claude",
+};
+export const artifactTitle = "Voice waveform";
+export const completionText =
+    "Done. The waveform animates while either side is speaking, and Astra is reviewing the control flow.";
+/** The page the agent publishes: the waveform itself, speaking and silent. */
+export const artifactPage = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+:root { color-scheme: light dark; }
+html, body { margin: 0; background: transparent; }
+body { font-family: var(--happy-host-font, system-ui); color: var(--happy-host-text, #eee); }
+.row { display: flex; align-items: center; gap: 18px; padding: 6px 0; }
+.bars { display: flex; align-items: center; gap: 4px; height: 56px; width: 220px; }
+.bars i { width: 5px; height: 6px; border-radius: 3px; background: #f0b85a; }
+.speaking i { background: linear-gradient(#f3c26b, #e07aae); animation: wave 1s ease-in-out infinite; }
+@keyframes wave { 0%, 100% { height: 6px; } 50% { height: var(--h); } }
+.label { font-size: 13px; line-height: 18px; }
+.label span { display: block; color: var(--happy-host-muted, #999); font-family: var(--happy-host-mono, monospace); font-size: 12px; }
+.silent i { opacity: 0.45; }
+</style>
+</head>
+<body>
+<div class="row"><div class="bars speaking" id="speaking"></div><div class="label">Agent speaking<span>waveformActive → true</span></div></div>
+<div class="row"><div class="bars silent" id="silent"></div><div class="label">Silent<span>waveformActive → false</span></div></div>
+<script>
+for (const id of ["speaking", "silent"]) {
+  const bars = document.getElementById(id);
+  for (let i = 0; i < 28; i++) {
+    const bar = document.createElement("i");
+    bar.style.setProperty("--h", Math.round(14 + 40 * Math.abs(Math.sin(i * 0.9) * Math.cos(i * 0.37))) + "px");
+    bar.style.animationDelay = (-(i * 83) % 1000) + "ms";
+    bars.append(bar);
+  }
+}
+</script>
+</body>
+</html>
+`;
 
 /** Sections the person made, top to bottom, above the default Bots and Tasks. */
 export const sections = [
@@ -130,7 +180,7 @@ async function focusReply(payload) {
     const placing = [...brief.matchAll(/New work started in row (\w+)\. Its first message:/gu)]
         .map((match) => {
             const after = brief.slice(match.index);
-            const filmed = after.includes(core.prompt);
+            const filmed = after.includes(prompt);
             const seed = seeds.find((candidate) => after.includes(candidate.message));
             if (filmed) return { spaceId: match[1], icon, section, filmed };
             return seed ? { spaceId: match[1], icon: seed.icon, section: seed.section } : undefined;
@@ -185,12 +235,14 @@ async function focusReply(payload) {
 
 export async function reply(payload, emitted) {
     const system = payload.context?.systemPrompt ?? "";
-    if (system.includes("You are Prioritizing")) return await focusReply(payload);
+    // Focus's helper prompt; releases before 0.4.110 still call it Prioritizing.
+    if (system.includes("You are Focus") || system.includes("You are Prioritizing"))
+        return await focusReply(payload);
     const sessionId = payload.options?.sessionId ?? "";
     const messages = payload.context?.messages ?? [];
     const input = messages.map(textOf).join("\n");
     if (sessionId.endsWith(":title")) {
-        if (input.includes(core.prompt)) {
+        if (input.includes(prompt)) {
             // The sent message settles before the row takes its name.
             await focusGate("name");
             return { content: [text(`<title>${sessionTitle}</title>`)] };
@@ -200,17 +252,99 @@ export async function reply(payload, emitted) {
         return undefined;
     }
     const seed = seeds.find((candidate) => input.includes(candidate.message));
-    if (seed && !input.includes(core.prompt))
+    if (seed && !input.includes(prompt))
         return focusPaced([text(seed.reply)], { textDeltaDelayMs: 0, completionDelayMs: 0 });
-    // The filmed work starts once its row has its icon, so naming and filing
-    // read as their own beat before the first tool row arrives.
-    if (
-        input.includes(core.prompt) &&
-        !messages.some((message) => message.role === "assistant") &&
-        !emitted.has(`stem:work:${sessionId}`)
-    ) {
-        emitted.set(`stem:work:${sessionId}`, true);
-        await focusGate("work");
+    // Astra's review and Steve's ship are the core take's screenplay.
+    const fromSteve = messages.some(
+        (message) => message.role === "user" && textOf(message).trim() === stevePhoneMessage,
+    );
+    if (input.includes("CORE_ASTRA_REVIEW") || fromSteve || !input.includes(prompt))
+        return await core.reply(payload, emitted);
+    return await workReply(payload, emitted);
+}
+
+/** The artifact the agent made, as its create_artifact result names it. */
+function artifactIdRead(messages) {
+    for (const message of [...messages].reverse()) {
+        if (message.role !== "tool" && message.role !== "toolResult") continue;
+        const found = textOf(message).match(
+            /(?:\bid |artifactId"?\s*[:=]\s*"?|id=")([a-z0-9]{20,32})\b/u,
+        );
+        if (found) return found[1];
     }
-    return await core.reply(payload, emitted);
+    throw new Error(`create_artifact named no artifact: ${JSON.stringify(messages.at(-1))}`);
+}
+
+/**
+ * The filmed work. Read, Edit, create_artifact, write_artifact_file and
+ * create_agent are the daemon's own tools; the screenplay chooses them.
+ */
+async function workReply(payload, emitted) {
+    const sessionId = payload.options?.sessionId ?? "";
+    const messages = payload.context?.messages ?? [];
+    const key = `stem:${sessionId}`;
+    const step = emitted.get(key) ?? 0;
+    emitted.set(key, step + 1);
+    // The work starts once its row has its icon, so naming and filing read as
+    // their own beat before the first tool row arrives.
+    if (step === 0) {
+        await focusGate("work");
+        return core.paced(
+            [
+                { type: "thinking", thinking: "Checking the existing waveform and voice state." },
+                tool("Read", { file_path: core.voicePath }),
+            ],
+            { thinkingDeltaChunkSize: 4096, thinkingDeltaDelayMs: 2500, toolCallDeltaDelayMs: 600 },
+        );
+    }
+    if (step === 1) {
+        await core.gate(sessionId, "reading");
+        return core.paced([tool("Read", { file_path: core.logicPath })]);
+    }
+    if (step === 2) {
+        await core.gate(sessionId, "implementation");
+        return core.paced(
+            [
+                tool("Edit", {
+                    file_path: core.logicPath,
+                    old_string: "    return false;",
+                    new_string:
+                        "    return connected && (\n        agentSpeaking || userSpeaking\n    );",
+                }),
+            ],
+            { toolCallDeltaDelayMs: 350 },
+        );
+    }
+    if (step === 3) {
+        await core.gate(sessionId, "artifact");
+        return core.paced([
+            tool("create_artifact", {
+                type: "html",
+                title: artifactTitle,
+                display: "inline_expanded",
+            }),
+        ]);
+    }
+    if (step === 4)
+        return core.paced([
+            tool("write_artifact_file", {
+                artifactId: artifactIdRead(messages),
+                path: "index.html",
+                content: artifactPage,
+            }),
+        ]);
+    if (step === 5) {
+        await core.gate(sessionId, "astra-launch");
+        return core.paced([
+            tool("create_agent", {
+                title: core.astraTask,
+                model: "openai/gpt-6-astra",
+                provider: "codex",
+                effort: "high",
+                text: `CORE_ASTRA_REVIEW\nReview ${core.logicPath} and its existing caller in ${core.voicePath}. Check speaking and idle behavior, connecting and error states. Do not edit.`,
+            }),
+        ]);
+    }
+    await core.gate(sessionId, "finishing");
+    return core.paced([text(completionText)], { textDeltaDelayMs: 1200, completionDelayMs: 900 });
 }

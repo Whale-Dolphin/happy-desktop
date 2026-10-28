@@ -202,13 +202,13 @@ export function close() {
         gates.delete(key);
     }
 }
-async function gate(session, name) {
+export async function gate(session, name) {
     reached.add(gateKey(session, name));
     await new Promise((resolve) => gates.set(gateKey(session, name), resolve));
 }
 const text = (value) => ({ type: "text", text: value });
 const tool = (name, args) => ({ type: "toolCall", name, arguments: args });
-const paced = (content, timing = {}) => ({
+export const paced = (content, timing = {}) => ({
     content,
     // Complete, readable blocks. Deliberate director holds separate concepts;
     // constant token motion should not consume the viewer's attention budget.

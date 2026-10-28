@@ -144,7 +144,15 @@ export async function phoneVideoOpen({
                 // Each take restarts its private daemon. Reopen only this
                 // Simulator development app off camera so its socket lifetime
                 // begins against the new daemon and prepared catalog.
-                await execFile("xcrun", ["simctl", "terminate", udid, "com.slopus.happy.dev"]);
+                // A freshly installed app is not running yet; nothing to stop.
+                await execFile("xcrun", [
+                    "simctl",
+                    "terminate",
+                    udid,
+                    "com.slopus.happy.dev",
+                ]).catch((error) => {
+                    if (!String(error.stderr).includes("found nothing to terminate")) throw error;
+                });
                 await execFile("xcrun", ["simctl", "launch", udid, "com.slopus.happy.dev"]);
                 await execFile("xcrun", ["simctl", "openurl", udid, "happy:///"]);
             }
