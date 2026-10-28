@@ -135,24 +135,6 @@ function click({ seed, tone, gain }) {
     return fades(out);
 }
 
-/**
- * The iPhone keyboard's own tick: a short, bright tap for a character and a
- * lower, rounder one for space, shift and the layout keys.
- */
-function phoneTick({ seed, tone, gain, decay }) {
-    const length = seconds(0.035);
-    const noise = noiseSequence(seed);
-    const out = new Float64Array(length);
-    const w = (2 * Math.PI * tone) / sampleRate;
-    for (let index = 0; index < length; index += 1) {
-        const t = index / sampleRate;
-        const body = Math.sin(w * index) * Math.exp(-t * decay);
-        const transient = index < seconds(0.0015) ? noise() * 1.6 : 0;
-        out[index] = (body * 0.8 + transient) * gain;
-    }
-    return fades(out);
-}
-
 function chime() {
     const length = seconds(0.55);
     const out = new Float64Array(length);
@@ -207,8 +189,6 @@ async function paletteRender() {
     const recorded = await recordedKeysRead();
     const palette = {
         click: click({ seed: 7, tone: 2_200, gain: 0.3 }),
-        "phone-key": phoneTick({ seed: 11, tone: 2_900, gain: 0.32, decay: 210 }),
-        "phone-modifier": phoneTick({ seed: 13, tone: 1_700, gain: 0.3, decay: 160 }),
         chime: chime(),
         arrive: arrive(),
         // These roles are explicit rather than aliases for the director's

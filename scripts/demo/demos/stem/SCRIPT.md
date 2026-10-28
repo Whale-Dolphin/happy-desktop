@@ -1,6 +1,8 @@
 # Stem demo: new work starts as a stem cell, and the team joins in
 
-New work opens as a stem cell, names itself, grows its icon and files itself.
+The take opens on the model list, already open: Claude, Codex, Grok and Gemini
+(through the Antigravity harness). Opus 5.5 is picked, and the new work, a stem
+cell, names itself, grows its icon, and the sidebar files it.
 The agent does the work and shows a live preview. It then finds the teammate who
 reviews voice work and loops him in. Steve (designer) answers from his phone, the
 agent fixes and ships, and once Steve signs off, Focus archives the task. Use
@@ -20,8 +22,8 @@ traffic lights. Desktop hints are drawn inside the app at its own resolution. Th
 It then rises from below, whole, over the window's right side under a "Steve's
 phone" label, and drops away once he signs off. Steve's two typing stretches
 play at 2×: the native driver performs one real key touch at a time (about
-220 ms each), and the desktop is idle while he types. The key ticks are
-re-mixed on the faster timeline, so they are not pitched up.
+220 ms each), and the desktop is idle while he types. His typing is silent: a
+synthesized key tick read as fake. The poster is the first frame.
 
 ## Recording
 
@@ -54,39 +56,37 @@ pnpm demo compose team --desktop <take>/stem.mp4 \
   to pair again.
 - Recording needs execution outside the sandbox (Chromium, simctl, Maestro).
 
-## Beats and cues (take `v26-team-r8`; r9 take `v27-team-r9c` is 80.2s, composed 75.5s, about 0.3s earlier from Bug fixes on)
+## Beats and cues (take `r10d`: 80.9s, composed 76.0s)
 
 Times are the take's own. The composition plays the two typing stretches at 2×.
 
-| s             | cue                                | what is on screen                                                                                       |
-| ------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 0             | —                                  | An already-opened stem cell on GPT-6 Astra. Bots sit under Happy; no empty Tasks section. No phone yet. |
-| 3.00 / 5.57   | picker-open / picker-chosen        | Claude, Codex and Grok side by side; Opus 5.5 is chosen. GPT-6 Sol is absent.                           |
-| 6.48 / 9.83   | typing-started / work-started      | "Add an animated waveform to the voice agent."                                                          |
-| 10.88         | stem-named                         | The row names itself "Voice waveform".                                                                  |
-| 13.55         | stem-icon                          | It grows the clay waveform icon; the work waits until the icon hint is gone.                            |
-| 18.63         | stem-filed                         | Focus files the row under Voice.                                                                        |
-| 20.70–27.38   | first-read … artifact-shown        | Reads, edits `waveformActive.ts` (+3 −1), and an inline animated preview (28 bars).                     |
-| 31.92         | looped-in                          | List teammates, Notify teammate, then "Looping in @Steve (designer), who reviews every voice feature."  |
-| 35.37         | steve-joined                       | Steve's own Focus answered with `join_task`; his membership carries the `looped_in` mark.               |
-| 36.10 / 37.02 | phone-enter / phone-row            | Steve's phone rises under its label: his Design rows, and Voice waveform highlighted as new.            |
-| 39.67         | phone-session-open                 | He opens it: the mention and the live preview, inline.                                                  |
-| 43.07 / 49.75 | phone-typing-feedback / phone-sent | "Good, just a bit wide" on the real iOS keyboard, with key ticks (2× in the composition).               |
-| 52.63         | narrowed                           | "Narrowing it to five bars." and a new five-bar preview, on both screens.                               |
-| 54.47 / 62.63 | ship-running / deployed            | The Bash ship, then "Shipped: five bars at most, live on main. @Steve". No confetti.                    |
-| 64.62 / 67.78 | phone-typing-thanks / phone-thanks | Steve types "Great!" (2×).                                                                              |
-| 69.20 / 70.78 | phone-exit / steve-thanks-visible  | The phone drops away; the agent thanks him.                                                             |
-| 72.83         | moved-on                           | The person opens Voice notes; the pointer leaves the sidebar, so one row is highlighted.                |
-| 73.85 / 76.00 | archiving / archived               | The owner's Focus calls `archive_shipped_task`; Voice waveform leaves.                                  |
-| 78.47 / 82.08 | outro / end                        |                                                                                                         |
-
-Cues that hints point at also record the target's rectangle (`rect` in
-desktop CSS px, `phoneRect` in phone points).
+| s             | cue                                | what is on screen                                                                                        |
+| ------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 0             | picker-open                        | The poster: a new stem cell with its model list open. Claude, Codex, Grok and Antigravity's Gemini rows. |
+| 3.27          | picker-chosen                      | Opus 5.5 is picked. A ring on the stem cell: "All new work starts with a stem cell".                     |
+| 6.17 / 9.52   | typing-started / work-started      | "Add an animated waveform to the voice agent."                                                           |
+| 10.55         | stem-named                         | The row names itself "Voice waveform".                                                                   |
+| 13.22         | stem-icon                          | It grows the clay waveform icon; the work waits until the icon hint is gone.                             |
+| 18.30         | stem-filed                         | Focus files the row under Voice: "Sidebar self-organizes".                                               |
+| 20.35–26.80   | first-read … artifact-shown        | Reads, edits `waveformActive.ts` (+3 −1), and an inline animated preview (28 bars).                      |
+| 31.30         | looped-in                          | List teammates, Notify teammate, then "Looping in @Steve (designer), who reviews every voice feature."   |
+| 34.63         | steve-joined                       | Steve's own Focus answered with `join_task`; his membership carries the `looped_in` mark.                |
+| 35.25 / 36.17 | phone-enter / phone-row            | Steve's phone rises under its label: his Design rows, and Voice waveform highlighted as new.             |
+| 38.75         | phone-session-open                 | He opens it: the mention and the live preview, inline.                                                   |
+| 41.92 / 48.33 | phone-typing-feedback / phone-sent | "Good, just a bit wide" on the real iOS keyboard, silent (2× in the composition).                        |
+| 51.20         | narrowed                           | "Narrowing it to five bars." and a new five-bar preview, on both screens.                                |
+| 53.03 / 61.33 | ship-running / deployed            | The Bash ship, then "Shipped: five bars at most, live on main. @Steve". No confetti.                     |
+| 63.47 / 66.80 | phone-typing-thanks / phone-thanks | Steve types "Great!" (2×).                                                                               |
+| 68.22 / 69.77 | phone-exit / steve-thanks-visible  | The phone drops away; the agent thanks him.                                                              |
+| 71.65         | moved-on                           | The person opens Voice notes; the pointer leaves the sidebar, so one row is highlighted.                 |
+| 72.67 / 74.82 | archiving / archived               | The owner's Focus calls `archive_shipped_task`; Voice waveform leaves.                                   |
+| 77.27         | outro                              | "Stem cells. For you and your whole team."                                                               |
 
 ## Verification the take enforces
 
-- The starting model is Astra and there is no GPT-6 Sol row in the picker. The
-  chosen model is Opus 5.5.
+- The starting model is Astra and there is no GPT-6 Sol row in the picker.
+  Opus 5.5, GPT-6 Astra, Grok 4.7 and Gemini 3.8 Flash are all in view in the
+  open list, without scrolling. The chosen model is Opus 5.5.
 - The row's title, library icon and filing are read from the daemon.
 - The phone opens on Steve's own sidebar: his Design rows, none of the owner's,
   and no Voice waveform until he is looped in.

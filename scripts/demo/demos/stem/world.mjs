@@ -11,12 +11,14 @@ import { shipCommand } from "../core/shipping.mjs";
 
 export const id = "stem";
 
-// Today's picker, as Kirill's own installation lists it. GPT-6 Sol is left out
-// through the same per-provider include_models a person sets in happy.toml.
+// Today's picker, trimmed so one family per account fits the open list
+// without scrolling, through the same per-account include_models a person
+// sets in happy.toml. Gemini comes through the Antigravity harness.
 export const models = {
-    codex: ["openai/gpt-6.1-sol", "openai/gpt-6.1-terra", "openai/gpt-6-astra"],
-    claude: ["anthropic/opus-5-5", "anthropic/sonnet-5-5", "anthropic/fable-5-1"],
+    codex: ["openai/gpt-6.1-sol", "openai/gpt-6-astra"],
+    claude: ["anthropic/opus-5-5", "anthropic/sonnet-5-5"],
     grok: ["xai/grok-4.7"],
+    antigravity: ["antigravity/gemini-4-argon", "antigravity/gemini-3.8-flash"],
 };
 
 // Stem cells are not project sessions, so the classic world's worktree

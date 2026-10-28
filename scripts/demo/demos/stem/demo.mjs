@@ -112,13 +112,13 @@ const boundsRect = (item) => {
  * after `delay` and out after `seconds`, on the page's clock, while the take
  * carries on.
  */
-async function highlight(locator, { text, side = "right", delay = 0, seconds }) {
+async function highlight(locator, { text, side = "right", delay = 0, seconds, round = false }) {
     const target = await locator.elementHandle();
-    await target.evaluate(highlightDraw, { text, side, delay, seconds, accent: "#e07aae" });
+    await target.evaluate(highlightDraw, { text, side, delay, seconds, round, accent: "#e07aae" });
 }
 
 /** Runs in the page: builds the hint's layer and keeps it on its target every frame. */
-function highlightDraw(element, { text, side, delay, seconds, accent }) {
+function highlightDraw(element, { text, side, delay, seconds, round, accent }) {
     const fade = 300;
     const pad = 4;
     const gap = 8;
@@ -127,7 +127,7 @@ function highlightDraw(element, { text, side, delay, seconds, accent }) {
     layer.setAttribute("aria-hidden", "true");
     layer.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483000;opacity:0;transition:opacity ${fade}ms linear`;
     const ring = document.createElement("div");
-    ring.style.cssText = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:10px;box-shadow:0 0 9px 1px ${accent}a6,inset 0 0 5px ${accent}59`;
+    ring.style.cssText = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:${round ? "50%" : "10px"};box-shadow:0 0 9px 1px ${accent}a6,inset 0 0 5px ${accent}59`;
     layer.append(ring);
     let pill;
     let notch;
@@ -349,31 +349,21 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         ),
     );
     cue(`phone-typing-${phase}`, demo, phone);
-    // Each touch plays the keyboard's own tick as it goes out, as fast as
-    // the native driver performs touches.
-    const taps = (points, sounds) =>
-        phone.simulator.tapPoints(points, (index) => demo.sound(sounds[index]));
+    // Silent: a synthesized key tick reads as fake, and the phone has no
+    // recorded sound of its own. Touches go out as fast as the driver performs them.
+    const taps = (points) => phone.simulator.tapPoints(points);
     let index = 0;
     const capitalized = keys.some((item) => item.text === "Q");
     if (capitalized !== /\p{Lu}/u.test(message[0])) {
         const shift = keys.find((item) => item.id === "shift");
         if (!shift) throw new Error("The native keyboard has no shift key.");
-        await taps([boundsCenter(shift)], ["phone-modifier"]);
+        await taps([boundsCenter(shift)]);
     }
     while (index < message.length) {
         const run = [];
-        while (index < message.length && keyFor(keys, message[index])) {
-            const character = message[index++];
-            run.push({
-                point: boundsCenter(keyFor(keys, character)),
-                sound: character === " " ? "phone-modifier" : "phone-key",
-            });
-        }
-        if (run.length > 0)
-            await taps(
-                run.map((entry) => entry.point),
-                run.map((entry) => entry.sound),
-            );
+        while (index < message.length && keyFor(keys, message[index]))
+            run.push(boundsCenter(keyFor(keys, message[index++])));
+        if (run.length > 0) await taps(run);
         if (index >= message.length) break;
         // The next character is on the other layout, or the layout just
         // changed under us after punctuation.
@@ -381,7 +371,7 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         if (keyFor(keys, message[index])) continue;
         const toggle = layoutKey(keys);
         if (!toggle) throw new Error(`Native keyboard key is missing: ${message[index]}`);
-        await taps([boundsCenter(toggle)], ["phone-modifier"]);
+        await taps([boundsCenter(toggle)]);
         keys = keyboardKeys(await phone.inspect(`${phase}-layout`));
         if (!keyFor(keys, message[index]))
             throw new Error(`Native keyboard key is missing: ${message[index]}`);
@@ -392,7 +382,7 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         throw new Error(`The native keyboard typed "${composer?.value}", not "${message}".`);
     const send = boundsCenter(typed.find((item) => item.text === "Send"));
     if (!send) throw new Error("The actual native Send control is missing.");
-    await taps([send], ["phone-modifier"]);
+    await taps([send]);
 }
 
 /** Archives earlier takes' filmed rows, so the next New row is the only one. */
@@ -581,32 +571,57 @@ export default {
             await phone.start();
         }
 
-        // ---- On camera: the opened stem cell, its empty composer.
-        await demo.hold(1000);
+        // The take opens on the model list, opened off camera through the
+        // real control; the real mouse rests above the list so no row is hovered.
         const model = page
             .locator('[data-happy-desktop-ui="composer-model-control-trigger"]')
             .first();
         if (!(await model.innerText()).includes("Astra"))
             throw new Error("The new work does not start on the default GPT-6 Astra.");
-        await demo.click(model);
-        await demo.click(
-            page.locator('[data-happy-desktop-ui="composer-model-control-model-setting"]').first(),
-        );
-        cue("picker-open", demo, phone);
+        await model.click();
+        await page
+            .locator('[data-happy-desktop-ui="composer-model-control-model-setting"]')
+            .first()
+            .click();
         const choices = page.locator('[data-happy-desktop-ui="composer-model-control-row"]');
         const choice = (name) => choices.filter({ hasText: name }).first();
         const opus = choice("Opus 5.5");
+        await opus.waitFor({ state: "visible" });
         if ((await choices.filter({ hasText: "GPT-6 Sol" }).count()) > 0)
             throw new Error("GPT-6 Sol must not be offered in the cleaned-up picker.");
-        await demo.moveTo(choice("Grok 4.7"), { duration: 600 });
+        // Every family, Gemini last, shows in the open list without scrolling.
+        const list = await page
+            .locator('[data-happy-desktop-ui="composer-model-control-list"]')
+            .first()
+            .boundingBox();
+        for (const name of ["Opus 5.5", "GPT-6 Astra", "Grok 4.7", "Gemini 3.8 Flash"]) {
+            const box = await choice(name).boundingBox();
+            const middle = box && box.y + box.height / 2;
+            if (!box || middle < list.y || middle > list.y + list.height)
+                throw new Error(`${name} is not in view in the open model list.`);
+        }
+        await page.mouse.move(440, 40);
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: join(output, "picker-open.png") });
+
+        // ---- On camera: the stem cell, with the model list open.
+        cue("picker-open", demo, phone);
+        await demo.hold(1800);
+        await demo.moveTo(opus, { duration: 750 });
         await demo.hold(350);
-        await demo.moveTo(opus, { duration: 650 });
-        await demo.hold(600);
         await page.screenshot({ path: join(output, "picker-hover.png") });
-        // Straight on to the composer, so the ripple never reads as a click on
-        // the chip under the closed menu.
         await demo.click(opus, { after: 0 });
         cue("picker-chosen", demo, phone);
+        // A beat on the stem cell itself: all new work starts as one. The
+        // pointer drifts down to the composer, clear of the mark.
+        await highlight(
+            page
+                .locator('[data-happy-desktop-ui="make-stuff-intro"] .happy-make-stuff__lead > *')
+                .first(),
+            { seconds: 2.2, round: true },
+        );
+        await demo.moveTo(composer, { duration: 900 });
+        await demo.hold(1550);
         await demo.click(composer, { after: 150 });
         // The pointer hides while typing, as macOS hides it, so it never sits on the words.
         await demo.pointerVisible(false);
@@ -996,7 +1011,7 @@ export default {
                     "Repository finding is roadmap. Off camera, the stem cell's own empty task folder received a Git clone of the fixture happy repository.",
                 sidebar:
                     "Sections were made off camera as the person's own sidebar edit. Earlier rows are stem cells made through the API and filed by Focus the same way.",
-                picker: "The gym enables today's models through per-provider include_models; GPT-6 Sol is not included.",
+                picker: "The gym enables today's models through per-account include_models, two or one per family so the open list fits without scrolling; GPT-6 Sol is not included. Gemini rows are the Antigravity harness ([harnesses.antigravity]) built-in model list, which the daemon offers until the Antigravity agent has answered; in the gym it has not, and no Gemini model is used. The take opens on the list, opened off camera through the real control.",
                 team: "A team daemon (feature.team) with two seeded members, Alex (the owner, at the desktop) and Steve (Designer, follows every voice feature). The gym signs each member's HS256 token and gives each a socket that speaks to the daemon as them.",
                 collaborator:
                     "Fictional Steve is a real second member. The agent's real list_teammates and notify_teammate tools loop him in; his own Focus answers with its real join_task; his membership carries the looped_in unread mark. His messages are authored by his own token.",

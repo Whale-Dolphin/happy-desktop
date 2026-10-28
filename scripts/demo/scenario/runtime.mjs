@@ -402,6 +402,16 @@ async function runtimeConfigurationWrite(p, models, native = false, nativeEffort
             "enabled = true",
             "auto_enable = true",
             "",
+            // Antigravity is a harness with its own login, offered as an
+            // account of its own. Until its agent answers, the picker offers
+            // the harness's built-in model list, filtered like any account.
+            ...(models?.antigravity
+                ? [
+                      "[harnesses.antigravity]",
+                      `include_models = ${JSON.stringify(models.antigravity)}`,
+                      "",
+                  ]
+                : []),
             // The person's own daemon holds the default connector port; a
             // paired demo phone dials this gym's own.
             "[feature.mobile_connector]",

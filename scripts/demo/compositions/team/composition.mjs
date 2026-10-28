@@ -44,12 +44,12 @@ export default {
         { from: "phone-typing-thanks", to: "phone-thanks", rate: 2 },
     ],
     captions: [
-        { from: 0, text: "Every new task starts as a *stem cell*" },
-        { from: "picker-open", text: "Any model: Claude, Codex or Grok" },
-        { from: "typing-started", text: "Just say what it is" },
+        { from: 0, text: "Any model: Claude, Codex, Grok, Gemini, and more" },
+        { from: "picker-chosen", text: "All new work starts with a *stem cell*" },
+        { from: "typing-started", text: "Just say what you want done" },
         { from: "stem-named", text: "It *names itself*" },
         { from: "stem-icon", text: "grows *its own icon*" },
-        { from: "stem-filed", text: "and *files itself* where it belongs" },
+        { from: "stem-filed", text: "*Sidebar self-organizes*" },
         { from: "first-read-visible", text: "Then it gets to work" },
         { from: "artifact-shown", text: "and *shows you* a live preview" },
         { from: "looped-in", text: "It loops in *Steve (designer)*, who reviews voice work" },
@@ -66,5 +66,7 @@ export default {
     ],
     // The desktop's hints are drawn in the app itself, at its own resolution;
     // only the phone's, which the app cannot draw on, is laid on here.
+    // The first frame, the stem cell with its model list open, is the poster.
+    poster: { seconds: 0 },
     hints: [{ cue: "phone-row", side: "below", seconds: 2, text: "New on Steve's phone" }],
 };

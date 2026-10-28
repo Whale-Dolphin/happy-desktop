@@ -320,12 +320,15 @@ export async function phoneVideoOpen({
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-ss",
-                String(Math.max(0, clock.trimSeconds)),
                 "-i",
                 source,
+                // The Simulator writes only changed frames, so an idle phone
+                // has one frame standing for seconds. Trimming after the
+                // constant-rate conversion keeps that frame on screen; an
+                // input seek would drop it and start the take on the next
+                // change, seconds early.
                 "-vf",
-                `fps=${fps}`,
+                `fps=${fps},trim=start=${Math.max(0, clock.trimSeconds)},setpts=PTS-STARTPTS`,
                 "-frames:v",
                 String(frames),
                 "-an",

@@ -263,9 +263,11 @@ export async function overlaysBuild({ composition, cues, phoneCanvas }) {
     async function layersAt(seconds) {
         const layers = [];
         for (const item of items) {
+            // What is on screen from the first frame is already there, so
+            // the opening (and the poster cut from it) shows it whole.
             const opacity = Math.min(
                 1,
-                Math.max(0, (seconds - item.from) / FADE_SECONDS),
+                item.from <= 0 ? 1 : Math.max(0, (seconds - item.from) / FADE_SECONDS),
                 Math.max(0, (item.to - seconds) / FADE_SECONDS),
             );
             const step = Math.round(opacity * OPACITY_STEPS);

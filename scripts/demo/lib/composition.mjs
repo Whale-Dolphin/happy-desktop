@@ -562,7 +562,7 @@ export async function compositionRender({ composition, directory, desktop, phone
 
     // The desktop take carries the recorded soundtrack; the phone is silent.
     // A sped-up take re-mixes its sounds on the output timeline instead, so
-    // the key ticks come faster without being pitched up.
+    // nothing is pitched up.
     let soundtrack;
     if (speedUps.windows.length > 0) {
         const events = JSON.parse(await readFile(join(dirname(cues), "sounds.json"), "utf8"));
