@@ -902,7 +902,11 @@ export default {
                 15000,
             );
             await demo.hold(1200);
+            // Simulator screenshots on each side of his reply: evidence the phone
+            // kept drawing, apart from what the screen recording captured.
+            await phone.screenshot("check-shipped");
             await phoneTypeAndSend(demo, phone, session, world.steveThanks, "thanks");
+            await phone.screenshot("check-thanks-sent");
             cue("phone-thanks", demo, phone);
             await demo.hold(1400);
             cue("phone-exit", demo, phone);

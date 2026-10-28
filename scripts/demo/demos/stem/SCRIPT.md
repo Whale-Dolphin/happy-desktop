@@ -15,7 +15,7 @@ that speaks to the daemon as them (`scenario/team.mjs`). The phone is paired
 as Steve, so it shows his own sidebar.
 
 The `team` composition keeps the desktop centre stage. The frame (1618×1000)
-and the recorded window (972×600 CSS) are golden rectangles, and the window
+and the recorded window (880×600 CSS) are golden rectangles, and the window
 carries macOS traffic lights. The phone is off screen until Steve is looped in.
 It then rises from below, whole, over the window's right side under a "Steve's
 phone" label, and drops away once he signs off. Steve's two typing stretches
@@ -54,7 +54,7 @@ pnpm demo compose team --desktop <take>/stem.mp4 \
   to pair again.
 - Recording needs execution outside the sandbox (Chromium, simctl, Maestro).
 
-## Beats and cues (take `v26-team-r8`, 60fps, 4,925 frames, 82.08s; composed 77.2s)
+## Beats and cues (take `v26-team-r8`; r9 take `v27-team-r9c` is 80.2s, composed 75.5s, about 0.3s earlier from Bug fixes on)
 
 Times are the take's own. The composition plays the two typing stretches at 2×.
 
