@@ -290,7 +290,25 @@ export interface HappyAgentSpacesDeps {
     ) => void;
     readonly proposalSeenMemory?: HappyAgentSpacesProposalSeenMemory;
     readonly now?: () => number;
+    /** Told how long each authoritative read took, so a slow sidebar can be seen. */
+    readonly readObserve?: (read: HappyAgentSpacesRead) => void;
 }
+
+/** One authoritative read of the sidebar, from its first request until it answered. */
+export interface HappyAgentSpacesRead {
+    /** `all` reads the rows and the document together; `sidebar` reads the document alone. */
+    readonly scope: "all" | "sidebar";
+    readonly durationMs: number;
+    /** Requests made until one answered; more than one means the daemon failed in between. */
+    readonly attempts: number;
+}
+
+/** Fields of the snapshot one change sets, published together. */
+type SpacesPatch = {
+    -readonly [Key in keyof HappyAgentSpacesSnapshot]?: HappyAgentSpacesSnapshot[Key];
+};
+
+type SidebarAnswer = Awaited<ReturnType<HappyAgentClient["getSpaceSidebar"]>>;
 
 const EMPTY: HappyAgentSpacesSnapshot = {
     availability: "loading",
@@ -544,11 +562,52 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         // Written even when it changes nothing: the write is what ends the seed.
         store.sidebarWrite(html ?? current.html, true);
     };
+    /**
+     * Takes one sidebar answer into `next`: the rows it names, the proposal
+     * beside them, and the document itself unless a hand or a write holds it.
+     * Says whether the document was taken, so a seed is adopted once it shows.
+     */
+    const sidebarAnswerTake = (answer: SidebarAnswer, next: SpacesPatch): boolean => {
+        // The document and the rows it names are one authoritative answer.
+        const spaces = new Map(next.spaces ?? snapshot.spaces);
+        let spacesChanged = false;
+        for (const space of answer.spaces.map(spaceRead)) {
+            // A row already held at this version is the same row; keep its identity.
+            if ((spaces.get(space.id)?.version ?? -1) >= space.version) continue;
+            spacesChanged = spaceAdopt(spaces, space) || spacesChanged;
+        }
+        if (spacesChanged) next.spaces = spaces;
+        // A mark beside a row moves nothing, so it follows the daemon even mid-drag.
+        const open =
+            answer.proposal?.status === "open"
+                ? { artifactId: answer.proposal.artifactId, version: answer.proposal.version }
+                : null;
+        const proposal = proposalPatch(open);
+        if (
+            proposal.proposal !== snapshot.proposal ||
+            proposal.proposalSeen !== snapshot.proposalSeen
+        )
+            Object.assign(next, proposal);
+        if (sidebarWrites > 0 || sidebarDragging || creating.size > 0) {
+            sidebarStale = true;
+            return false;
+        }
+        const current = snapshot.sidebar;
+        if (current && current.version > answer.version) return false;
+        if (current?.version === answer.version && current.html === answer.html) return false;
+        sidebarHeld = { version: answer.version, html: answer.html };
+        next.sidebar = {
+            ...sidebarOf(answer, sidebarCapabilities()),
+            html: sidebarShown() ?? answer.html,
+        };
+        return true;
+    };
     const sidebarLoad = (): void => {
         if (sidebarWrites > 0 || sidebarDragging || creating.size > 0) {
             sidebarStale = true;
             return;
         }
+        const startedAt = performance.now();
         void deps.client
             .getSpaceSidebar({
                 signal: life.signal,
@@ -556,44 +615,15 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             })
             .then((answer) => {
                 if (disposed) return;
-                // The document and the rows it names are one authoritative answer.
-                const spaces = new Map(snapshot.spaces);
-                let spacesChanged = false;
-                for (const space of answer.spaces.map(spaceRead)) {
-                    // A row already held at this version is the same row; keep its identity.
-                    if ((spaces.get(space.id)?.version ?? -1) >= space.version) continue;
-                    spacesChanged = spaceAdopt(spaces, space) || spacesChanged;
-                }
-                // A mark beside a row moves nothing, so it follows the daemon even mid-drag.
-                const open =
-                    answer.proposal?.status === "open"
-                        ? {
-                              artifactId: answer.proposal.artifactId,
-                              version: answer.proposal.version,
-                          }
-                        : null;
-                const proposal = proposalPatch(open);
-                if (
-                    spacesChanged ||
-                    proposal.proposal !== snapshot.proposal ||
-                    proposal.proposalSeen !== snapshot.proposalSeen
-                )
-                    publish({ ...proposal, ...(spacesChanged ? { spaces } : {}) });
-                if (sidebarWrites > 0 || sidebarDragging || creating.size > 0) {
-                    sidebarStale = true;
-                    return;
-                }
-                const current = snapshot.sidebar;
-                if (current && current.version > answer.version) return;
-                if (current?.version === answer.version && current.html === answer.html) return;
-                sidebarHeld = { version: answer.version, html: answer.html };
-                publish({
-                    sidebar: {
-                        ...sidebarOf(answer, sidebarCapabilities()),
-                        html: sidebarShown() ?? answer.html,
-                    },
+                deps.readObserve?.({
+                    scope: "sidebar",
+                    durationMs: performance.now() - startedAt,
+                    attempts: 1,
                 });
-                seedAdopt();
+                const next: SpacesPatch = {};
+                const taken = sidebarAnswerTake(answer, next);
+                if (Object.keys(next).length > 0) publish(next);
+                if (taken) seedAdopt();
             })
             .catch(() => undefined);
     };
@@ -605,9 +635,30 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         if (!active || active.signal.aborted) return Promise.resolve();
         if (loading) return loading;
         held = [];
+        const startedAt = performance.now();
+        let attempts = 0;
         const task = happyAgentSyncRead(
             active.signal,
-            () => deps.client.listSpaces({ signal: active.signal }),
+            // The rows and the document that arranges them are read together
+            // and shown together, so neither is ever on screen beside an older
+            // other, and a remote daemon costs one round trip instead of two.
+            () => {
+                attempts += 1;
+                return Promise.all([
+                    deps.client.listSpaces({ signal: active.signal }),
+                    deps.client
+                        .getSpaceSidebar({
+                            signal: active.signal,
+                            ...(sidebarOperational() ? { widgets: true } : {}),
+                        })
+                        .catch((error: unknown) => {
+                            // A daemon that refuses the document arranges the rows without one.
+                            if (error instanceof HappyAgentApiError && error.status < 500)
+                                return undefined;
+                            throw error;
+                        }),
+                ]);
+            },
             (error) => {
                 if (error instanceof HappyAgentApiError && error.status === 404) {
                     publish({ availability: "unsupported" });
@@ -615,24 +666,30 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                 }
             },
         )
-            .then((response) => {
+            .then(([response, sidebar]) => {
                 if (disposed || active.signal.aborted) return;
+                deps.readObserve?.({
+                    scope: "all",
+                    durationMs: performance.now() - startedAt,
+                    attempts,
+                });
                 const spaces = new Map<HappyAgentSpaceId, HappyAgentSpace>();
                 for (const space of response.spaces.map(spaceRead))
                     spaces.set(space.id, titled(space));
                 const pending = held ?? [];
                 held = undefined;
-                snapshot = {
-                    ...snapshot,
+                const next: SpacesPatch = {
                     availability: "available",
                     readAt: (deps.now ?? Date.now)(),
                     spaces,
                     sections: sectionsOrdered(response.sections.map(sectionOf)),
                 };
+                const taken = sidebar !== undefined && sidebarAnswerTake(sidebar, next);
+                snapshot = { ...snapshot, ...next };
                 for (const event of pending) eventApply(event, false);
                 publish({});
                 batchesLoad(active.signal);
-                sidebarLoad();
+                if (taken) seedAdopt();
             })
             .catch(() => {
                 if (reading === active) held = undefined;
@@ -650,9 +707,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             held.push(event);
             return;
         }
-        const next: Partial<{
-            -readonly [Key in keyof HappyAgentSpacesSnapshot]: HappyAgentSpacesSnapshot[Key];
-        }> = {};
+        const next: SpacesPatch = {};
         switch (event.type) {
             case "space.created":
             case "space.updated": {

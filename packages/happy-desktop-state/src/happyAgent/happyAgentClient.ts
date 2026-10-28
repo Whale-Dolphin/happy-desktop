@@ -126,7 +126,11 @@ import { happyAgentTeamsStoreCreate, type HappyAgentTeamsStore } from "./happyAg
 import { happyAgentArtifactsCreate, type HappyAgentArtifacts } from "../artifacts/artifacts.js";
 import { happyAgentSurfaceChatGroupsCreate } from "../surfaces/surfaceChatGroups.js";
 import { happyAgentSurfacesCreate, type HappyAgentSurfaces } from "../surfaces/surfaces.js";
-import { happyAgentSpacesStoreCreate, type HappyAgentSpacesStore } from "../spaces/spacesStore.js";
+import {
+    happyAgentSpacesStoreCreate,
+    type HappyAgentSpacesRead,
+    type HappyAgentSpacesStore,
+} from "../spaces/spacesStore.js";
 import {
     happyAgentSidebarProposalsStoreCreate,
     type HappyAgentSidebarProposalsStore,
@@ -450,6 +454,8 @@ export interface HappyAgentWorkspaceClientDeps {
         listener: (rejection: MutationRejectedDelta) => void,
     ) => () => void;
     readonly sessionListOutput?: (event: HappyAgentSessionListOutput) => void;
+    /** Told how long each authoritative read of the spaces sidebar took. */
+    readonly spacesReadObserve?: (read: HappyAgentSpacesRead) => void;
     readonly chatOutput?: (sessionId: HappyAgentSessionId, event: HappyAgentChatOutput) => void;
     readonly modelPreferencePersistence?: HappyAgentModelPreferencePersistence;
     /** Where this Happy Agent's tab and read memory is kept; omitted keeps it in memory. */
@@ -830,6 +836,7 @@ export function happyAgentWorkspaceClientCreate(
                     read: () => memory.sidebarProposalSeenRead(),
                     write: (seen) => memory.sidebarProposalSeenWrite(seen),
                 },
+                ...(deps.spacesReadObserve ? { readObserve: deps.spacesReadObserve } : {}),
             });
             return spaces;
         },

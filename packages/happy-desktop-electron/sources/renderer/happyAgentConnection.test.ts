@@ -1,5 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
+import {
+    diffSpaceSidebar,
+    formatSpaceSidebar,
+    parseSpaceSidebar,
+} from "@slopus/happy-agent-client";
+import {
+    HAPPY_AGENT_STEM_CELLS_SETTING,
+    sidebarDocumentEdit,
+    sidebarDocumentInsert,
+} from "happy-desktop-state";
 import { fakeHappyAgentDaemonCreate } from "happy-desktop-state/testing";
 import type {
     DesktopRuntimeSnapshot,
@@ -183,6 +193,128 @@ it("lets mobile setup be skipped before the local connection offers it", async (
 
     store.happyMobileSkip();
     expect(localOnboardingView(store.get())).toMatchObject({ kind: "finishing" });
+});
+
+/** A row the daemon lists in the spaces sidebar. */
+function spaceRow(id: string, title: string) {
+    return {
+        createdAt: 1,
+        icon: null,
+        id,
+        orderKey: "a0",
+        placement: "settled" as const,
+        sectionId: null,
+        target: {
+            agentId: `agent-${id}`,
+            id: `task-${id}`,
+            kind: "task" as const,
+            workspaceId: null,
+        },
+        title,
+        updatedAt: 1,
+        version: 1,
+        visibility: "shown" as const,
+        working: false,
+    };
+}
+
+/** The reads that put the spaces sidebar on screen. */
+function spacesReads(daemon: ReturnType<typeof fakeHappyAgentDaemonCreate>): number {
+    return daemon.callCount("listSpaces") + daemon.callCount("getSpaceSidebar");
+}
+
+it("keeps a background connection's spaces sidebar current, so switching to it reads nothing", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ sidebarOperations: true });
+    const empty = ["<nav>", "<happy-search/>", "<happy-create/>", "</nav>"].join("\n");
+    daemon.spaceSidebarSet({ version: 1, html: empty });
+    await daemon.client.saveUserSetting(HAPPY_AGENT_STEM_CELLS_SETTING, { value: true });
+    const handle = connectionOpen(daemon, { local: false });
+    await vi.waitFor(() => expect(handle.get()).toBeDefined());
+    const session = handle.get()!;
+    await vi.waitFor(() => expect(session.connection.get().connection).toBe("connected"));
+
+    // Nothing on screen subscribes to it: the connection follows on its own,
+    // with one read of the rows and the document together.
+    await vi.waitFor(() => expect(session.spaces.get().sidebar?.version).toBe(1));
+    expect(daemon.callCount("listSpaces")).toBe(1);
+    expect(daemon.callCount("getSpaceSidebar")).toBe(1);
+    const log = session.debugLog.get().entries;
+    expect(log.find((entry) => entry.message.startsWith("Spaces sidebar ready"))?.detail).toContain(
+        '"connectionId": "remote"',
+    );
+    expect(
+        log.find((entry) => entry.message.startsWith("Spaces sidebar and rows read in"))?.source,
+    ).toBe("sync");
+
+    // While another workspace is on screen, new work lands in this one.
+    const row = spaceRow("space-release", "Release");
+    const html = sidebarDocumentEdit(empty, (view) =>
+        sidebarDocumentInsert(view, row.id, null, null),
+    )!;
+    daemon.spacesSet([row]);
+    daemon.spaceSidebarSet({ version: 2, html });
+    daemon.eventEmit("space.created", { space: row });
+    daemon.eventEmit("space.sidebar.changed", {
+        artifactId: "sidebar",
+        author: "daemon",
+        operations: diffSpaceSidebar(parseSpaceSidebar(empty), parseSpaceSidebar(html)),
+        previousVersion: 1,
+        version: 2,
+    });
+    await vi.waitFor(() => expect(session.spaces.get().sidebar?.version).toBe(2));
+    expect(spacesReads(daemon)).toBe(2);
+
+    // A change made while the link was down is read back on reconnect, still
+    // in the background.
+    const later = spaceRow("space-later", "Later");
+    daemon.streamDropAll();
+    daemon.spacesSet([row, later]);
+    await vi.waitFor(() => expect(session.spaces.get().spaces.has(later.id as never)).toBe(true));
+    const reads = spacesReads(daemon);
+
+    // Switching to it draws the current sidebar at once, and nothing after.
+    const unsubscribe = session.spaces.subscribe(() => undefined);
+    unsubscribes.push(unsubscribe);
+    const shown = session.spaces.get();
+    expect(shown.spaces.get(row.id as never)?.title).toBe("Release");
+    expect(shown.sidebar?.html).toBe(formatSpaceSidebar(parseSpaceSidebar(html)));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.spaces.get()).toBe(shown);
+    expect(spacesReads(daemon)).toBe(reads);
+});
+
+it("follows no spaces sidebar while Stem Cells is off, and lets go when it is turned off", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ sidebarOperations: true });
+    const handle = connectionOpen(daemon, { local: false });
+    await vi.waitFor(() => expect(handle.get()).toBeDefined());
+    const session = handle.get()!;
+    await vi.waitFor(() =>
+        expect(session.stemCellsSettings().get()).toMatchObject({
+            status: "ready",
+            stemCellsEnabled: false,
+        }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(spacesReads(daemon)).toBe(0);
+    expect(session.spaces.get().availability).toBe("loading");
+
+    // Turned on elsewhere, the sidebar is read and followed from then on.
+    await daemon.client.saveUserSetting(HAPPY_AGENT_STEM_CELLS_SETTING, { value: true });
+    await vi.waitFor(() => expect(session.spaces.get().availability).toBe("available"));
+    expect(spacesReads(daemon)).toBe(2);
+
+    // Turned off, nothing follows: a change on the daemon reaches no one.
+    await daemon.client.saveUserSetting(HAPPY_AGENT_STEM_CELLS_SETTING, { value: null });
+    await vi.waitFor(() =>
+        expect(session.stemCellsSettings().get()).toMatchObject({ stemCellsEnabled: false }),
+    );
+    const before = session.spaces.get();
+    daemon.eventEmit("space.created", { space: spaceRow("space-later", "Later") });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.spaces.get()).toBe(before);
+    expect(spacesReads(daemon)).toBe(2);
 });
 
 it("follows a daemon restarted behind the same endpoint onto its version and models", async () => {

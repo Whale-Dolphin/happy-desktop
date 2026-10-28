@@ -11,6 +11,7 @@ import {
     happyAgentDebugLogStoreCreate,
     happyAgentWorkspaceStoreCreate,
     happyAgentConversationRetentionFor,
+    happyAgentStemCellsChosen,
     happyAgentOnboardingStoreCreate,
     happyAgentMobileConnectorStoreCreate,
     welcomeStoreCreate,
@@ -432,6 +433,8 @@ export function happyAgentConnectionOpen(input: {
     readonly terminalColorScheme: () => TerminalColorScheme;
 }): HappyAgentConnectionHandle {
     let disposed = false;
+    /** When this connection began opening, for how long its sidebar took to be ready. */
+    const openedAt = performance.now();
     let session: HappyAgentSession | undefined;
     let sessionConnection: ReturnType<typeof streamConnectionStoreCreate> | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -530,6 +533,22 @@ export function happyAgentConnectionOpen(input: {
         providerUsageSource: happyAgentUsageSourceCreate(directClient, agentConnection.sync),
         transcriptConnect: happyAgentTranscriptConnectCreate(agentConnection),
         transcriptPrefetch: (sessionId) => agentConnection.prefetchSession(sessionId),
+        spacesReadObserve: (read) => {
+            const durationMs = Math.round(read.durationMs);
+            debugEntry({
+                detail: JSON.stringify(
+                    { connectionId: input.happyAgentId, ...read, durationMs },
+                    null,
+                    2,
+                ),
+                level: "info",
+                message:
+                    read.scope === "all"
+                        ? `Spaces sidebar and rows read in ${durationMs} ms`
+                        : `Spaces sidebar document read in ${durationMs} ms`,
+                source: "sync",
+            });
+        },
         connectMutationSubscribe: (listener) => {
             mutationListeners.add(listener);
             return () => mutationListeners.delete(listener);
@@ -558,6 +577,54 @@ export function happyAgentConnectionOpen(input: {
 
     let workspace: HappyAgentWorkspaceStore | undefined;
     let workspaceKeepWarm: (() => void) | undefined;
+    let stemCellsKeepWarm: (() => void) | undefined;
+    let spacesKeepWarm: (() => void) | undefined;
+    /**
+     * Keeps the spaces sidebar following this connection's daemon while Stem
+     * Cells is chosen here, whether or not its workspace is on screen, so
+     * switching to it paints the current sidebar with no read and no jump.
+     * Following opens no request of its own; turning Stem Cells off lets go.
+     */
+    const spacesFollow = (spaces: HappyAgentSpacesStore): void => {
+        const stemCells = client.stemCellsSettings();
+        const sessionAt = performance.now();
+        let readyRecorded = false;
+        const spacesReady = (): void => {
+            const current = spaces.get();
+            if (readyRecorded || current.availability !== "available") return;
+            readyRecorded = true;
+            const now = performance.now();
+            const sinceOpenMs = Math.round(now - openedAt);
+            debugEntry({
+                detail: JSON.stringify(
+                    {
+                        connectionId: input.happyAgentId,
+                        sinceOpenMs,
+                        sinceSessionMs: Math.round(now - sessionAt),
+                        document: current.sidebar !== undefined,
+                    },
+                    null,
+                    2,
+                ),
+                level: "info",
+                message: `Spaces sidebar ready ${sinceOpenMs} ms after the connection opened`,
+                source: "sync",
+            });
+        };
+        const follow = (): void => {
+            if (disposed) return;
+            const chosen = happyAgentStemCellsChosen(stemCells.get());
+            if (chosen && !spacesKeepWarm) {
+                spacesKeepWarm = spaces.subscribe(spacesReady);
+                spacesReady();
+            } else if (!chosen && spacesKeepWarm) {
+                spacesKeepWarm();
+                spacesKeepWarm = undefined;
+            }
+        };
+        stemCellsKeepWarm = stemCells.subscribe(follow);
+        follow();
+    };
     let modelsLoading = false;
     const modelsLoad = (): void => {
         retry = undefined;
@@ -686,6 +753,7 @@ export function happyAgentConnectionOpen(input: {
                 // The directory now owns the live workspace subscription.
                 workspaceKeepWarm?.();
                 workspaceKeepWarm = undefined;
+                if (!disposed && session) spacesFollow(session.spaces);
             },
             (error: unknown) => {
                 modelsLoading = false;
@@ -742,6 +810,10 @@ export function happyAgentConnectionOpen(input: {
             if (retry) clearTimeout(retry);
             workspaceKeepWarm?.();
             workspace?.[Symbol.dispose]();
+            spacesKeepWarm?.();
+            spacesKeepWarm = undefined;
+            stemCellsKeepWarm?.();
+            stemCellsKeepWarm = undefined;
             if (session) {
                 session.connection[Symbol.dispose]();
                 session = undefined;

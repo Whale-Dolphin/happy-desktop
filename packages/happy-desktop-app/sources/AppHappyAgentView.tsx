@@ -335,6 +335,7 @@ import {
 import { APP_SHORTCUTS } from "./appShortcuts";
 import {
     happyAgentSpacesStoreNoop,
+    happyAgentStemCellsChosen,
     type HappyAgentSidebarProposalsStore,
 } from "happy-desktop-state";
 import { HappyAgentSidebarProposal } from "./components/HappyAgentSidebarProposal";
@@ -3687,10 +3688,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
     // the daemon confirms, and until the daemon first answers it follows this
     // connection's last answer, so a reload paints the chosen sidebar at once.
     // Anything older, or Stem Cells off, keeps the classic sidebar.
-    const stemCellsChosen =
-        stemCellsSettings.status === "ready"
-            ? stemCellsSettings.stemCellsEnabled
-            : stemCellsSettings.status === "loading" && stemCellsSettings.hint === true;
+    const stemCellsChosen = happyAgentStemCellsChosen(stemCellsSettings);
     const spacesStore =
         (stemCellsChosen ? active?.session?.spaces : undefined) ?? happyAgentSpacesStoreNoop;
     const spaces = useSyncExternalStore(spacesStore.subscribe, spacesStore.get, spacesStore.get);

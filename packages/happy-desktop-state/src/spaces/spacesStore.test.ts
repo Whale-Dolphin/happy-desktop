@@ -7,7 +7,12 @@ import {
 import { connectHappyAgent } from "../happyAgentConnection/connectHappyAgent.js";
 import { happyAgentSyncCreate } from "../happyAgentConnection/happyAgentSync.js";
 import type { TaskGroup } from "../happyAgentConnection/types.js";
-import { happyAgentSpacesStoreCreate } from "./spacesStore.js";
+import { sidebarDocumentEdit, sidebarDocumentInsert } from "./spacesSidebarDocument.js";
+import {
+    happyAgentSpacesStoreCreate,
+    type HappyAgentSpacesRead,
+    type HappyAgentSpacesSnapshot,
+} from "./spacesStore.js";
 
 afterEach(() => vi.useRealTimers());
 
@@ -489,6 +494,66 @@ it("puts a row's daemon picture behind the endpoint this connection talks to", a
         });
         expect(icon("hosted")).toEqual({ type: "image", url: "https://cdn.test/face.png" });
         expect(icon("bare")).toBeNull();
+    } finally {
+        unsubscribe();
+        store[Symbol.dispose]();
+        sync.writer.close();
+    }
+});
+
+it("reads the rows and their document together and shows them in one change", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    const html = sidebarDocumentEdit(
+        ["<nav>", "<happy-search/>", "<happy-create/>", "</nav>"].join("\n"),
+        (view) => sidebarDocumentInsert(view, "space-release", null, null),
+    );
+    expect(html).toContain("space-release");
+    daemon.spacesSet([taskRow(1, "Release")]);
+    daemon.spaceSidebarSet({ version: 3, html: html! });
+    const rowsRelease = daemon.pause("listSpaces");
+    const documentRelease = daemon.pause("getSpaceSidebar");
+    const sync = happyAgentSyncCreate();
+    sync.writer.bootstrapReceived(await daemon.client.getDesktopBootstrap());
+    const reads: HappyAgentSpacesRead[] = [];
+    const store = happyAgentSpacesStoreCreate({
+        client: daemon.client,
+        sync: sync.source,
+        readObserve: (read) => reads.push(read),
+    });
+    const shown: HappyAgentSpacesSnapshot[] = [];
+    const unsubscribe = store.subscribe(() => shown.push(store.get()));
+    try {
+        // Both are asked at once: one round trip to a remote daemon, not two.
+        await vi.waitFor(() => {
+            expect(daemon.callCount("listSpaces")).toBe(1);
+            expect(daemon.callCount("getSpaceSidebar")).toBe(1);
+        });
+        // The document answers first; nothing shows until the rows do too.
+        documentRelease();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(shown).toEqual([]);
+        // A change made while the read was out is held, then replayed onto it.
+        const event = daemon.eventEmit("space.updated", { space: taskRow(2, "Release train") });
+        sync.writer.updateReceived({ kind: "event", cursor: event.cursor, event });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(shown).toEqual([]);
+        rowsRelease();
+        await vi.waitFor(() => expect(store.get().availability).toBe("available"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        // One change carries the rows, the document that arranges them, and
+        // the held event, so neither is ever on screen beside an older other.
+        const [first] = shown;
+        expect(first?.availability).toBe("available");
+        expect(first?.sidebar).toMatchObject({ version: 3, html });
+        expect(first?.spaces.get("space-release" as never)).toMatchObject({
+            title: "Release train",
+            version: 2,
+        });
+        expect(shown.filter((snapshot) => snapshot.sidebar !== first?.sidebar)).toEqual([]);
+        expect(daemon.callCount("listSpaces")).toBe(1);
+        expect(daemon.callCount("getSpaceSidebar")).toBe(1);
+        expect(reads).toEqual([{ scope: "all", durationMs: expect.any(Number), attempts: 1 }]);
     } finally {
         unsubscribe();
         store[Symbol.dispose]();

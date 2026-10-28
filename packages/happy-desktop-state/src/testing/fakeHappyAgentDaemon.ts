@@ -169,7 +169,12 @@ export interface FakeHappyAgentDaemon {
         protocol?: number;
         desktopLiveControl?: boolean;
         stemCellIdentities?: boolean;
+        sidebarOperations?: boolean;
     }): void;
+    /** Replace the rows `listSpaces` answers; announcing them is up to the test. */
+    spacesSet(spaces: readonly Space[]): void;
+    /** Replace the document `getSpaceSidebar` answers; announcing it is up to the test. */
+    spaceSidebarSet(sidebar: { readonly version: number; readonly html: string }): void;
     /** Replace what `getOnboarding` and the desktop bootstrap report. */
     onboardingSet(state: {
         completed: boolean;
@@ -408,6 +413,12 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
     let journal: HappyAgentEvent[] = [];
     let desktopLiveControl: boolean | undefined;
     let stemCellIdentities: boolean | undefined;
+    let sidebarOperations: boolean | undefined;
+    let spaceRows: readonly Space[] = [];
+    let spaceSidebar: { readonly version: number; readonly html: string } = {
+        version: 1,
+        html: "<nav></nav>",
+    };
     const liveSessions = new Map<string, LiveSession>();
     const liveUrls = new HappyAgentClient({ endpoint: "http://fake-happy-agent.test/" });
     let protocol = HAPPY_AGENT_PROTOCOL_VERSION;
@@ -675,12 +686,15 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
         ready: healthReady,
         status: healthReady ? ("ready" as const) : ("starting" as const),
         version: { daemon: daemonVersion, protocol },
-        ...(desktopLiveControl === undefined && stemCellIdentities === undefined
+        ...(desktopLiveControl === undefined &&
+        stemCellIdentities === undefined &&
+        sidebarOperations === undefined
             ? {}
             : {
                   capabilities: {
                       ...(desktopLiveControl === undefined ? {} : { desktopLiveControl }),
                       ...(stemCellIdentities === undefined ? {} : { stemCellIdentities }),
+                      ...(sidebarOperations === undefined ? {} : { sidebarOperations }),
                   },
               }),
     });
@@ -699,7 +713,7 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
         },
         async listSpaces(...args: unknown[]) {
             await record("listSpaces", args);
-            return { spaces: [], sections: [] };
+            return { spaces: [...spaceRows], sections: [] };
         },
         async listSpaceBatches(...args: unknown[]) {
             await record("listSpaceBatches", args);
@@ -707,7 +721,7 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
         },
         async getSpaceSidebar(...args: unknown[]) {
             await record("getSpaceSidebar", args);
-            return { artifactId: "sidebar", version: 1, html: "<nav></nav>", spaces: [] };
+            return { artifactId: "sidebar", ...spaceSidebar, spaces: [...spaceRows] };
         },
         async getHealth(...args: unknown[]) {
             await record("getHealth", args);
@@ -1580,6 +1594,14 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
                 desktopLiveControl = options.desktopLiveControl;
             if (options.stemCellIdentities !== undefined)
                 stemCellIdentities = options.stemCellIdentities;
+            if (options.sidebarOperations !== undefined)
+                sidebarOperations = options.sidebarOperations;
+        },
+        spacesSet(next) {
+            spaceRows = next;
+        },
+        spaceSidebarSet(next) {
+            spaceSidebar = next;
         },
         liveSessionSet(session) {
             liveSessions.set(session.id, session);

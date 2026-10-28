@@ -27,6 +27,17 @@ export type HappyAgentStemCellsSettingsSnapshot =
           readonly saveError?: UserError;
       };
 
+/**
+ * Whether this connection draws the spaces sidebar: the person's answer once
+ * the daemon gives it, and until then the last answer this device kept, so a
+ * reload paints the chosen sidebar at once.
+ */
+export function happyAgentStemCellsChosen(snapshot: HappyAgentStemCellsSettingsSnapshot): boolean {
+    return snapshot.status === "ready"
+        ? snapshot.stemCellsEnabled
+        : snapshot.status === "loading" && snapshot.hint === true;
+}
+
 /** Where a connection's last confirmed Stem Cells answer is kept on this device. */
 export interface HappyAgentStemCellsHintPersistence {
     read(): boolean | undefined;
