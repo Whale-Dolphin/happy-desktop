@@ -1792,6 +1792,23 @@ export function MessageList(props: MessageListProps) {
             if (virtualContent.current)
                 virtualContent.current.style.minHeight = `${String(geometryExtent.current)}px`;
         }
+        /* A footer held below the fold only stays there while nothing else
+           moves it. Content written past the end carries a follower anyway,
+           so it carries them to the real end, live status included: a turn
+           that started on its own, or a retry, must not stream with its end
+           cut off. A held send is released by its own rule. */
+        if (
+            following.current &&
+            initialPositionApplied.current &&
+            followSentHold.current === undefined &&
+            geometryFollowInset.current > 0 &&
+            Math.max(estimatedContentHeight(), geometryExtent.current) +
+                geometrySparseInset.current -
+                viewportGeometry.current.height -
+                geometryFollowInset.current >
+                readerScrollTop.current + coordinateDelta + 1 / 64
+        )
+            geometryFollowInset.current = 0;
         let nextOffset: number | undefined;
         if (following.current && initialPositionApplied.current && coordinateDelta !== 0) {
             // Refining unseen rows moves model coordinates, not the reader.
@@ -3407,6 +3424,16 @@ export function MessageList(props: MessageListProps) {
                 positionReport();
                 startReachedReport(element);
                 endAwayUpdateCurrent.current(element);
+                return;
+            }
+            /*
+             * Until the opening position is written, a native scroll is the
+             * browser clamping the scrollport to rows still being sized, not
+             * the reader: a follower must still open at the end.
+             */
+            if (!initialPositionApplied.current) {
+                previousScrollTop = element.scrollTop;
+                scrollHeightBaseline.current = currentScrollHeight;
                 return;
             }
             /*

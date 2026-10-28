@@ -342,11 +342,18 @@ it("follows streaming bursts and appended rows without losing the bottom", async
         stream(lines);
         await frames();
         const last = [...viewport.querySelectorAll<HTMLElement>(".happy-message")].at(-1)!;
+        const status = viewport.querySelector<HTMLElement>(
+            '[data-happy-desktop-ui="conversation-status-line"]',
+        )!;
+        // The follower is at the live end: the turn's status stays in view under the reply.
         expect(
             Math.round(
                 viewport.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
             ),
-        ).toBe(24);
+        ).toBe(24 + Math.round(status.getBoundingClientRect().height));
+        expect(status.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+            viewport.getBoundingClientRect().bottom,
+        );
     }
 });
 

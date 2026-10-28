@@ -123,7 +123,9 @@ export const CONVERSATION_SWITCH_USAGE_NONE: ConversationSwitchUsageFeed = {
  * The picker's usage watch as an external store. The watch is held exactly
  * while something subscribes, so its owner follows usage only while a failure
  * card that offers a switch is on screen, and one feed per watch keeps every
- * reader on the same subscription.
+ * reader on the same subscription. The last usage it delivered outlives the
+ * subscription: a card drawn again, as when its conversation is switched back
+ * to, opens at the size it had rather than growing after its first frame.
  */
 export function conversationSwitchUsageFeed(
     watch: ComposerModelUsageWatch,
@@ -145,7 +147,6 @@ export function conversationSwitchUsageFeed(
                 if (listeners.size > 0) return;
                 release?.();
                 release = undefined;
-                usage = undefined;
             };
         },
         get: () => usage,
