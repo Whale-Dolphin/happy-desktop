@@ -406,6 +406,7 @@ if (options.command === "compose") {
         phone: options.phone,
         cues: options.cues ?? join(directory, composition.cues),
         out,
+        keepFrames: options.keepFrames,
     });
     process.exit(0);
 }

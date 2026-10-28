@@ -464,7 +464,15 @@ function focusRead(cues) {
  * Renders a composition end to end: decode both takes in lockstep, compose,
  * encode, and refuse a result above the composition's size ceiling.
  */
-export async function compositionRender({ composition, directory, desktop, phone, cues, out }) {
+export async function compositionRender({
+    composition,
+    directory,
+    desktop,
+    phone,
+    cues,
+    out,
+    keepFrames = false,
+}) {
     const started = Date.now();
     const { output } = composition;
     const cueList = JSON.parse(await readFile(cues, "utf8"));
@@ -600,7 +608,8 @@ export async function compositionRender({ composition, directory, desktop, phone
         throw new Error(
             `${target} is ${size} bytes, above the ${maximumBytes}-byte ceiling; raise the CRF.`,
         );
-    await rm(work, { force: true, recursive: true });
+    // Kept, the composed frames and soundtrack are the master other encodes start from.
+    if (!keepFrames) await rm(work, { force: true, recursive: true });
     process.stdout.write(
         `    ${target}  (${seconds.toFixed(1)}s, ${(size / 1e6).toFixed(2)} MB, took ${((Date.now() - started) / 1000).toFixed(0)}s)\n    ${poster}\n`,
     );
