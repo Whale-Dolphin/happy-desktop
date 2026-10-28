@@ -466,6 +466,44 @@ export function ComposerModelAccountGauge(props: { usage: ComposerModelAccountUs
     );
 }
 
+/*
+ * The usage details' box, as `composer-model-control.css` lays it out: 6px
+ * above and below, 4px between its lines, a leading week 20px tall and every
+ * other line 16px, the freshness caption's own lines 2px apart. Every line is
+ * one line: the windows and the caption truncate rather than wrap.
+ */
+const USAGE_DETAILS_PADDING = 12;
+const USAGE_DETAILS_GAP = 4;
+const USAGE_LINE_PRIMARY = 20;
+const USAGE_LINE = 16;
+const USAGE_FRESHNESS_GAP = 2;
+
+/**
+ * How tall the usage details are for one account, line for line as
+ * `ComposerModelAccountUsageDetails` draws them.
+ */
+function usageDetailsHeight(
+    usage: ComposerModelAccountUsage | undefined,
+    now: number | undefined,
+    windowsUniform: boolean,
+): number {
+    const lines: number[] = [];
+    if (usage?.week) lines.push(windowsUniform ? USAGE_LINE : USAGE_LINE_PRIMARY);
+    if (usage?.session) lines.push(USAGE_LINE);
+    if (!usage?.week && !usage?.session) lines.push(USAGE_LINE);
+    const freshness = usage && now !== undefined ? usageFreshnessLines(usage, now) : undefined;
+    if (freshness) {
+        const count =
+            (freshness.limit ? 1 : 0) + (freshness.updated ? 1 : 0) + freshness.behind.length;
+        lines.push(count * USAGE_LINE + (count - 1) * USAGE_FRESHNESS_GAP);
+    }
+    return (
+        USAGE_DETAILS_PADDING +
+        lines.reduce((sum, line) => sum + line, 0) +
+        (lines.length - 1) * USAGE_DETAILS_GAP
+    );
+}
+
 /**
  * The account shown under a list of accounts: its week and session, each with
  * when it starts over, then how current the numbers are. An account with no
@@ -478,13 +516,29 @@ export function ComposerModelAccountUsageDetails(props: {
     className?: string;
     /** Both windows read alike, as in Settings, where neither leads. */
     windowsUniform?: boolean;
+    /**
+     * Every account the list above can show here. The details stand as tall as
+     * the tallest of them, so pointing from one account to the next never
+     * changes the height of the list they sit under.
+     */
+    reserve?: readonly (ComposerModelAccountUsage | undefined)[];
 }) {
     const usage = props.usage;
+    const windowsUniform = props.windowsUniform === true;
+    const reserved = props.reserve
+        ? Math.max(
+              ...[usage, ...props.reserve].map((candidate) =>
+                  usageDetailsHeight(candidate, props.now, windowsUniform),
+              ),
+          )
+        : undefined;
     return (
         <div
             className={["happy-composer-model-control__usage", props.className]
                 .filter(Boolean)
                 .join(" ")}
+            data-happy-desktop-ui="composer-model-control-usage-details"
+            style={reserved === undefined ? undefined : { minHeight: reserved }}
         >
             {usage?.week ? (
                 <UsageLine primary={props.windowsUniform !== true} window={usage.week} />
@@ -605,15 +659,8 @@ function usageAge(at: number, now: number) {
     return `at ${clockTime(at, now)}`;
 }
 
-/**
- * How current an account's numbers are, in one quiet line under its windows: how
- * long ago it was read, that it is being read now, or when it was last read
- * and that the latest attempt failed. A window left behind from an earlier
- * reading than the rest is named with its own time, so an old number is never
- * read as a new one. A spent account leads with when its limit lifts.
- */
-function UsageFreshness(props: { usage: ComposerModelAccountUsage; now: number }) {
-    const { usage, now } = props;
+/** The caption's lines, or `undefined` when it has nothing to say. */
+function usageFreshnessLines(usage: ComposerModelAccountUsage, now: number) {
     const windows = [usage.week, usage.session].filter(
         (window): window is ComposerModelUsageWindow => window !== undefined,
     );
@@ -640,7 +687,23 @@ function UsageFreshness(props: { usage: ComposerModelAccountUsage; now: number }
         usage.limit === undefined &&
         usage.signedOut !== true
     )
-        return null;
+        return undefined;
+    /* A signed-out account says so on the line a spent one names its reset. */
+    return { behind, limit: usage.limit !== undefined || usage.signedOut === true, updated };
+}
+
+/**
+ * How current an account's numbers are, in one quiet line under its windows: how
+ * long ago it was read, that it is being read now, or when it was last read
+ * and that the latest attempt failed. A window left behind from an earlier
+ * reading than the rest is named with its own time, so an old number is never
+ * read as a new one. A spent account leads with when its limit lifts.
+ */
+function UsageFreshness(props: { usage: ComposerModelAccountUsage; now: number }) {
+    const { usage, now } = props;
+    const lines = usageFreshnessLines(usage, now);
+    if (lines === undefined) return null;
+    const { behind, updated } = lines;
     return (
         <div
             className="happy-composer-model-control__usage-freshness"
@@ -1211,7 +1274,16 @@ export function ComposerModelControl(props: ComposerModelControlProps) {
                     <div className="happy-composer-model-control__separator" role="separator" />
                 ) : null}
                 {shown ? (
-                    <ComposerModelAccountUsageDetails now={liveUsage?.now} usage={shownUsage} />
+                    <ComposerModelAccountUsageDetails
+                        now={liveUsage?.now}
+                        reserve={service.accounts.flatMap((account) => [
+                            liveUsage?.accounts.get(account.id),
+                            ...(account.members ?? []).map((member) =>
+                                liveUsage?.accounts.get(member.id),
+                            ),
+                        ])}
+                        usage={shownUsage}
+                    />
                 ) : null}
             </div>
         );

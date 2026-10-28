@@ -716,9 +716,13 @@
     white-space: nowrap;
 }
 
-/* Under the account list: the week, then the session, each on one line. */
+/* Under the account list: the week, then the session, each on one line. Under a
+ * list its height is reserved for the tallest account the list holds, so it
+ * stays the same height whichever account the pointer is on. */
 .happy-composer-model-control__usage {
     display: flex;
+    box-sizing: border-box;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 4px;
     padding: 6px 10px;
@@ -773,7 +777,10 @@
 }
 
 .happy-composer-model-control__usage-unknown {
+    overflow: hidden;
     color: var(--text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
     line-height: 16px;
 }
@@ -790,7 +797,11 @@
 
 /* A spent account says when it can be used again, in the colour of its ring. */
 .happy-composer-model-control__usage-limit {
+    min-width: 0;
+    overflow: hidden;
     color: var(--warning-critical);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .happy-composer-model-control__usage-updated {

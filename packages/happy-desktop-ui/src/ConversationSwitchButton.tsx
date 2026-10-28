@@ -285,6 +285,7 @@ export function ConversationSwitchButton(props: ConversationSwitchButtonProps) {
                             />
                             <ComposerModelAccountUsageDetails
                                 now={props.usageNow}
+                                reserve={props.targets.map((target) => target.usage)}
                                 usage={shown.usage}
                             />
                         </div>
