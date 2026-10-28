@@ -2,7 +2,7 @@
 
 <h1>Any Model. Your Subscription.<br><em>Happy Harness.</em></h1>
 
-<p>Any model: Claude, Codex, Grok, Gemini, and more</p>
+<p>Orchestrate Claude, Codex, Grok, Gemini, and more in one app</p>
 
 <p>Free and open source</p>
 
@@ -20,12 +20,13 @@ https://github.com/user-attachments/assets/b3580704-f9e0-441e-80be-3f83f6a08ab5
 
 ## What you get
 
-1. **Multi-provider.** Claude, Codex, Grok, and Gemini (through Antigravity) in
-   one app, and OpenCode or any Agent Client Protocol agent can join them. Give
-   every task the model that fits, and delegate to subagents across them.
+1. **Any model: Claude, Codex, Grok, Gemini, and more.** Gemini runs through
+   Antigravity, and OpenCode or any Agent Client Protocol agent plugs in as a
+   harness. Give every task the model that fits, and delegate to subagents on
+   any of them.
 2. **Reuse your subscriptions.** Sign in with the Claude, Codex, and Grok
-   subscriptions you already pay for; Antigravity, OpenCode, and other ACP
-   agents keep their own logins. Happy adds a harness, not another bill.
+   subscriptions you already pay for; Antigravity, OpenCode, and ACP agents
+   keep their own logins. Happy adds a harness, not another bill.
 3. **Open source MIT.** It runs on your own hardware and your projects stay
    ordinary folders. Read the code, fork it, ship your own build.
 4. **End-to-end encrypted mobile app.** Left your desk? The same sessions are
