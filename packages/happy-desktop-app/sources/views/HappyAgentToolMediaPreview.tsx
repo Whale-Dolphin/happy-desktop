@@ -86,6 +86,7 @@ export function HappyAgentToolMediaPreview(props: {
                       : { type: "unavailable" };
     return (
         <FilePreview
+            key={item.url}
             closeLabel="Close preview"
             content={content}
             {...(item.width !== undefined && item.height !== undefined
@@ -93,9 +94,7 @@ export function HappyAgentToolMediaPreview(props: {
                 : {})}
             kind={kind}
             onClose={props.onClose}
-            onDownload={() =>
-                void fileDownload(item.name, { type: "url", url: item.url }).catch(() => undefined)
-            }
+            onDownload={() => fileDownload(item.name, { type: "url", url: item.url })}
             path={item.name}
             size={fileSizeFormat(item.size)}
         />

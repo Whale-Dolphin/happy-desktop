@@ -1,6 +1,6 @@
 import { partitionComponentProps } from "./componentProps";
 import type { FileLinkOpenHandler, FileOpenHandler } from "./fileReference";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Button } from "./Button";
 import { CodeBlock } from "./CodeBlock";
 import { FileTreeFamilyIcon, fileTreeFamily } from "./FileTree";
@@ -73,9 +73,11 @@ export type FilePreviewProps = {
     onMediaWindowOpen?: () => void;
     /**
      * Saves this file to the reader's machine. Absent where there is nothing to
-     * save yet, so the control is missing rather than inert.
+     * save yet, so the control is missing rather than inert. Return the pending
+     * work so the control can show progress and failure; resolution means the
+     * browser has been asked to save, not that its save has finished.
      */
-    onDownload?: () => void;
+    onDownload?: () => void | Promise<void>;
     /**
      * Opens a file a rendered Markdown document links to. Absent leaves those
      * links inert, which is the honest answer on a surface with no workspace
@@ -259,6 +261,49 @@ export function FilePreview(props: FilePreviewProps) {
     const name = local.path.slice(local.path.lastIndexOf("/") + 1);
     const family = fileTreeFamily({ kind: "file", name });
     const source = local.content.type === "url" ? local.content.url : local.path;
+    // This is the outcome of pressing this control, like the Lightbox's copy
+    // and download controls, rather than the file's authoritative state.
+    const [download, setDownload] = useState<{
+        readonly source: string;
+        readonly status: "pending" | "started" | "failed";
+        readonly message?: string;
+    }>();
+    const pendingDownload = useRef<{ readonly source: string } | undefined>(undefined);
+    const downloadStatus = download?.source === source ? download.status : undefined;
+    const downloadLabel =
+        downloadStatus === "pending"
+            ? "Downloading…"
+            : downloadStatus === "started"
+              ? "Download started"
+              : downloadStatus === "failed"
+                ? `Download failed: ${download?.message ?? "Please try again."}`
+                : "Download";
+    const downloadStart = (): void => {
+        if (!local.onDownload || pendingDownload.current?.source === source) return;
+        const attempt = { source, status: "pending" as const };
+        pendingDownload.current = attempt;
+        setDownload(attempt);
+        const settle = (status: "started" | "failed", error?: unknown): void => {
+            if (pendingDownload.current !== attempt) return;
+            pendingDownload.current = undefined;
+            setDownload({
+                source,
+                status,
+                ...(status === "failed"
+                    ? { message: error instanceof Error ? error.message : "Please try again." }
+                    : {}),
+            });
+        };
+        try {
+            // Invoke inside the press: a text file can start its save at once.
+            Promise.resolve(local.onDownload()).then(
+                () => settle("started"),
+                (error: unknown) => settle("failed", error),
+            );
+        } catch (error) {
+            settle("failed", error);
+        }
+    };
     const dimensions =
         local.dimensions ?? (measured?.source === source ? measured.dimensions : undefined);
     const meta = [dimensions, local.size].filter(Boolean).join(" · ");
@@ -314,17 +359,32 @@ export function FilePreview(props: FilePreviewProps) {
                     {local.actions}
                     {local.onDownload ? (
                         <Button
-                            aria-label="Download"
+                            aria-label={downloadLabel}
                             data-testid="file-preview-download"
+                            icon={
+                                downloadStatus === "started"
+                                    ? "check"
+                                    : downloadStatus === "failed"
+                                      ? "alert"
+                                      : undefined
+                            }
                             iconOnly
-                            onClick={() => local.onDownload?.()}
+                            loading={downloadStatus === "pending"}
+                            onClick={downloadStart}
                             size="small"
-                            title="Download"
+                            title={
+                                downloadStatus === "failed"
+                                    ? `${downloadLabel} Click to try again.`
+                                    : downloadLabel
+                            }
                             variant="ghost"
                         >
                             <Ionicon name="download-outline" size={14} />
                         </Button>
                     ) : null}
+                    <span aria-live="polite" className="happy-visually-hidden">
+                        {downloadStatus === undefined ? "" : downloadLabel}
+                    </span>
                     {local.onClose ? (
                         <Button
                             aria-label={local.closeLabel ?? "Close preview"}
