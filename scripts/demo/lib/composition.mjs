@@ -258,12 +258,27 @@ function phonePose(composition, focus, seconds) {
         ),
     );
     const scale = 1 + (phone.focusScale - 1) * progress;
+    // A phone kept clear of the desktop grows from its left edge, away from
+    // the window, and never covers it.
+    if (phone.clearOfDesktop) return { scale, left: phone.left, bottom: phone.bottom };
     // The website moves only the excess beyond the frame's right margin.
     const shift = Math.min(
         0,
         output.width - phone.left - phone.width * phone.focusScale - phone.focusMargin,
     );
     return { scale, left: phone.left + shift * progress, bottom: phone.bottom };
+}
+
+/** A composition that keeps its phone clear of the desktop must fit it, focused, in the frame. */
+function phoneClearanceCheck(composition, canvas) {
+    const { output, desktop, phone } = composition;
+    if (!phone.clearOfDesktop) return;
+    const width = phone.width * phone.focusScale;
+    const height = (width * canvas.height) / canvas.width;
+    if (phone.left < desktop.x + desktop.width)
+        throw new Error("The phone must start right of the desktop window.");
+    if (phone.left + width > output.width || phone.bottom - height < 0)
+        throw new Error("The focused phone must stay inside the frame.");
 }
 
 /** One output frame, from one desktop frame and the phone screen at the same instant. */
@@ -386,6 +401,7 @@ export async function compositionRender({ composition, directory, desktop, phone
         desktop: await desktopLayersBuild(composition, directory),
         phone: await phoneLayersBuild(composition, directory),
     };
+    phoneClearanceCheck(composition, layers.phone.canvas);
     const { width: desktopWidth, height: desktopHeight } = composition.desktop;
     const desktopDecoder = decoderOpen(
         desktop,
