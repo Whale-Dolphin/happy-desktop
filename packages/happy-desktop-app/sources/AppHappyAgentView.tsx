@@ -7357,20 +7357,26 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
         }
         const current = props.workspace.get();
         const tabId = current.activeMainViewId ?? current.address.conversationId;
-        if (!tabId) {
-            if (openGroup) props.workspace.groupArchiveOpen(openGroup.id);
-            return;
-        }
+        if (tabId) tabCloseRequest(tabId);
+        else if (openGroup) props.workspace.groupArchiveOpen(openGroup.id);
+    };
+    /**
+     * One tab closed by the reader — Cmd-W, its ×, or its menu's single-tab
+     * item, which all mean the same thing. A file, a tool, the review, or a
+     * detached subagent simply closes. A conversation nobody has written in
+     * goes at once: there is nothing in it to lose. Anything else is asked
+     * about first, lightly, since an archived chat can be found and revived.
+     */
+    const tabCloseRequest = (tabId: string) => {
         const archive = conversationArchiveTargetFind(tabId);
         if (!archive) {
             groupTabClose(tabId);
             return;
         }
         if (!happyAgentOnline()) return;
-        // New work nobody has written in goes on the keystroke: there is
-        // nothing in it to lose. Anything else is asked about first, lightly,
-        // since an archived chat can be found again and revived.
-        if (!conversationUnstarted(current.conversation, archive.conversationId)) {
+        // Only the open conversation's transcript is read, so a background
+        // tab is never known to be empty and is asked about.
+        if (!conversationUnstarted(props.workspace.get().conversation, archive.conversationId)) {
             props.workspace.conversationArchiveConfirmOpen(archive);
             return;
         }
@@ -8168,7 +8174,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                             size="medium"
                             closeLabel="Close tab"
                             closeShortcut={APP_SHORTCUTS.tabClose}
-                            onClose={groupTabClose}
+                            onClose={tabCloseRequest}
                             onDoubleClick={(tabId) => {
                                 const file = groupFileTabs.find((tab) => tab.id === tabId);
                                 if (file)
@@ -8283,7 +8289,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                                 const index = ids.indexOf(tab.id);
                                 if (index < 0) return;
                                 if (actionId === TAB_MENU_CLOSE) {
-                                    groupTabsClose([tab.id]);
+                                    tabCloseRequest(tab.id);
                                 } else if (actionId === TAB_MENU_CLOSE_OTHERS) {
                                     groupTabsClose(
                                         ids.filter((id) => id !== tab.id),

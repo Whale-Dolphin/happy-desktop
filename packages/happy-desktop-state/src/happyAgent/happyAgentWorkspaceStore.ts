@@ -770,7 +770,7 @@ export interface HappyAgentWorkspaceSnapshot {
     readonly projectArchive?: HappyAgentProjectArchiveSnapshot;
     /** The empty workspace/project Cmd-W has offered to archive, if any. */
     readonly groupArchive?: HappyAgentGroupArchiveSnapshot;
-    /** The conversation Cmd-W has asked to archive, if any. It goes when the address changes. */
+    /** The conversation a tab close has asked to archive, if any. It goes when the address changes. */
     readonly conversationArchiveConfirm?: HappyAgentConversationArchiveConfirmSnapshot;
     /**
      * Where the project whose settings are open runs its sessions. Present only
@@ -1321,10 +1321,11 @@ export type HappyAgentGroupArchiveSnapshot =
       };
 
 /**
- * The conversation Cmd-W has asked to archive, waiting on the reader's yes.
+ * The conversation Cmd-W or a tab's close has asked to archive, waiting on
+ * the reader's yes.
  * Archiving one is light — it can be found again and revived — so this is a
  * small question rather than a warning, and only work someone started stops
- * here: new work nobody has written in goes on the keystroke itself.
+ * here: new work nobody has written in goes at once.
  */
 export type HappyAgentConversationArchiveConfirmSnapshot =
     | { readonly kind: "session"; readonly conversationId: HappyAgentSessionId }
