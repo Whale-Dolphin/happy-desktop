@@ -15,8 +15,8 @@ that speaks to the daemon as them (`scenario/team.mjs`). The phone is paired
 as Steve, so it shows his own sidebar.
 
 The `team` composition keeps the desktop centre stage. The frame (1618×1000)
-and the recorded window (880×600 CSS) are golden rectangles, and the window
-carries macOS traffic lights. The phone is off screen until Steve is looped in.
+is a golden rectangle; the recorded window is 880×600 CSS and carries macOS
+traffic lights. Desktop hints are drawn inside the app at its own resolution. The phone is off screen until Steve is looped in.
 It then rises from below, whole, over the window's right side under a "Steve's
 phone" label, and drops away once he signs off. Steve's two typing stretches
 play at 2×: the native driver performs one real key touch at a time (about
