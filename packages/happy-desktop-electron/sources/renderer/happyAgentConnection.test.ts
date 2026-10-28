@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
     diffSpaceSidebar,
     formatSpaceSidebar,
@@ -26,9 +26,33 @@ vi.mock("happy-desktop-app", () => ({ terminalDriverCreate: () => undefined }));
 const handles: HappyAgentConnectionHandle[] = [];
 const unsubscribes: (() => void)[] = [];
 
+/**
+ * A fresh device for every test: hints one test leaves behind must not decide
+ * what the next one reads, and jsdom's own storage is missing under some Node
+ * versions, which would silently drop every hint.
+ */
+function memoryStorageCreate(): Storage {
+    const values = new Map<string, string>();
+    return {
+        get length() {
+            return values.size;
+        },
+        clear: () => values.clear(),
+        getItem: (key) => values.get(key) ?? null,
+        key: (index) => [...values.keys()][index] ?? null,
+        removeItem: (key) => void values.delete(key),
+        setItem: (key, value) => void values.set(key, String(value)),
+    };
+}
+
+beforeEach(() => {
+    vi.stubGlobal("localStorage", memoryStorageCreate());
+});
+
 afterEach(() => {
     for (const unsubscribe of unsubscribes.splice(0)) unsubscribe();
     for (const handle of handles.splice(0)) handle.dispose();
+    vi.unstubAllGlobals();
 });
 
 function connectionOpen(
@@ -287,9 +311,16 @@ it("keeps a background connection's spaces sidebar current, so switching to it r
 it("follows no spaces sidebar while Stem Cells is off, and lets go when it is turned off", async () => {
     const daemon = fakeHappyAgentDaemonCreate();
     daemon.healthSet({ sidebarOperations: true });
+    // The daemon's answer is held, so nothing read before it can hide here.
+    const settingsRelease = daemon.pause("getUserSettings");
     const handle = connectionOpen(daemon, { local: false });
     await vi.waitFor(() => expect(handle.get()).toBeDefined());
     const session = handle.get()!;
+    await vi.waitFor(() => expect(daemon.callCount("getUserSettings")).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.stemCellsSettings().get().status).toBe("loading");
+    expect(spacesReads(daemon)).toBe(0);
+    settingsRelease();
     await vi.waitFor(() =>
         expect(session.stemCellsSettings().get()).toMatchObject({
             status: "ready",
@@ -310,6 +341,37 @@ it("follows no spaces sidebar while Stem Cells is off, and lets go when it is tu
     await vi.waitFor(() =>
         expect(session.stemCellsSettings().get()).toMatchObject({ stemCellsEnabled: false }),
     );
+    const before = session.spaces.get();
+    daemon.eventEmit("space.created", { space: spaceRow("space-later", "Later") });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.spaces.get()).toBe(before);
+    expect(spacesReads(daemon)).toBe(2);
+});
+
+it("follows a kept Stem Cells hint until the daemon answers off, then lets go", async () => {
+    // This device last saw Stem Cells on; the person has since turned it off.
+    localStorage.setItem("happy.happy-agent.stem-cells-hint.v1:remote", "on");
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ sidebarOperations: true });
+    const settingsRelease = daemon.pause("getUserSettings");
+    const handle = connectionOpen(daemon, { local: false });
+    await vi.waitFor(() => expect(handle.get()).toBeDefined());
+    const session = handle.get()!;
+
+    // Until the daemon answers, the hint paints the spaces sidebar at once.
+    await vi.waitFor(() => expect(session.spaces.get().availability).toBe("available"));
+    expect(session.stemCellsSettings().get()).toMatchObject({ status: "loading", hint: true });
+    expect(spacesReads(daemon)).toBe(2);
+
+    // Its answer replaces the hint, and nothing follows the sidebar after it.
+    settingsRelease();
+    await vi.waitFor(() =>
+        expect(session.stemCellsSettings().get()).toMatchObject({
+            status: "ready",
+            stemCellsEnabled: false,
+        }),
+    );
+    expect(localStorage.getItem("happy.happy-agent.stem-cells-hint.v1:remote")).toBe("off");
     const before = session.spaces.get();
     daemon.eventEmit("space.created", { space: spaceRow("space-later", "Later") });
     await new Promise((resolve) => setTimeout(resolve, 50));
