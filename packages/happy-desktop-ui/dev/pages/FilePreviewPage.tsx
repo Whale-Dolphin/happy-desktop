@@ -87,9 +87,45 @@ export function FilePreviewPage() {
             </Specimen>
 
             <Specimen
+                detail="Press each download control: pending keeps its footprint, a handoff says Download started, and a failure keeps its reason available on the control."
+                label="Download feedback"
+                number="02"
+                stage="surface"
+            >
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    {frame(
+                        <FilePreview
+                            content={{ type: "unavailable" }}
+                            onDownload={() => new Promise<void>(() => {})}
+                            path="media/downloading.mp4"
+                        />,
+                        160,
+                    )}
+                    {frame(
+                        <FilePreview
+                            content={{ type: "unavailable" }}
+                            onDownload={() => Promise.resolve()}
+                            path="media/download-started.mp4"
+                        />,
+                        160,
+                    )}
+                    {frame(
+                        <FilePreview
+                            content={{ type: "unavailable" }}
+                            onDownload={() =>
+                                Promise.reject(new Error("The file could not be downloaded (503)."))
+                            }
+                            path="media/download-failed.mp4"
+                        />,
+                        160,
+                    )}
+                </div>
+            </Specimen>
+
+            <Specimen
                 detail="The same prose the product renders in a message"
                 label="Markdown"
-                number="02"
+                number="03"
                 stage="surface"
             >
                 {frame(
@@ -103,7 +139,7 @@ export function FilePreviewPage() {
                 )}
             </Specimen>
 
-            <Specimen detail="Monospace, unwrapped" label="Source" number="03" stage="surface">
+            <Specimen detail="Monospace, unwrapped" label="Source" number="04" stage="surface">
                 {frame(
                     <FilePreview
                         content={{ type: "text", text: source }}
@@ -117,7 +153,7 @@ export function FilePreviewPage() {
             <Specimen
                 detail="Loading, unviewable, and failed — one shape of answer"
                 label="States"
-                number="04"
+                number="05"
                 stage="surface"
             >
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>

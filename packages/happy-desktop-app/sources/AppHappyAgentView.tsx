@@ -8955,10 +8955,7 @@ function HappyAgentChangedFilePreview(props: {
             {...(saved === undefined
                 ? {}
                 : {
-                      onDownload: () =>
-                          void fileDownload(file.path, { type: "text", text: saved }).catch(
-                              () => undefined,
-                          ),
+                      onDownload: () => fileDownload(file.path, { type: "text", text: saved }),
                   })}
             // A document followed out of the changed list lands beside it as the
             // file itself, the same way one followed out of a file tab does.
@@ -9017,11 +9014,7 @@ function HappyAgentFilePreview(props: {
                 : {})}
             // A file with no viewer is still a file, and saving it is often the
             // only thing left to do with it.
-            onDownload={() =>
-                void fileDownload(props.path, { type: "url", url: value.url }).catch(
-                    () => undefined,
-                )
-            }
+            onDownload={() => fileDownload(props.path, { type: "url", url: value.url })}
             path={props.path}
             size={fileSizeFormat(value.size)}
             updating={props.revalidating}

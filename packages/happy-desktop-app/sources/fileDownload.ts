@@ -19,6 +19,10 @@ export async function fileDownload(
         const response = await fetch(source.url);
         if (!response.ok)
             throw new Error(`The file could not be downloaded (${String(response.status)}).`);
+        // A preview may stream ranges, but a save must contain the whole file.
+        // `ok` includes 206, which would silently save a truncated recording.
+        if (response.status === 206)
+            throw new Error("Only part of the file arrived. Please try downloading it again.");
         blob = await response.blob();
     }
     const url = URL.createObjectURL(blob);
