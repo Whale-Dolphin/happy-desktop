@@ -75,10 +75,11 @@ export function steveUserIdSet(value) {
 }
 const steveMention = () => `<happy-user id="${steveUserId}"/>`;
 
-/** The agent's reply once the preview is up: it names who it looped in, and why. */
+/** The agent's reply once the preview is up: the result, then whom it looped in. */
 export const loopInLead = "Done. The waveform animates while either side is speaking.";
+export const loopInLine = "Looping in";
 export const loopInText = () =>
-    `${loopInLead} Looping in ${steveMention()} (designer), who reviews every voice feature.`;
+    `${loopInLead}\n\n${loopInLine} ${steveMention()}, our design expert.`;
 export const loopInReason =
     "The voice waveform is ready for a design review: it animates while either side speaks.";
 export const narrowLead = "Narrowing it to five bars.";
@@ -501,7 +502,7 @@ async function feedbackReply(payload, emitted) {
             [
                 tool("Bash", {
                     command: shipCommand,
-                    description: "Commit, push to main, and wait for the deploy run",
+                    description: "Ship to production",
                     timeout: 120000,
                 }),
             ],

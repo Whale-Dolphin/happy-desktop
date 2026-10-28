@@ -52,7 +52,7 @@ export default {
         { from: "stem-filed", text: "*Sidebar self-organizes*" },
         { from: "first-read-visible", text: "Then it gets to work" },
         { from: "artifact-shown", text: "and *shows you* a live preview" },
-        { from: "looped-in", text: "It loops in *Steve (designer)*, who reviews voice work" },
+        { from: "looped-in", text: "It loops in *Steve*, our design expert" },
         {
             from: "phone-enter",
             text: "Happy supports *teams*: people join only the work they care about",

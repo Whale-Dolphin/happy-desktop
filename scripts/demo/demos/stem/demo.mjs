@@ -112,13 +112,13 @@ const boundsRect = (item) => {
  * after `delay` and out after `seconds`, on the page's clock, while the take
  * carries on.
  */
-async function highlight(locator, { text, side = "right", delay = 0, seconds, round = false }) {
+async function highlight(locator, { text, side = "right", delay = 0, seconds }) {
     const target = await locator.elementHandle();
-    await target.evaluate(highlightDraw, { text, side, delay, seconds, round, accent: "#e07aae" });
+    await target.evaluate(highlightDraw, { text, side, delay, seconds, accent: "#e07aae" });
 }
 
 /** Runs in the page: builds the hint's layer and keeps it on its target every frame. */
-function highlightDraw(element, { text, side, delay, seconds, round, accent }) {
+function highlightDraw(element, { text, side, delay, seconds, accent }) {
     const fade = 300;
     const pad = 4;
     const gap = 8;
@@ -127,7 +127,7 @@ function highlightDraw(element, { text, side, delay, seconds, round, accent }) {
     layer.setAttribute("aria-hidden", "true");
     layer.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483000;opacity:0;transition:opacity ${fade}ms linear`;
     const ring = document.createElement("div");
-    ring.style.cssText = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:${round ? "50%" : "10px"};box-shadow:0 0 9px 1px ${accent}a6,inset 0 0 5px ${accent}59`;
+    ring.style.cssText = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:10px;box-shadow:0 0 9px 1px ${accent}a6,inset 0 0 5px ${accent}59`;
     layer.append(ring);
     let pill;
     let notch;
@@ -614,12 +614,6 @@ export default {
         cue("picker-chosen", demo, phone);
         // A beat on the stem cell itself: all new work starts as one. The
         // pointer drifts down to the composer, clear of the mark.
-        await highlight(
-            page
-                .locator('[data-happy-desktop-ui="make-stuff-intro"] .happy-make-stuff__lead > *')
-                .first(),
-            { seconds: 2.2, round: true },
-        );
         await demo.moveTo(composer, { duration: 900 });
         await demo.hold(1550);
         await demo.click(composer, { after: 150 });
@@ -661,11 +655,9 @@ export default {
             )
             .first();
         cue("stem-icon", demo, phone, await rectOf(growth));
-        // After the 2.5 s growth into the icon.
-        await highlight(growth, { text: "Picked its own icon", delay: 2.4, seconds: 1.2 });
-        // The mark takes 2.5 s to grow into its icon, and its hint reads after
-        // that; nothing in the pane moves until both are done.
-        await demo.hold(3700);
+        // The mark takes 2.5 s to grow into its icon; nothing in the pane
+        // moves until it has, and the icon has a beat to be seen.
+        await demo.hold(3000);
         world.focusRelease("work");
         // The work starts thinking while Focus files the row.
         const thinking = page
@@ -766,7 +758,8 @@ export default {
             "the teammate notice",
         );
         world.release("loop-in", recordedAgentId);
-        const loopIn = page.getByText(world.loopInLead.slice(0, 32)).last();
+        // The reply's second paragraph, the one that names Steve.
+        const loopIn = page.locator("p", { hasText: world.loopInLine }).last();
         await loopIn.waitFor({ timeout: 20000 });
         await until(
             demo,
