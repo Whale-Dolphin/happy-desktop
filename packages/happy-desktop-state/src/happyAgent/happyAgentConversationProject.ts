@@ -1308,7 +1308,7 @@ const TOOL_SUMMARY_ARGUMENT: Readonly<Record<string, string>> = {
     send_bot_message: "explanation",
     send_task_message: "explanation",
 };
-/** A summary is a line, not a paragraph: anything longer was not written as one. */
+/** Keep the row summary compact; the original text remains in the tool arguments. */
 const TOOL_SUMMARY_LIMIT = 120;
 
 /** What a call said it does, as the row can show it; nothing when it said nothing usable. */
@@ -1316,10 +1316,15 @@ function toolSummary(name: string, input: unknown): string | undefined {
     if (typeof input !== "object" || input === null) return undefined;
     const value = (input as Record<string, unknown>)[TOOL_SUMMARY_ARGUMENT[name] ?? "description"];
     if (typeof value !== "string") return undefined;
-    const summary = value.trim();
-    return summary.length > 0 && summary.length <= TOOL_SUMMARY_LIMIT && !summary.includes("\n")
+    const summary = value.replace(/\s+/gu, " ").trim();
+    if (summary.length === 0) return undefined;
+    const characters = Array.from(summary);
+    return characters.length <= TOOL_SUMMARY_LIMIT
         ? summary
-        : undefined;
+        : `${characters
+              .slice(0, TOOL_SUMMARY_LIMIT - 1)
+              .join("")
+              .trimEnd()}…`;
 }
 
 /**

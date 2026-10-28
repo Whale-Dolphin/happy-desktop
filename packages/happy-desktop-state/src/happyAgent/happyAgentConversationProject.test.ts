@@ -339,7 +339,7 @@ it("keeps a completed file edit visible while command traces are folded", () => 
     ).toBe(true);
 });
 
-it("carries the few words a call gave about itself, and nothing that is not a line", () => {
+it("carries the words a call gave about itself as a compact single-line summary", () => {
     const call = (name: string, input: unknown, id = name): ChatElement => ({
         id,
         groupId: "g1",
@@ -381,10 +381,10 @@ it("carries the few words a call gave about itself, and nothing that is not a li
         ),
     ).toEqual([
         "Run the UI tests",
-        undefined,
+        "List files and more",
         "Fix trace folding",
         "Asks for the diff",
         "Nightly triage",
-        undefined,
+        `${"x".repeat(119)}…`,
     ]);
 });
