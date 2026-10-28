@@ -32,6 +32,11 @@ Happy (2) is a desktop work and coding app that evolves by adopting itself. It i
 desktop-only: do not assume mobile use, add mobile-specific behavior, or adapt
 layouts for mobile viewports.
 
+Before hardcoding any product behavior an agent can affect, ask: **could this just be a prompt?**
+If so, it belongs in the agent's prompt, not the client. Layouts, section names, ordering, and
+"X always sits at the top" are guidance the agent follows and the person can override; the client
+draws what the agent and the person decided.
+
 ## Feature development workflow
 
 Treat each feature as one atomic, independently mergeable change, not as the
