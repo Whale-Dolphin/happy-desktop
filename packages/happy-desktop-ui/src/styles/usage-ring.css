@@ -3,9 +3,14 @@
  * the quiet inactive grey; the arc speaks only when little is left.
  */
 
+/* The stroke reaches the edge of the box, and a box placed between device
+ * pixels would cut its outer antialiasing off on one side, so a ring at a
+ * fractional position or zoom read as flattened. Nothing is drawn past the box
+ * but that edge, so the ring may paint it. */
 .happy-usage-ring {
     display: block;
     flex: none;
+    overflow: visible;
 }
 
 .happy-usage-ring__track {
