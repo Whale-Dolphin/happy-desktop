@@ -38,26 +38,26 @@ pnpm demo compose stem-captions --desktop <take>/stem.mp4 \
   to pair again.
 - Recording needs execution outside the sandbox (Chromium, simctl, Maestro).
 
-## Beats and cues (take `v23-stem-r4`, 60fps, 3,660 frames, 61.0s)
+## Beats and cues (take `v23-stem-r5`, 60fps, 3,638 frames, 60.6s)
 
 | s             | cue                              | what is on screen                                                                                                       |
 | ------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | 0             | —                                | An already-opened stem cell: the New row is selected, its composer empty, on GPT-6 Astra. The phone shows the same row. |
 | 2.97          | picker-open                      | The model menu shows Claude, Codex and Grok side by side. GPT-6 Sol is absent.                                          |
-| 5.85          | picker-chosen                    | Hover passes Grok 4.7 → Opus 5.5, and Opus 5.5 is chosen.                                                               |
-| 6.75          | typing-started                   | "Add an animated waveform to the voice agent." The pointer hides while typing.                                          |
-| 9.35 / 10.10  | phone-enter / work-started       | The phone comes forward; the message is sent.                                                                           |
-| 11.33 / 11.45 | stem-named / phone-named         | The row names itself "Voice waveform", on both screens.                                                                 |
-| 13.67 / 13.78 | stem-icon / phone-icon           | The stem cell grows into the clay waveform icon, on both screens (2.5s growth).                                         |
-| 17.27 / 17.37 | stem-filed / phone-filed         | Focus files the row under Voice, on both screens.                                                                       |
-| 19.37         | phone-exit                       | The phone returns to its parked position.                                                                               |
-| 19.37–25.80   | first-read … artifact-shown      | The agent reads, edits `waveformActive.ts` (+3 −1) and shows an inline animated waveform artifact.                      |
-| 29.53 / 34.55 | astra-spawned / response-settled | It spawns Astra to review and replies.                                                                                  |
-| 36.17 / 37.77 | phone-enter / phone-session-open | Steve's phone; he taps Voice waveform and reads the reply.                                                              |
-| 40.45 / 42.90 | phone-typing / phone-sent        | Steve types "ship it" on the real iOS keyboard and sends it.                                                            |
-| 45.13 / 46.88 | phone-reply / phone-exit         | The phone shows the reply starting, then goes back to its sidebar.                                                      |
-| 46.90–54.45   | steve-message … deployed         | The greeting, the Bash ship, Astra finishing (47.38) and Deployed.                                                      |
-| 57.38 / 61.00 | outro / end                      |                                                                                                                         |
+| 5.55          | picker-chosen                    | Hover passes Grok 4.7 → Opus 5.5, and Opus 5.5 is chosen.                                                               |
+| 6.45          | typing-started                   | "Add an animated waveform to the voice agent." The pointer hides while typing.                                          |
+| 9.05 / 9.82   | phone-enter / work-started       | The phone comes forward; the message is sent.                                                                           |
+| 11.07 / 11.17 | stem-named / phone-named         | The row names itself "Voice waveform", on both screens.                                                                 |
+| 13.42 / 13.53 | stem-icon / phone-icon           | The stem cell grows into the clay waveform icon, on both screens (2.5s growth).                                         |
+| 17.00 / 17.12 | stem-filed / phone-filed         | Focus files the row under Voice, on both screens.                                                                       |
+| 19.12         | phone-exit                       | The phone returns to its parked position.                                                                               |
+| 19.12–25.52   | first-read … artifact-shown      | The agent reads, edits `waveformActive.ts` (+3 −1) and shows an inline animated waveform artifact.                      |
+| 29.25 / 34.25 | astra-spawned / response-settled | It spawns Astra to review and replies.                                                                                  |
+| 35.88 / 37.47 | phone-enter / phone-session-open | Steve's phone; he taps Voice waveform and reads the reply.                                                              |
+| 40.13 / 42.57 | phone-typing / phone-sent        | Steve types "ship it" on the real iOS keyboard and sends it.                                                            |
+| 44.82 / 46.58 | phone-reply / phone-exit         | The phone shows the reply starting, then goes back to its sidebar.                                                      |
+| 46.58–54.07   | steve-message … deployed         | The greeting, the Bash ship, Astra finishing (47.07) and Deployed.                                                      |
+| 57.02 / 60.63 | outro / end                      |                                                                                                                         |
 
 Each phone cue waits until the phone's own accessibility tree shows the change.
 The sidebar updates arrive by live sync. The phone lags the desktop by about

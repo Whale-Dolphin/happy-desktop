@@ -21,8 +21,8 @@ export default {
         { from: "stem-icon", text: "grows *its own icon*" },
         { from: "stem-filed", text: "and *files itself* where it belongs" },
         { from: "first-read-visible", text: "Then it gets to work" },
-        { from: "artifact-shown", text: "and *shows you* the result" },
-        { from: "astra-spawned", text: "A *second model* reviews the change" },
+        { from: "artifact-shown", text: "and *shows you* a live preview" },
+        { from: "astra-spawned", text: "*GPT-6 Astra* reviews the change" },
         { from: "phone-enter#2", text: "Ship it *from your phone*" },
         { from: "ship-running", text: "It *pushes to main* and waits for CI" },
         { from: "deployed", text: "*Live.*" },
@@ -30,15 +30,18 @@ export default {
     ],
     hints: [
         { cue: "stem-named", side: "right", seconds: 2, text: "Named from your message" },
-        { cue: "stem-icon", side: "right", delay: 1.7, seconds: 1.9, text: "Picked its own icon" },
+        // After the 2.5 s growth into the icon.
+        { cue: "stem-icon", side: "right", delay: 2.4, seconds: 1.3, text: "Picked its own icon" },
         { cue: "stem-filed", side: "below", seconds: 2.2, text: "Filed under Voice" },
+        // Gone before the phone steps back at phone-exit, 2 s later.
         {
             cue: "phone-filed",
             side: "below",
-            seconds: 2.2,
+            seconds: 1.7,
             text: "Same sidebar, live on the phone",
         },
-        { cue: "artifact-shown", side: "below", seconds: 2.6, text: "A live preview in the chat" },
-        { cue: "astra-spawned", side: "below", seconds: 2.4, text: "GPT-6 Astra checks the logic" },
+        // Rings only: a label would cover the chat, and the caption says it.
+        { cue: "artifact-shown", seconds: 2.6 },
+        { cue: "astra-spawned", seconds: 2.4 },
     ],
 };

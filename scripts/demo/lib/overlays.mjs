@@ -182,6 +182,11 @@ export async function overlaysBuild({ composition, cues, phoneCanvas }) {
             const from = cue.seconds + (hint.delay ?? 0);
             const to = from + hint.seconds;
             const target = targetPlace(composition, phoneCanvas, cue);
+            // A hint without text is only the ring, where a label would cover the chat.
+            if (hint.text === undefined) {
+                items.push({ from, to, sprites: [await ringDraw(target)] });
+                continue;
+            }
             const side = hint.side;
             const gap = 10;
             let place;

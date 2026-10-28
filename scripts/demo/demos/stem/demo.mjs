@@ -399,7 +399,9 @@ export default {
         await demo.moveTo(opus, { duration: 650 });
         await demo.hold(600);
         await page.screenshot({ path: join(output, "picker-hover.png") });
-        await demo.click(opus, { after: 300 });
+        // Straight on to the composer, so the ripple never reads as a click on
+        // the chip under the closed menu.
+        await demo.click(opus, { after: 0 });
         cue("picker-chosen", demo, phone);
         await demo.click(composer, { after: 150 });
         // The pointer hides while typing, as macOS hides it, so it never sits on the words.
