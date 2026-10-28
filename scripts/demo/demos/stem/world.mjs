@@ -124,11 +124,11 @@ for (const id of ["speaking", "silent"]) {
 `;
 }
 
-/** Sections the person made, top to bottom, above the default Bots and Tasks. */
+/** Sections the person made, top to bottom, under their Bots. */
 export const sections = [
     { id: "voice", label: "Voice" },
-    { id: "happy-app", label: "Happy app" },
-    { id: "travel", label: "Travel" },
+    { id: "bug-fixes", label: "Bug fixes" },
+    { id: "upcoming-travel", label: "Upcoming travel" },
 ];
 /** Where Focus files the filmed request. */
 export const section = "voice";
@@ -150,25 +150,32 @@ export const seeds = [
         reply: "Make the speaking state visible without interrupting the conversation. Reuse the existing voice bars and leave the call timer and tap-to-end action alone.",
     },
     {
-        message: "How should the message list behave when new replies arrive?",
-        title: "Message scroll",
-        icon: "ux",
-        section: "happy-app",
-        reply: "If you’re at the bottom, follow the new reply. If you’ve scrolled up, keep the same message under your eyes.",
+        message: "The message list jumps when a reply arrives while I’m scrolled up. Fix it.",
+        title: "Message scroll jump",
+        icon: "debugging",
+        section: "bug-fixes",
+        reply: "The list re-anchored to the bottom on every new reply. It now keeps the message you were reading in place unless you were already at the bottom.",
     },
     {
-        message: "Make the release notes for 1.9 read like a changelog people want to open.",
-        title: "Release notes",
-        icon: "docs",
-        section: "happy-app",
-        reply: "Lead with the two things people will notice, then one line per fix. Drop internal names and keep every entry under twelve words.",
+        message: "The unread badge stays on after I’ve read the session on my phone.",
+        title: "Stale unread badge",
+        icon: "notifications",
+        section: "bug-fixes",
+        reply: "The badge only cleared on a desktop read. A read from any device now clears it, and the sidebar updates live.",
     },
     {
-        message: "Make the Japan itinerary feel less rushed. Keep Kyoto and add a day in Naoshima.",
-        title: "Japan trip",
+        message: "Plan a week in Alaska in late June: Anchorage, Seward and Denali.",
+        title: "Alaska",
         icon: "travel",
-        section: "travel",
-        reply: "Give Kyoto three quiet days, leave one morning open for the market, and take the ferry to Naoshima for a full day.",
+        section: "upcoming-travel",
+        reply: "Two nights in Anchorage, the train to Seward for Kenai Fjords, then three days at Denali with an early shuttle into the park.",
+    },
+    {
+        message: "Find a cabin near Girdwood for a four-day coding retreat with good wifi.",
+        title: "Alaska coding retreat",
+        icon: "team",
+        section: "upcoming-travel",
+        reply: "Three cabins near Alyeska have fibre and a big table. The one on Crow Creek Road sleeps six and is free the week after your trip.",
     },
 ];
 

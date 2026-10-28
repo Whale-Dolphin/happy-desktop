@@ -9,8 +9,8 @@ import { promisify } from "node:util";
 
 const execFile = promisify(exec);
 
-/** The whole app, delivered as one static window: a narrow sidebar beside a compact main pane. */
-const viewport = { width: 668, height: 664 };
+/** The whole app, delivered as one static window in a golden rectangle: a narrow sidebar beside the main pane. */
+const viewport = { width: 972, height: 600 };
 const stemCellsSetting = "happy-desktop.experiments.stemCells";
 const defaultModelSetting = "happy-desktop.model.default";
 const astra = { providerId: "codex", modelId: "openai/gpt-6-astra" };
@@ -139,27 +139,36 @@ async function filedUnder(client, spaceId, sectionId) {
  * message. Every step uses the daemon's public API as that member; Focus's
  * placement and icons are its real tools driven by the screenplay.
  */
-async function sidebarPrepare(client, { sections, seeds, settings }) {
+async function sidebarPrepare(client, { sections, seeds, settings, botsFirst = false }) {
     for (const [key, value] of settings)
         await client.saveUserSetting(key, { value, updatedAt: Date.now() });
     const sidebar = await client.getSpaceSidebar();
-    const missing = sections.filter(
-        (section) => !sidebar.html.includes(`<happy-section id="${section.id}"`),
-    );
-    if (missing.length > 0) {
-        const headings = missing
-            .map((section) => `  <happy-section id="${section.id}" label="${section.label}"/>\n`)
-            .join("");
-        const html = sidebar.html.replace(
-            /( *)<happy-section id="bots"/u,
-            `${headings}$1<happy-section id="bots"`,
-        );
+    let lines = sidebar.html.split("\n");
+    // An empty section is only a heading; this member's sidebar has none.
+    lines = lines.filter((line) => !line.includes('<happy-section id="tasks"'));
+    if (botsFirst) {
+        // Bots sit right under Happy, above the person's own sections.
+        const start = lines.findIndex((line) => line.includes('<happy-section id="bots"'));
+        let end = start + 1;
+        while (end < lines.length && lines[end].includes("<happy-space ")) end += 1;
+        const bots = lines.splice(start, end - start);
+        const divider = lines.findIndex((line) => line.includes("<happy-separator"));
+        lines.splice(divider + 1, 0, ...bots);
+    }
+    const missing = sections
+        .filter((section) => !sidebar.html.includes(`<happy-section id="${section.id}"`))
+        .map((section) => `  <happy-section id="${section.id}" label="${section.label}"/>`);
+    const before = botsFirst
+        ? lines.findIndex((line) => line.trim() === "</nav>")
+        : lines.findIndex((line) => line.includes('<happy-section id="bots"'));
+    lines.splice(before, 0, ...missing);
+    const html = lines.join("\n");
+    if (html !== sidebar.html)
         await client.updateSpaceSidebar({
             html,
             baseVersion: sidebar.version,
             mutationId: randomUUID(),
         });
-    }
     for (const seed of seeds) {
         const existing = (await client.listSpaces()).spaces.find(
             (space) => space.title === seed.title,
@@ -243,18 +252,31 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         ),
     );
     cue(`phone-typing-${phase}`, demo, phone);
+    // Each touch plays the keyboard's own tick as it goes out, as fast as
+    // the native driver performs touches.
+    const taps = (points, sounds) =>
+        phone.simulator.tapPoints(points, (index) => demo.sound(sounds[index]));
     let index = 0;
     const capitalized = keys.some((item) => item.text === "Q");
     if (capitalized !== /\p{Lu}/u.test(message[0])) {
         const shift = keys.find((item) => item.id === "shift");
         if (!shift) throw new Error("The native keyboard has no shift key.");
-        await phone.simulator.tapPoints([boundsCenter(shift)]);
+        await taps([boundsCenter(shift)], ["phone-modifier"]);
     }
     while (index < message.length) {
         const run = [];
-        while (index < message.length && keyFor(keys, message[index]))
-            run.push(boundsCenter(keyFor(keys, message[index++])));
-        if (run.length > 0) await phone.simulator.tapPoints(run);
+        while (index < message.length && keyFor(keys, message[index])) {
+            const character = message[index++];
+            run.push({
+                point: boundsCenter(keyFor(keys, character)),
+                sound: character === " " ? "phone-modifier" : "phone-key",
+            });
+        }
+        if (run.length > 0)
+            await taps(
+                run.map((entry) => entry.point),
+                run.map((entry) => entry.sound),
+            );
         if (index >= message.length) break;
         // The next character is on the other layout, or the layout just
         // changed under us after punctuation.
@@ -262,7 +284,7 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         if (keyFor(keys, message[index])) continue;
         const toggle = layoutKey(keys);
         if (!toggle) throw new Error(`Native keyboard key is missing: ${message[index]}`);
-        await phone.simulator.tapPoints([boundsCenter(toggle)]);
+        await taps([boundsCenter(toggle)], ["phone-modifier"]);
         keys = keyboardKeys(await phone.inspect(`${phase}-layout`));
         if (!keyFor(keys, message[index]))
             throw new Error(`Native keyboard key is missing: ${message[index]}`);
@@ -273,7 +295,7 @@ async function phoneTypeAndSend(demo, phone, screen, message, phase) {
         throw new Error(`The native keyboard typed "${composer?.value}", not "${message}".`);
     const send = boundsCenter(typed.find((item) => item.text === "Send"));
     if (!send) throw new Error("The actual native Send control is missing.");
-    await phone.simulator.tapPoints([send]);
+    await taps([send], ["phone-modifier"]);
 }
 
 /** Archives earlier takes' filmed rows, so the next New row is the only one. */
@@ -314,11 +336,14 @@ export default {
         { scope: "shared", source: "browser-daemon.patch" },
         { scope: "demo", source: "patches/gym-provider.patch" },
         { scope: "demo", source: "patches/artifact-site.patch" },
+        // The window reserves macOS's traffic-light lane, as the packaged app does.
+        { scope: "demo", source: "patches/window-controls.patch" },
     ],
     async run(demo, gym, { phone, output } = {}) {
         releaseCoordinator = await releaseCoordinatorPrepare(gym);
         await rehearsalsArchive(gym);
         await sidebarPrepare(gym.client, {
+            botsFirst: true,
             sections: world.sections,
             seeds: world.seeds,
             settings: [
@@ -529,6 +554,9 @@ export default {
                     .first(),
             ),
         );
+        // The mark takes 2.5 s to grow into its icon, and its hint reads after
+        // that; nothing in the pane moves until both are done.
+        await demo.hold(3700);
         world.focusRelease("work");
         // The work starts thinking while Focus files the row.
         const thinking = page
@@ -538,8 +566,7 @@ export default {
             .then(() => cue("thinking-visible", demo, phone));
         thinking.catch(() => undefined);
         await until(demo, () => world.focusHasReached("file"), "Focus's queued placement");
-        // The mark takes 2.5 s to grow into its icon; it settles before the row moves.
-        await demo.hold(2500);
+        await demo.hold(400);
         world.focusRelease("file");
         await until(
             demo,
@@ -611,7 +638,8 @@ export default {
             () => world.hasReached("teammates", recordedAgentId),
             "the published artifact",
         );
-        await demo.hold(2200);
+        // The preview's ring is gone before the next row moves it.
+        await demo.hold(2400);
         world.release("teammates", recordedAgentId);
         await until(
             demo,
@@ -686,10 +714,15 @@ export default {
                             (item) =>
                                 item.id === "stem-message" &&
                                 item.text?.includes(`@${world.steveName}`),
-                        ) && screen
+                        ) &&
+                        // The preview draws inline on the phone too.
+                        screen.some(
+                            (item) => item.id === "stem-artifact-inline" && item.value === "loaded",
+                        ) &&
+                        screen
                     );
                 },
-                "Steve's phone to show the mention",
+                "Steve's phone to show the mention and the live preview",
                 10000,
             );
             await demo.hold(1800);
@@ -753,7 +786,6 @@ export default {
         await shipped.waitFor({ timeout: 60000 });
         await until(demo, () => settled(shipped), "the shipped reply to finish arriving");
         cue("deployed", demo, phone);
-        demo.confetti({ duration: 3200 });
 
         if (phone) {
             const session = await until(
@@ -815,12 +847,15 @@ export default {
         await demo.pointerVisible(true);
         await demo.click(next, { after: 300 });
         await page.getByText(world.seeds[1].reply.slice(0, 40)).first().waitFor();
+        // The pointer leaves the sidebar, so only the opened row is highlighted.
+        await demo.moveTo({ x: framing.sidebarWidth + 220, y: viewport.height * 0.6 });
         await demo.pointerVisible(false);
         cue("moved-on", demo, phone);
         const rowPlace = await rectOf(row);
         await demo.hold(1000);
         cue("archiving", demo, phone, rowPlace);
-        await demo.hold(900);
+        // The hint is read and gone before the row leaves.
+        await demo.hold(1700);
         world.focusRelease("archive");
         await until(
             demo,
@@ -845,6 +880,8 @@ export default {
             JSON.stringify(shippingEvidence, null, 2),
         );
         await writeFile(join(output, "cues.json"), JSON.stringify(cues, null, 2));
+        // The take's sounds by frame, for a composition that re-times a stretch.
+        await writeFile(join(output, "sounds.json"), JSON.stringify(demo.sounds));
     },
     async evidence(page, gym) {
         return {
