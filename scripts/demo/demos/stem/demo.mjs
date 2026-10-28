@@ -9,8 +9,8 @@ import { promisify } from "node:util";
 
 const execFile = promisify(exec);
 
-/** The whole app, delivered as one static window in a golden rectangle: a narrow sidebar beside the main pane. */
-const viewport = { width: 972, height: 600 };
+/** The whole app, delivered as one static window: a narrow sidebar beside the main pane. */
+const viewport = { width: 880, height: 600 };
 const stemCellsSetting = "happy-desktop.experiments.stemCells";
 const defaultModelSetting = "happy-desktop.model.default";
 const astra = { providerId: "codex", modelId: "openai/gpt-6-astra" };
@@ -104,6 +104,103 @@ const boundsRect = (item) => {
     const [, left, top, right, bottom] = rectangle.map(Number);
     return { x: left, y: top, width: right - left, height: bottom - top };
 };
+
+/**
+ * A hint drawn inside the app itself, so it renders at the window's own
+ * resolution and follows its target as the layout moves: a ring around the
+ * element and, with `text`, a label whose notch points at it. It fades in
+ * after `delay` and out after `seconds`, on the page's clock, while the take
+ * carries on.
+ */
+async function highlight(locator, { text, side = "right", delay = 0, seconds }) {
+    const target = await locator.elementHandle();
+    await target.evaluate(highlightDraw, { text, side, delay, seconds, accent: "#e07aae" });
+}
+
+/** Runs in the page: builds the hint's layer and keeps it on its target every frame. */
+function highlightDraw(element, { text, side, delay, seconds, accent }) {
+    const fade = 300;
+    const pad = 4;
+    const gap = 8;
+    const margin = 6;
+    const layer = document.createElement("div");
+    layer.setAttribute("aria-hidden", "true");
+    layer.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483000;opacity:0;transition:opacity ${fade}ms linear`;
+    const ring = document.createElement("div");
+    ring.style.cssText = `position:absolute;box-sizing:border-box;border:2px solid ${accent};border-radius:10px;box-shadow:0 0 9px 1px ${accent}a6,inset 0 0 5px ${accent}59`;
+    layer.append(ring);
+    let pill;
+    let notch;
+    if (text) {
+        pill = document.createElement("div");
+        pill.textContent = text;
+        pill.style.cssText = `position:absolute;white-space:nowrap;padding:7px 11px 8px;border-radius:9px;background:rgba(22,22,24,0.96);color:#fff;font:650 15px/20px ${getComputedStyle(document.body).fontFamily};-webkit-font-smoothing:antialiased;box-shadow:0 0 0 1px rgba(255,255,255,0.16),0 8px 22px rgba(0,0,0,0.45)`;
+        notch = document.createElement("div");
+        // Its two lit edges face out, continuing the label's outline.
+        const turn = { right: 135, below: -135, left: -45, above: 45 }[side];
+        notch.style.cssText = `position:absolute;width:10px;height:10px;background:rgba(22,22,24,0.96);box-shadow:1px 1px 0 0 rgba(255,255,255,0.16);transform:${side === "right" || side === "left" ? "translateY(-50%)" : "translateX(-50%)"} rotate(${turn}deg)`;
+        pill.append(notch);
+        layer.append(pill);
+    }
+    document.body.append(layer);
+    let rect;
+    let frame;
+    const place = () => {
+        if (element.isConnected) rect = element.getBoundingClientRect();
+        ring.style.left = `${rect.left - pad}px`;
+        ring.style.top = `${rect.top - pad}px`;
+        ring.style.width = `${rect.width + pad * 2}px`;
+        ring.style.height = `${rect.height + pad * 2}px`;
+        if (pill) {
+            const width = pill.offsetWidth;
+            const height = pill.offsetHeight;
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let left =
+                side === "right"
+                    ? rect.right + pad + gap
+                    : side === "left"
+                      ? rect.left - pad - gap - width
+                      : centerX - width / 2;
+            let top =
+                side === "below"
+                    ? rect.bottom + pad + gap
+                    : side === "above"
+                      ? rect.top - pad - gap - height
+                      : centerY - height / 2;
+            left = Math.max(margin, Math.min(innerWidth - width - margin, left));
+            top = Math.max(margin, Math.min(innerHeight - height - margin, top));
+            pill.style.left = `${Math.round(left)}px`;
+            pill.style.top = `${Math.round(top)}px`;
+            // The notch points at the target's centre wherever the label landed.
+            if (side === "right" || side === "left") {
+                notch.style.top = `${Math.max(12, Math.min(height - 12, centerY - top))}px`;
+                notch.style[side === "right" ? "left" : "right"] = "-5px";
+            } else {
+                notch.style.left = `${Math.max(14, Math.min(width - 14, centerX - left))}px`;
+                notch.style[side === "below" ? "top" : "bottom"] = "-5px";
+            }
+        }
+        frame = requestAnimationFrame(place);
+    };
+    place();
+    setTimeout(() => {
+        layer.style.opacity = "1";
+    }, delay * 1000);
+    setTimeout(
+        () => {
+            layer.style.opacity = "0";
+        },
+        (delay + seconds) * 1000 - fade,
+    );
+    setTimeout(
+        () => {
+            cancelAnimationFrame(frame);
+            layer.remove();
+        },
+        (delay + seconds) * 1000 + 50,
+    );
+}
 
 /** Where a desktop element is, for a captioned cut's hint. */
 async function rectOf(locator) {
@@ -534,6 +631,7 @@ export default {
             .filter({ hasText: world.sessionTitle })
             .first();
         cue("stem-named", demo, phone, await rectOf(row));
+        await highlight(row, { text: "Named from your message", seconds: 2 });
         await until(demo, () => world.focusHasReached("icon"), "Focus to read the sidebar");
         await demo.hold(700);
         world.focusRelease("icon");
@@ -542,18 +640,14 @@ export default {
             async () => (await spaceRead(gym.client, recordedSpaceId))?.icon.type === "library",
             "the stem cell's icon",
         );
-        cue(
-            "stem-icon",
-            demo,
-            phone,
-            await rectOf(
-                page
-                    .locator(
-                        '[data-happy-desktop-ui="make-stuff-intro"] [data-happy-desktop-ui="stem-cell-growth"]',
-                    )
-                    .first(),
-            ),
-        );
+        const growth = page
+            .locator(
+                '[data-happy-desktop-ui="make-stuff-intro"] [data-happy-desktop-ui="stem-cell-growth"]',
+            )
+            .first();
+        cue("stem-icon", demo, phone, await rectOf(growth));
+        // After the 2.5 s growth into the icon.
+        await highlight(growth, { text: "Picked its own icon", delay: 2.4, seconds: 1.2 });
         // The mark takes 2.5 s to grow into its icon, and its hint reads after
         // that; nothing in the pane moves until both are done.
         await demo.hold(3700);
@@ -575,6 +669,7 @@ export default {
         );
         await demo.hold(500);
         cue("stem-filed", demo, phone, await rectOf(row));
+        await highlight(row, { text: "Filed under Voice", side: "below", seconds: 2.2 });
         // Steve is not part of this work yet: his phone has no row for it.
         if (phone && !phoneSteveHome(await phone.inspect("phone-before-loop-in")))
             throw new Error("Steve's phone shows the work before he is looped in.");
@@ -630,6 +725,8 @@ export default {
         );
         await demo.hold(400);
         cue("artifact-shown", demo, phone, await rectOf(artifactContent));
+        // Rings only: a label would cover the chat, and the caption says it.
+        await highlight(artifactContent, { seconds: 2 });
         await page.screenshot({ path: join(output, "artifact.png") });
 
         // ---- The agent finds who follows voice work and loops them in.
@@ -663,6 +760,7 @@ export default {
         );
         await until(demo, () => settled(loopIn), "the loop-in reply to finish arriving");
         cue("looped-in", demo, phone, await rectOf(loopIn));
+        await highlight(loopIn, { seconds: 2.4 });
         await page.screenshot({ path: join(output, "looped-in.png") });
         // Steve's own Focus was told; it adds the work to his sidebar.
         await until(demo, () => world.focusHasReached("join"), "Steve's Focus to be told");
@@ -854,6 +952,7 @@ export default {
         const rowPlace = await rectOf(row);
         await demo.hold(1000);
         cue("archiving", demo, phone, rowPlace);
+        await highlight(row, { text: "Shipped, so Focus archives it", seconds: 1.5 });
         // The hint is read and gone before the row leaves.
         await demo.hold(1700);
         world.focusRelease("archive");

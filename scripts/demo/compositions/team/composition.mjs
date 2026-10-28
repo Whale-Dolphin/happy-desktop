@@ -5,8 +5,8 @@
  * label naming whose phone it is, and goes back down when they are done. The
  * window carries macOS's own traffic lights, drawn over the app's lane.
  *
- * Geometry is in output pixels. The frame and the recorded 972×600 window are
- * both golden rectangles. The desktop's corner radius is in recorded CSS
+ * Geometry is in output pixels. The frame is a golden rectangle; the
+ * recorded window is 880×600. The desktop's corner radius is in recorded CSS
  * pixels.
  */
 import stemCaptions from "../stem-captions/composition.mjs";
@@ -18,18 +18,18 @@ export default {
     output: { width: 1618, height: 1000, fps: 60 },
     captionBand: { centerY: 62 },
     desktop: {
-        x: 129,
+        x: 193,
         y: 125,
-        width: 1360,
+        width: 1232,
         height: 840,
-        cssWidth: 972,
+        cssWidth: 880,
         cssRadius: 12,
         trafficLights: true,
     },
     phone: {
         ...stemCaptions.phone,
         width: 392,
-        left: 1190,
+        left: 1126,
         bottom: 985,
         focusScale: 1,
         clearOfDesktop: false,
@@ -64,17 +64,7 @@ export default {
         { from: "archiving", text: "Focus *cleans up* when the work is done" },
         { from: "outro", text: "*Stem cells.* For you and your whole team." },
     ],
-    hints: [
-        { cue: "stem-named", side: "right", seconds: 2, text: "Named from your message" },
-        // After the 2.5 s growth into the icon, and gone before the work's
-        // first rows move anything.
-        { cue: "stem-icon", side: "right", delay: 2.4, seconds: 1.2, text: "Picked its own icon" },
-        { cue: "stem-filed", side: "below", seconds: 2.2, text: "Filed under Voice" },
-        // Rings only: a label would cover the chat, and the caption says it.
-        { cue: "artifact-shown", seconds: 2 },
-        { cue: "looped-in", seconds: 2.4 },
-        { cue: "phone-row", side: "below", seconds: 2, text: "New on Steve's phone" },
-        // Gone before Focus's archive takes the row out.
-        { cue: "archiving", side: "right", seconds: 1.5, text: "Shipped, so Focus archives it" },
-    ],
+    // The desktop's hints are drawn in the app itself, at its own resolution;
+    // only the phone's, which the app cannot draw on, is laid on here.
+    hints: [{ cue: "phone-row", side: "below", seconds: 2, text: "New on Steve's phone" }],
 };

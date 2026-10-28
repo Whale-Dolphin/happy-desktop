@@ -128,7 +128,6 @@ for (const id of ["speaking", "silent"]) {
 export const sections = [
     { id: "voice", label: "Voice" },
     { id: "bug-fixes", label: "Bug fixes" },
-    { id: "upcoming-travel", label: "Upcoming travel" },
 ];
 /** Where Focus files the filmed request. */
 export const section = "voice";
@@ -162,20 +161,6 @@ export const seeds = [
         icon: "notifications",
         section: "bug-fixes",
         reply: "The badge only cleared on a desktop read. A read from any device now clears it, and the sidebar updates live.",
-    },
-    {
-        message: "Plan a week in Alaska in late June: Anchorage, Seward and Denali.",
-        title: "Alaska",
-        icon: "travel",
-        section: "upcoming-travel",
-        reply: "Two nights in Anchorage, the train to Seward for Kenai Fjords, then three days at Denali with an early shuttle into the park.",
-    },
-    {
-        message: "Find a cabin near Girdwood for a four-day coding retreat with good wifi.",
-        title: "Alaska coding retreat",
-        icon: "team",
-        section: "upcoming-travel",
-        reply: "Three cabins near Alyeska have fibre and a big table. The one on Crow Creek Road sleeps six and is free the week after your trip.",
     },
 ];
 
