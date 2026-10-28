@@ -9,7 +9,7 @@ export function ConfirmPopoverPage() {
     return (
         <ComponentPage
             number={componentNumber}
-            summary="A question asked in place, above the control that raised it: title, optional message, and right-aligned Cancel and confirm actions on the menus' raised surface. Focus starts on Cancel, Escape cancels, and Tab cycles between the two actions. The host anchors it and decides what an outside press does."
+            summary="A question asked in place, above the control that raised it: title, optional message, and right-aligned Cancel and confirm actions on the menus' raised surface. Focus starts on Cancel unless the host asks for the confirm action, Escape cancels, and Tab cycles between the two actions. The host anchors it and decides what an outside press does."
             title="Confirm popover"
         >
             <div className="specimen-grid">
@@ -42,6 +42,21 @@ export function ConfirmPopoverPage() {
                         onCancel={() => {}}
                         onConfirm={() => {}}
                         title="Discard this draft?"
+                    />
+                </Specimen>
+                <Specimen
+                    detail="title only · amber confirm · focus starts on confirm, so Enter answers"
+                    label="Warning"
+                    number="CP-04"
+                    stage="app"
+                >
+                    <ConfirmPopover
+                        confirmLabel="Archive"
+                        initialFocus="confirm"
+                        onCancel={() => {}}
+                        onConfirm={() => {}}
+                        title="Archive?"
+                        tone="warning"
                     />
                 </Specimen>
                 <Specimen

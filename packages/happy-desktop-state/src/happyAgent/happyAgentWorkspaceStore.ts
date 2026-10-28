@@ -770,6 +770,8 @@ export interface HappyAgentWorkspaceSnapshot {
     readonly projectArchive?: HappyAgentProjectArchiveSnapshot;
     /** The empty workspace/project Cmd-W has offered to archive, if any. */
     readonly groupArchive?: HappyAgentGroupArchiveSnapshot;
+    /** The conversation Cmd-W has asked to archive, if any. It goes when the address changes. */
+    readonly conversationArchiveConfirm?: HappyAgentConversationArchiveConfirmSnapshot;
     /**
      * Where the project whose settings are open runs its sessions. Present only
      * while a project's settings are open — a worktree has no compute of its own
@@ -1317,6 +1319,21 @@ export type HappyAgentGroupArchiveSnapshot =
           readonly submitting: boolean;
           readonly error?: string;
       };
+
+/**
+ * The conversation Cmd-W has asked to archive, waiting on the reader's yes.
+ * Archiving one is light — it can be found again and revived — so this is a
+ * small question rather than a warning, and only work someone started stops
+ * here: new work nobody has written in goes on the keystroke itself.
+ */
+export type HappyAgentConversationArchiveConfirmSnapshot =
+    | { readonly kind: "session"; readonly conversationId: HappyAgentSessionId }
+    | {
+          readonly kind: "task";
+          readonly taskId: HappyAgentTaskId;
+          readonly conversationId: HappyAgentSessionId;
+      }
+    | { readonly kind: "subtask"; readonly conversationId: HappyAgentSessionId };
 
 /** Which of the three things a project can say about where its sessions run. */
 export type HappyAgentProjectComputeMode = "default" | "local" | "docker";
@@ -2070,6 +2087,14 @@ export interface HappyAgentWorkspaceStore {
     /** Confirms the pending empty-group archive. */
     groupArchiveSubmit(): Promise<void>;
     /**
+     * Asks whether to archive a conversation; it archives nothing yet. The
+     * archive itself is the caller's, which also decides where the reader
+     * lands, so the answer is read from the snapshot and this is closed.
+     */
+    conversationArchiveConfirmOpen(target: HappyAgentConversationArchiveConfirmSnapshot): void;
+    /** Puts the question away, whether it was answered or dismissed. */
+    conversationArchiveConfirmClose(): void;
+    /**
      * Asks to archive a project, which puts the confirmation in front of the
      * reader rather than archiving anything. A project the list no longer holds
      * is not asked about.
@@ -2367,6 +2392,7 @@ export function happyAgentWorkspaceStoreCreate(
     let groupArchive: HappyAgentGroupArchiveSnapshot | undefined;
     /** Which submission owns the empty-group confirmation. */
     let groupArchiveSubmission = 0;
+    let conversationArchiveConfirm: HappyAgentConversationArchiveConfirmSnapshot | undefined;
     /** Which submission the pending archive belongs to, so a superseded one's answer is dropped. */
     let projectArchiveSubmission = 0;
     let projectSettings: HappyAgentProjectSettingsSnapshot | undefined;
@@ -3160,6 +3186,7 @@ export function happyAgentWorkspaceStoreCreate(
                 snapshot.rename === rename &&
                 snapshot.projectArchive === projectArchive &&
                 snapshot.groupArchive === groupArchive &&
+                snapshot.conversationArchiveConfirm === conversationArchiveConfirm &&
                 snapshot.projectSettings === projectSettings &&
                 snapshot.fileViewMode === fileViewMode &&
                 snapshot.fileViewWrap === fileViewWrap &&
@@ -3218,6 +3245,7 @@ export function happyAgentWorkspaceStoreCreate(
                           ...(rename ? { rename } : {}),
                           ...(projectArchive ? { projectArchive } : {}),
                           ...(groupArchive ? { groupArchive } : {}),
+                          ...(conversationArchiveConfirm ? { conversationArchiveConfirm } : {}),
                           ...(projectSettings ? { projectSettings } : {}),
                       },
             true,
@@ -5342,6 +5370,8 @@ export function happyAgentWorkspaceStoreCreate(
         conversationId: HappyAgentSessionId | undefined,
     ): void => {
         if (address.groupId === groupId && address.conversationId === conversationId) return;
+        // The question was about what was on screen; elsewhere it names nothing.
+        conversationArchiveConfirm = undefined;
         address =
             groupId === undefined && conversationId === undefined
                 ? ADDRESS_NOWHERE
@@ -8314,6 +8344,16 @@ export function happyAgentWorkspaceStoreCreate(
         groupArchiveCancel() {
             if (!groupArchive || groupArchive.submitting) return;
             groupArchive = undefined;
+            recompute();
+        },
+        conversationArchiveConfirmOpen(target) {
+            if (disposed) return;
+            conversationArchiveConfirm = target;
+            recompute();
+        },
+        conversationArchiveConfirmClose() {
+            if (!conversationArchiveConfirm) return;
+            conversationArchiveConfirm = undefined;
             recompute();
         },
         async groupArchiveSubmit() {

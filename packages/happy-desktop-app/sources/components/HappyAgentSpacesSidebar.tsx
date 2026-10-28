@@ -235,6 +235,15 @@ export function happyAgentSpaceFocused(
     return undefined;
 }
 
+/**
+ * Whether a row is new work nobody has named yet: its stem cell still stands
+ * where an icon will grow. Only such a row may be closed rather than archived;
+ * the daemon still refuses once its chat has any message.
+ */
+export function happyAgentSpaceNewWorkIs(space: HappyAgentSpace): boolean {
+    return space.title === null && space.icon?.type === "stem_cell";
+}
+
 /** Whether a space is Happy's own row: the one whose target is Happy's bot. */
 export function happyAgentSpaceHappyIs(
     space: HappyAgentSpace,
@@ -489,7 +498,7 @@ function spaceMenu(
                 ? [{ kind: "item", id: MENU_RENAME, label: "Rename task", icon: "edit" }]
                 : [];
             // New work nobody named yet closes from here and only from here.
-            if (space.title === null && space.icon?.type === "stem_cell")
+            if (happyAgentSpaceNewWorkIs(space))
                 return [
                     open,
                     ...rename,

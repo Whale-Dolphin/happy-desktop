@@ -52,6 +52,7 @@ import type {
     HappyAgentFileTabSnapshot,
     HappyAgentConnectionStore,
     HappyAgentDebugLogStore,
+    HappyAgentConversationArchiveConfirmSnapshot,
     HappyAgentConversationSnapshot,
     HappyAgentDeviceBridgesStore,
     HappyAgentDeviceBridgeSupportStore,
@@ -243,6 +244,7 @@ import {
     filePreviewKind,
     Lightbox,
     MarkdownDocument,
+    ConfirmPopover,
     Modal,
     ModalOverlay,
     ReviewStream,
@@ -344,6 +346,7 @@ import {
 import {
     happyAgentSpaceFocused,
     happyAgentSpaceHappyIs,
+    happyAgentSpaceNewWorkIs,
     happyAgentSpaceDestination,
     happyAgentSpaceLabel,
     happyAgentSpaceMark,
@@ -4045,6 +4048,12 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             happySpace.target.agentId === sessionId
                 ? happyAgentSpacesNotes(spaces.batches)
                 : undefined,
+        newWorkDiscard: (sessionId) => {
+            const space = spaceOfChat(sessionId);
+            if (space === undefined || !happyAgentSpaceNewWorkIs(space)) return false;
+            spacesStore.stemCellDiscard(space.id);
+            return true;
+        },
     };
     const sidebar = (
         <Sidebar
@@ -6808,6 +6817,12 @@ interface HappyAgentWorkspaceSpaces {
     chatHeader(sessionId: string, settled: boolean): ConversationLeadingHeader | undefined;
     /** Bookkeeping a conversation reads as one-line summaries, such as Happy's sidebar batches. */
     chatNotes(sessionId: string): ReadonlyMap<string, ConversationNote> | undefined;
+    /**
+     * Closes the chat when it is new work nobody has named yet, and says
+     * whether it was. The daemon refuses once the chat has a message, so the
+     * caller asks only of a chat it has seen nothing written in.
+     */
+    newWorkDiscard(sessionId: string): boolean;
 }
 
 /**
@@ -7342,8 +7357,78 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
         }
         const current = props.workspace.get();
         const tabId = current.activeMainViewId ?? current.address.conversationId;
-        if (tabId) groupTabClose(tabId);
-        else if (openGroup) props.workspace.groupArchiveOpen(openGroup.id);
+        if (!tabId) {
+            if (openGroup) props.workspace.groupArchiveOpen(openGroup.id);
+            return;
+        }
+        const archive = conversationArchiveTargetFind(tabId);
+        if (!archive) {
+            groupTabClose(tabId);
+            return;
+        }
+        if (!happyAgentOnline()) return;
+        // New work nobody has written in goes on the keystroke: there is
+        // nothing in it to lose. Anything else is asked about first, lightly,
+        // since an archived chat can be found again and revived.
+        if (!conversationUnstarted(current.conversation, archive.conversationId)) {
+            props.workspace.conversationArchiveConfirmOpen(archive);
+            return;
+        }
+        if (props.spaces?.newWorkDiscard(archive.conversationId)) return;
+        conversationArchiveRun(archive);
+    };
+    /**
+     * What Cmd-W archives when it lands on a conversation: a project's chat,
+     * a task, or a subtask the reader may archive. Undefined for a tab it only
+     * closes — a file, a tool, the review, a detached subagent — and for a
+     * bot, which Cmd-W never archives.
+     */
+    const conversationArchiveTargetFind = (
+        tabId: string,
+    ): HappyAgentConversationArchiveConfirmSnapshot | undefined => {
+        if (tabId === detachedConversationId || openReview?.id === tabId) return undefined;
+        const current = props.workspace.get();
+        const currentGroup = openGroupFind(
+            current.list.projects.type === "ready" ? current.list.projects.value : [],
+            current.list.bots,
+            current.list.tasks,
+            current.address.groupId,
+            current.address.conversationId,
+        );
+        if (!currentGroup?.conversations.some((summary) => summary.id === tabId)) return undefined;
+        const conversationId = tabId as HappyAgentSessionId;
+        if (currentGroup.singleConversationId === undefined)
+            return { kind: "session", conversationId };
+        if (currentGroup.singleConversationId !== tabId) return undefined;
+        const task = current.list.tasks.find((candidate) => candidate.conversation.id === tabId);
+        if (task)
+            return task.canArchive ? { kind: "task", taskId: task.id, conversationId } : undefined;
+        // A bot's subtask is always the reader's to archive; a task's, when
+        // the task itself is.
+        const inSubtasks = (roots: readonly Pick<HappyAgentTask, "subtasks">[]) =>
+            happyAgentBotSubtasks(roots).some((subtask) => subtask.conversation.id === tabId);
+        const archivable =
+            inSubtasks(current.list.bots) ||
+            current.list.tasks.some((root) => root.canArchive && inSubtasks([root]));
+        return archivable ? { kind: "subtask", conversationId } : undefined;
+    };
+    const conversationArchiveRun = (target: HappyAgentConversationArchiveConfirmSnapshot) => {
+        switch (target.kind) {
+            case "session":
+                groupTabsClose([target.conversationId]);
+                return;
+            case "task":
+                void props.workspace.taskArchive(target.taskId).catch(() => undefined);
+                return;
+            case "subtask":
+                void props.workspace.subtaskArchive(target.conversationId).catch(() => undefined);
+                return;
+        }
+    };
+    const conversationArchiveConfirmAnswer = () => {
+        const target = props.workspace.get().conversationArchiveConfirm;
+        props.workspace.conversationArchiveConfirmClose();
+        if (target && happyAgentOnline()) conversationArchiveRun(target);
     };
     // The strip in the order it is drawn, without the detached subagent: it is
     // addressed rather than listed, so a sweep over "the tabs beside this one"
@@ -7982,6 +8067,23 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                                 : []),
                         ]}
                     />
+                    {workspace.conversationArchiveConfirm ? (
+                        // Light on purpose: nothing behind it dims, a press
+                        // anywhere else puts it away, and Enter says yes.
+                        <ModalOverlay
+                            backdrop="clear"
+                            onDismiss={() => props.workspace.conversationArchiveConfirmClose()}
+                        >
+                            <ConfirmPopover
+                                confirmLabel="Archive"
+                                initialFocus="confirm"
+                                onCancel={() => props.workspace.conversationArchiveConfirmClose()}
+                                onConfirm={conversationArchiveConfirmAnswer}
+                                title="Archive?"
+                                tone="warning"
+                            />
+                        </ModalOverlay>
+                    ) : null}
                     {/* Chats say workspace errors above their input. Keep the
                         lane mounted but empty there, preserving the tab strip
                         and transcript identities. Views without a composer use
@@ -10224,6 +10326,35 @@ function happyAgentTaskBrowseDialog(
                 : {})}
             {...(unavailable === undefined ? {} : { joinDisabledReason: unavailable })}
         />
+    );
+}
+
+/**
+ * Whether the open conversation is known to hold nothing yet: its whole
+ * transcript is read and empty, nothing runs or waits in it, and its composer
+ * holds no draft. A transcript not read yet is not known to be empty.
+ */
+function conversationUnstarted(
+    conversation: HappyAgentWorkspaceSnapshot["conversation"],
+    conversationId: HappyAgentSessionId,
+): boolean {
+    if (conversation.type !== "ready") return false;
+    const open = conversation.value;
+    if (
+        open.conversationId !== conversationId ||
+        open.standIn ||
+        !open.ready ||
+        !open.transcriptComplete
+    )
+        return false;
+    const composer = open.composer.get();
+    return (
+        open.entries.length === 0 &&
+        !open.running &&
+        open.queuedMessages.length === 0 &&
+        composer.submission.status !== "pending" &&
+        composer.text.trim() === "" &&
+        composer.attachments.length === 0
     );
 }
 

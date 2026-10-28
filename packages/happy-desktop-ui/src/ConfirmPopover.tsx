@@ -1,7 +1,7 @@
 import { useCallback, useId, type CSSProperties, type KeyboardEvent } from "react";
 import { Button } from "./Button";
 
-export type ConfirmPopoverTone = "default" | "danger";
+export type ConfirmPopoverTone = "default" | "danger" | "warning";
 
 export type ConfirmPopoverProps = {
     className?: string;
@@ -14,8 +14,17 @@ export type ConfirmPopoverProps = {
     /** Names the act itself, such as "Stop subagents", never a bare "OK". */
     confirmLabel: string;
     cancelLabel?: string;
-    /** `danger` paints the confirming action in the destructive role. */
+    /**
+     * `danger` paints the confirming action in the destructive role; `warning`
+     * paints it amber, for an act worth a pause that is easily taken back.
+     */
     tone?: ConfirmPopoverTone;
+    /**
+     * Which action takes focus when the card mounts. `cancel` (the default)
+     * keeps a stray Enter harmless; `confirm` makes Enter the answer, for a
+     * question the person asked for with a keystroke and expects to say yes to.
+     */
+    initialFocus?: "cancel" | "confirm";
     onCancel: () => void;
     onConfirm: () => void;
 };
@@ -27,17 +36,22 @@ export type ConfirmPopoverProps = {
  * outside click does belong to the host, the way `MenuButton` hosts `Menu`.
  *
  * Mounting it moves focus to Cancel, so a stray Enter keeps things as they
- * are. Escape cancels, and Tab cycles between its two actions.
+ * are, unless the host asks for the confirm action instead. Escape cancels,
+ * and Tab cycles between its two actions.
  */
 export function ConfirmPopover(props: ConfirmPopoverProps) {
     const titleId = useId();
     const messageId = useId();
     const tone = props.tone ?? "default";
+    const initialFocus = props.initialFocus ?? "cancel";
     // The card's commit is the moment its actions exist, so focus moves then
     // rather than after React's own scheduling.
-    const cardRef = useCallback((node: HTMLDivElement | null): void => {
-        node?.querySelector<HTMLElement>("button")?.focus();
-    }, []);
+    const cardRef = useCallback(
+        (node: HTMLDivElement | null): void => {
+            node?.querySelector<HTMLElement>(`button[data-action="${initialFocus}"]`)?.focus();
+        },
+        [initialFocus],
+    );
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (event.key === "Escape") {
             event.preventDefault();
@@ -104,7 +118,9 @@ export function ConfirmPopover(props: ConfirmPopoverProps) {
                     data-action="confirm"
                     onClick={() => props.onConfirm()}
                     size="small"
-                    variant={tone === "danger" ? "danger" : "primary"}
+                    variant={
+                        tone === "danger" ? "danger" : tone === "warning" ? "secondary" : "primary"
+                    }
                 >
                     {props.confirmLabel}
                 </Button>

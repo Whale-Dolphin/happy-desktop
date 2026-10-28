@@ -47,3 +47,11 @@
     gap: 8px;
     margin-top: 12px;
 }
+
+/* An act worth a pause but easily taken back: the confirm wears the warning
+   amber the banners use, never the destructive red. */
+.happy-confirm-popover[data-tone="warning"] .happy-button[data-action="confirm"] {
+    border-color: transparent;
+    background-color: var(--box-warning-background);
+    color: var(--box-warning-text);
+}
