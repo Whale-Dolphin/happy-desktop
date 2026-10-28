@@ -1,5 +1,15 @@
 import { execFile as execFileCallback, spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+    chmod,
+    copyFile,
+    mkdir,
+    open,
+    readFile,
+    rm,
+    symlink,
+    unlink,
+    writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -10,6 +20,7 @@ import {
 import { gatewayCreate } from "./inference.mjs";
 import * as defaultWorld from "./world.mjs";
 import { nativeCredentialPrepare } from "./native-credential.mjs";
+import { teamConfigToml, teamProxyOpen, teamTokenSign } from "./team.mjs";
 
 const execFile = promisify(execFileCallback);
 const workspace = resolve(import.meta.dirname, "../../..");
@@ -41,6 +52,8 @@ const root = join(workspace, ".d");
 const marker = join(root, "demo-gym.json");
 /** The gym daemon's mobile connector port, beside the default 24781. */
 const mobileConnectorPort = 24963;
+/** A team world's TCP listener; its members reach it through their own sockets. */
+const teamPort = 24977;
 let nativeCredentialDispose;
 let nativeDaemonStop;
 
@@ -79,6 +92,96 @@ function paths() {
         socketPath: join(root, "h", "agent", "server.sock"),
         tokenPath: join(root, "h", "agent", "token"),
         ioPath: join(root, "io.ndjson"),
+        teamSecretPath: join(root, "team-secret"),
+        teamConfigPath: join(root, "Happy", "Config", "happy.toml"),
+    };
+}
+
+/** A member's own socket into a team world, beside the owner's `server.sock`. */
+function teamSocketPath(p, key) {
+    return join(p.root, `${key}.sock`);
+}
+
+/** Stops a team daemon, which has no socket for `happy-agent stop` to reach. */
+async function teamDaemonStop(p) {
+    const pid = Number(
+        await readFile(join(p.happyHome, "agent", "daemon.pid"), "utf8").then(
+            (value) => value.trim(),
+            () => "",
+        ),
+    );
+    if (!pid) return;
+    try {
+        process.kill(pid, "SIGTERM");
+    } catch {
+        return;
+    }
+    for (let waited = 0; waited < 15000; waited += 100) {
+        try {
+            process.kill(pid, 0);
+        } catch {
+            return;
+        }
+        await delay(100);
+    }
+    process.kill(pid, "SIGKILL");
+}
+
+/**
+ * Starts a team world's daemon: its machine configuration seeds the members,
+ * it is signed into with tokens only this gym can mint, and every member gets
+ * a socket that speaks to it as them. The owner's is the ordinary socket.
+ */
+async function teamDaemonStart(p, command, env, team) {
+    await teamDaemonStop(p);
+    let secret = await readFile(p.teamSecretPath, "utf8").then(
+        (value) => value.trim(),
+        () => "",
+    );
+    if (!secret) {
+        secret = randomUUID() + randomUUID();
+        await writeFile(p.teamSecretPath, secret, { encoding: "utf8", mode: 0o600 });
+    }
+    await mkdir(dirname(p.teamConfigPath), { recursive: true });
+    await writeFile(p.teamConfigPath, teamConfigToml({ port: teamPort, members: team.members }));
+    const log = await open(join(p.root, "team-daemon.log"), "a");
+    const child = spawn(command, ["run"], {
+        cwd: p.root,
+        // The daemon's own socket and token paths, which it checks and clears;
+        // the members' sockets and placeholder token live outside them.
+        env: {
+            ...env,
+            HAPPY_AGENT_SERVER_SOCKET_PATH: join(p.happyHome, "agent", "server.sock"),
+            HAPPY_AGENT_SERVER_TOKEN_PATH: join(p.happyHome, "agent", "token"),
+            HAPPY_TEAM_JWT_SECRET: secret,
+        },
+        stdio: ["ignore", log.fd, log.fd],
+        detached: true,
+    });
+    await log.close();
+    child.unref();
+    const proxies = [];
+    for (const member of team.members) {
+        proxies.push(
+            await teamProxyOpen({
+                socketPath: member.owner ? p.socketPath : teamSocketPath(p, member.key),
+                port: teamPort,
+                token: teamTokenSign(secret, member.key),
+            }),
+        );
+    }
+    // Socket clients still present a token; the member's socket replaces it.
+    const token = randomUUID();
+    await writeFile(p.tokenPath, token, { encoding: "utf8", mode: 0o600 });
+    process.stdout.write(
+        `  team daemon  PID ${child.pid}, members ${team.members.map((member) => member.key).join(", ")}\n`,
+    );
+    return {
+        token,
+        async stop() {
+            await teamDaemonStop(p);
+            await Promise.all(proxies.map((proxy) => proxy.close()));
+        },
     };
 }
 
@@ -165,7 +268,7 @@ function processBaseEnvironment(p) {
     };
 }
 
-async function daemonStart(p, gateway, mobileServerUrl, models, nativeCodex, nativeEffort) {
+async function daemonStart(p, gateway, mobileServerUrl, models, nativeCodex, nativeEffort, team) {
     const executable = await happyAgentExecutableResolve();
     const command = join(p.bin, "happy-agent");
     await unlink(command).catch(() => undefined);
@@ -188,6 +291,11 @@ async function daemonStart(p, gateway, mobileServerUrl, models, nativeCodex, nat
     await execFile(command, ["stop"], { cwd: p.root, env, timeout: 15_000 }).catch(() => undefined);
     await unlink(p.socketPath).catch(() => undefined);
     await runtimeConfigurationWrite(p, models, gateway === undefined, nativeEffort);
+    if (team) {
+        if (!gateway) throw new Error("A team world runs on screenplay inference.");
+        const started = await teamDaemonStart(p, command, env, team);
+        return { command, env, token: started.token, teamStop: started.stop };
+    }
     let launchCheck;
     let codexVersion;
     if (!gateway) {
@@ -496,6 +604,14 @@ export async function gymOpen(options = {}) {
             throw new Error("The demo mobile server must be local to this recording machine.");
     }
     const definition = options.world ?? defaultWorld;
+    // A team daemon refuses to start beside a live listener on its own socket
+    // path, so the owner's socket into a team world lives beside the others.
+    // It also clears its own token file, which a team daemon never writes, so
+    // the placeholder token socket clients present lives beside them too.
+    if (definition.team) {
+        p.socketPath = teamSocketPath(p, "owner");
+        p.tokenPath = join(p.root, "owner.token");
+    }
     const worldId = definition.id ?? "original";
     const prepared = await readFile(marker, "utf8").then(
         (value) => JSON.parse(value),
@@ -562,6 +678,7 @@ export async function gymOpen(options = {}) {
         definition.models,
         options.nativeCodex,
         definition.effort,
+        definition.team,
     );
     let client = await clientCreate(p, daemon.token);
     await healthWait(client, 30_000);
@@ -640,6 +757,11 @@ export async function gymOpen(options = {}) {
         get client() {
             return client;
         },
+        /** In a team world, a client that acts as the member with this seed key. */
+        async memberClient(key) {
+            if (!definition.team) throw new Error("This world has no team.");
+            return happyAgentClientCreate(teamSocketPath(p, key), daemon.token);
+        },
         /** Environment for the Vite process, naming this exact daemon. */
         viteEnvironment: {
             HAPPY_HOME_DIR: p.happyHome,
@@ -669,6 +791,7 @@ export async function gymOpen(options = {}) {
          * take can prove what the restart actually waited for.
          */
         async daemonRestart() {
+            if (daemon.teamStop) throw new Error("A team world cannot be restarted in place.");
             const env = environment(p, gateway, mobileServerUrl);
             const previousPid = (
                 await readFile(join(p.happyHome, "agent", "daemon.pid"), "utf8")
@@ -694,6 +817,11 @@ export async function gymOpen(options = {}) {
                 return;
             }
             gateway?.release();
+            if (daemon.teamStop) {
+                await daemon.teamStop();
+                await gateway?.close();
+                return;
+            }
             const env = environment(p, gateway, mobileServerUrl);
             await execFile(daemon.command, ["stop"], {
                 cwd: p.root,
@@ -714,6 +842,7 @@ export async function gymReset() {
         env: { HAPPY_HOME_DIR: p.happyHome, HOME: p.home, PATH: "/usr/bin:/bin" },
         timeout: 15_000,
     }).catch(() => undefined);
+    await teamDaemonStop(p);
     await rm(root, { force: true, recursive: true });
 }
 
