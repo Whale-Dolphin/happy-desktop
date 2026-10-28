@@ -142,6 +142,9 @@ export const CLAY_ICON_SLUGS = [
     "typo",
     "formatting",
     "lint",
+    "waveform",
+    "microphone",
+    "headphones",
 ] as const;
 
 export type ClayIconSlug = (typeof CLAY_ICON_SLUGS)[number];
