@@ -35,7 +35,10 @@ function manifest(artifactId: string, number: number, paths: readonly string[], 
     };
 }
 
-function fixture(paths: readonly string[] = ["index.html", "app.js", "img/a b.png"]) {
+function fixture(
+    paths: readonly string[] = ["index.html", "app.js", "img/a b.png"],
+    codeModuleRead?: () => Promise<Uint8Array>,
+) {
     const reads: { artifactId: string; version: number; path: string; range?: string }[] = [];
     let answer: { statusCode: number; headers: Record<string, string>; body: string } = {
         statusCode: 200,
@@ -60,7 +63,7 @@ function fixture(paths: readonly string[] = ["index.html", "app.js", "img/a b.pn
             throw new Error("unreachable");
         }) as never,
     };
-    const sites = artifactSitesCreate();
+    const sites = artifactSitesCreate(codeModuleRead ? { codeModuleRead } : undefined);
     const site = sites.register(client);
     return {
         sites,
@@ -72,6 +75,69 @@ function fixture(paths: readonly string[] = ["index.html", "app.js", "img/a b.pn
         },
     };
 }
+
+describe("artifact host code renderer", () => {
+    it("serves installed code only for registered local and remote sites", async () => {
+        const module = "export const version = 1;";
+        const read = vi.fn(async () => new TextEncoder().encode(module));
+        const { sites, site, client, reads } = fixture(undefined, read);
+        const unknown = await sites.handle(
+            new Request(`happy-artifact://${ARTIFACT}-v1/api/v1/code.js`),
+        );
+        expect(unknown.status).toBe(404);
+        expect(read).not.toHaveBeenCalled();
+        await site.open(ARTIFACT, 1);
+        const url = `happy-artifact://${ARTIFACT}-v1/api/v1/code.js`;
+        const answer = await sites.handle(new Request(url));
+        expect(answer.status).toBe(200);
+        expect(await answer.text()).toBe(module);
+        expect(answer.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+        expect(answer.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+        expect(answer.headers.get("cache-control")).toBe("no-cache");
+        expect(answer.headers.get("set-cookie")).toBeNull();
+        const remoteUrl = await sites
+            .register({ ...client, connection: () => client })
+            .open(ARTIFACT, 1, "remote");
+        const remote = await sites.handle(new Request(new URL("/api/v1/code.js", remoteUrl)));
+        expect(await remote.text()).toBe(module);
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(reads).toEqual([]);
+    });
+
+    it("supports HEAD and ETag and refuses methods without reading their body", async () => {
+        const read = vi.fn(async () => new TextEncoder().encode("export const version = 1;"));
+        const { sites, site } = fixture(undefined, read);
+        await site.open(ARTIFACT, 1);
+        const url = `happy-artifact://${ARTIFACT}-v1/api/v1/code.js`;
+        const refused = await sites.handle(new Request(url, { method: "POST", body: "unused" }));
+        expect(refused.status).toBe(405);
+        expect(refused.headers.get("allow")).toBe("GET, HEAD");
+        expect(read).not.toHaveBeenCalled();
+        const head = await sites.handle(new Request(url, { method: "HEAD" }));
+        expect(head.status).toBe(200);
+        expect(await head.text()).toBe("");
+        expect(head.headers.get("content-length")).toBe("25");
+        const cached = await sites.handle(
+            new Request(url, { headers: { "if-none-match": head.headers.get("etag")! } }),
+        );
+        expect(cached.status).toBe(304);
+        expect(await cached.text()).toBe("");
+        expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it("answers unavailable on missing installed bytes and retries a later build", async () => {
+        const read = vi
+            .fn<() => Promise<Uint8Array>>()
+            .mockRejectedValueOnce(new Error("not built"))
+            .mockResolvedValue(new TextEncoder().encode("export const version = 1;"));
+        const { sites, site } = fixture(undefined, read);
+        await site.open(ARTIFACT, 1);
+        const request = () => new Request(`happy-artifact://${ARTIFACT}-v1/api/v1/code.js`);
+        expect((await sites.handle(request())).status).toBe(503);
+        expect((await sites.handle(request())).status).toBe(200);
+        expect(read).toHaveBeenCalledTimes(2);
+    });
+});
 
 describe("artifact site origins", () => {
     it("serves each numbered version as an origin of its own", () => {

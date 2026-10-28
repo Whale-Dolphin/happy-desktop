@@ -22,6 +22,9 @@ const ARTIFACT_PAGE_HOST_TOKENS: readonly (readonly [input: string, token: strin
     ["border", "--divider"],
     /* The sunk surface code sits on, as inline code in a reply does. */
     ["surface", "--input-background"],
+    // Diff gutters stay opaque while source scrolls behind their sticky numbers.
+    // This is the page's material, distinct from a code block's sunk surface.
+    ["code-background", "--surface"],
     ["accent", "--text-link"],
     ["added", "--git-added-text"],
     ["removed", "--git-removed-text"],

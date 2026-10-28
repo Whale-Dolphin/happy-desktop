@@ -1,15 +1,9 @@
-import { EXTENSION_TO_FILE_FORMAT } from "@pierre/diffs";
 import { File } from "@pierre/diffs/react";
 import type { CSSProperties } from "react";
 import { PIERRE_PANE_CSS, pierreCodeSurfacePhase } from "./pierreCodeSurface";
 
 /** Do not retain Pierre ASTs for unusually large documents. */
 export const CODE_BLOCK_HIGHLIGHT_CACHE_MAX_TEXT_LENGTH = 512 * 1024;
-
-/** Every language name Pierre's own extension table can produce. */
-const FENCE_LANGUAGES = new Set<string>(
-    Object.values(EXTENSION_TO_FILE_FORMAT).filter((name) => name !== undefined),
-);
 
 /**
  * The highlighting language a Markdown fence info string asks for, or undefined
@@ -22,18 +16,7 @@ const FENCE_LANGUAGES = new Set<string>(
  * nothing rather than being passed through: Shiki throws on a language it
  * cannot load, and a fence saying `pseudocode` must render as text, not fail.
  */
-export function codeBlockLanguage(info: string | undefined): string | undefined {
-    if (info === undefined) return undefined;
-    const word =
-        info
-            .trim()
-            .toLowerCase()
-            .split(/[\s,:{]/)[0] ?? "";
-    if (word.length === 0) return undefined;
-    const mapped = EXTENSION_TO_FILE_FORMAT[word];
-    if (mapped !== undefined) return mapped;
-    return FENCE_LANGUAGES.has(word) ? word : undefined;
-}
+export { codeBlockLanguage } from "./codeBlockLanguage";
 
 export type CodeBlockProps = {
     className?: string;

@@ -8,11 +8,13 @@
         "./blueprint": "./dev/Workbench.tsx",
         "./styles.css": "./src/styles.css",
         "./testing": "./src/testing/index.ts",
+        "./artifact-code": "./src/artifactCodeRenderer.ts",
         "./vite": "./vite/lottiePlugin.ts"
     },
     "scripts": {
         "dev": "vite --host 127.0.0.1",
         "build": "vite build",
+        "build:artifact-code": "vite build --config vite.artifact-code.config.ts",
         "test": "node ../../scripts/run-ui-alignment-tests.mjs",
         "test:artifacts": "VITE_HAPPY_WRITE_SCREENSHOTS=1 node ../../scripts/run-ui-alignment-tests.mjs",
         "test:watch": "node ../../scripts/run-ui-alignment-tests.mjs --watch",

@@ -185,7 +185,38 @@ function artifactSiteUrl(host: string, path: string): string {
  * process: the guest is answered bytes and never a cookie, a token, or an
  * address it could take somewhere else.
  */
-export function artifactSitesCreate(): ArtifactSiteHandle {
+export function artifactSitesCreate(
+    options: { readonly codeModuleRead?: () => Promise<Uint8Array> } = {},
+): ArtifactSiteHandle {
+    // Only installed, trusted bytes are exposed here, never a guest-selected path.
+    // The same module serves local and remote artifact sites without reaching
+    // their daemon or exposing its credential to a page.
+    let codeModule:
+        | Promise<{ readonly body: Uint8Array<ArrayBuffer>; readonly etag: string }>
+        | undefined;
+    const codeAnswer = async (request: Request): Promise<Response> => {
+        if (request.method !== "GET" && request.method !== "HEAD")
+            return refuse(405, { allow: "GET, HEAD" });
+        if (!options.codeModuleRead) return refuse(503);
+        try {
+            const module = await (codeModule ??= options.codeModuleRead().then((bytes) => ({
+                body: new Uint8Array(bytes),
+                etag: `"${createHash("sha256").update(bytes).digest("hex")}"`,
+            })));
+            const headers = new Headers(siteHeaders);
+            headers.set("content-type", "text/javascript; charset=utf-8");
+            headers.set("etag", module.etag);
+            if (request.headers.get("if-none-match") === module.etag)
+                return new Response(null, { status: 304, headers });
+            headers.set("content-length", String(module.body.byteLength));
+            return new Response(request.method === "HEAD" ? null : module.body, { headers });
+        } catch {
+            // An incomplete development build can be built and tried again;
+            // the component uses its plain rendering while this is unavailable.
+            codeModule = undefined;
+            return refuse(503);
+        }
+    };
     const sites = new Map<string, ArtifactSite>();
     const remember = (host: string, site: ArtifactSite): void => {
         // Re-inserted so insertion order is use order and the oldest site
@@ -258,7 +289,9 @@ export function artifactSitesCreate(): ArtifactSiteHandle {
             const api = artifactSiteApi(request.url);
             if (api) {
                 const site = sites.get(api.host);
-                return site ? forward(site, api.rest, api.search, request) : refuse(404);
+                if (!site) return refuse(404);
+                if (api.rest === "v1/code.js") return codeAnswer(request);
+                return forward(site, api.rest, api.search, request);
             }
             // A version is something to read. There is nothing on a site to
             // submit to, and a page asking to is answered as such.

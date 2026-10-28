@@ -3,5 +3,5 @@
     "compilerOptions": {
         "types": ["vite/client"]
     },
-    "include": ["dev", "src", "vite.config.ts"]
+    "include": ["dev", "src", "vite.config.ts", "vite.artifact-code.config.ts"]
 }

@@ -18,6 +18,7 @@ import {
     type WebContents,
 } from "electron";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -857,7 +858,9 @@ function artifactSessionGet() {
  * serves the artifact's own files and simply has no route to the web.
  */
 async function artifactSessionStart(): Promise<void> {
-    const sites = artifactSitesCreate();
+    const sites = artifactSitesCreate({
+        codeModuleRead: () => readFile(join(dirname, "artifact-code", "code.js")),
+    });
     artifactNetworkProxy = await artifactNetworkProxyCreate().catch(() => undefined);
     artifactGuests = new ArtifactGuests(sites);
     await artifactSessionConfigure(
