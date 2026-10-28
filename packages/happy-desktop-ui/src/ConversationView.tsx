@@ -820,6 +820,10 @@ export function ConversationView(props: ConversationViewProps) {
             (entry.delivery === "sending" || entry.delivery === "pending_steering"),
     );
     const awaitingReply = props.running !== true && sendPending;
+    /* The newest row is a person's message, from this window or any other
+       device: whatever the footer shows next is the start of its reply. */
+    const newest = props.entries.at(-1);
+    const replyNext = newest?.kind === "message" && newest.message.sender?.kind === "human";
     /* A send made while the agent is idle is lifted to the top with room for
        its reply. One made mid-turn waits under the streaming reply instead,
        which would push a lifted row down. A send already present when the
@@ -1163,9 +1167,10 @@ export function ConversationView(props: ConversationViewProps) {
                         footer={workingStatusRow}
                         footerBefore={transcript.length}
                         /* The status and any queued message arrive with a
-                           send; a reader at the bottom sees where the reply
-                           will start rather than having it held below. */
-                        footerFollowed={sendPending}
+                           send, whoever made it; a reader at the bottom sees
+                           where the reply will start rather than having it
+                           held below the composer. */
+                        footerFollowed={sendPending || replyNext}
                         footerReserveHeight={queuedStatusHeight}
                         liftKey={sendLift.liftKey}
                         followKey={sendLift.followKey}
