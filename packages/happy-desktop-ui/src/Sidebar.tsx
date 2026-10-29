@@ -18,6 +18,7 @@ import { HappyCellDivision, type DivisionRect, type HappyCellDaughter } from "./
 import { HappyMark } from "./HappyMark";
 import { ChangeStats } from "./ChangeStats";
 import { haptic } from "./haptics";
+import { imeCompositionHandlers, imeKeyboardEvent } from "./imeComposition";
 import { CountBadge, KeyCap } from "./Badge";
 import { Button } from "./Button";
 import { happyWordmarkLightUrl } from "./assets";
@@ -2336,7 +2337,7 @@ function SidebarRow({
                     onBlur={(event) => renameFinish(event.currentTarget.textContent ?? "")}
                     onKeyDown={(event) => {
                         event.stopPropagation();
-                        if (event.nativeEvent.isComposing) return;
+                        if (imeKeyboardEvent(event.nativeEvent)) return;
                         if (event.key !== "Enter" && event.key !== "Escape") return;
                         event.preventDefault();
                         if (event.repeat) return;
@@ -2796,7 +2797,7 @@ function SidebarRow({
                                     props.rename
                                         ? (event) => {
                                               event.stopPropagation();
-                                              if (event.nativeEvent.isComposing) return;
+                                              if (imeKeyboardEvent(event.nativeEvent)) return;
                                               if (event.key === "Enter" || event.key === "Escape") {
                                                   event.preventDefault();
                                                   if (event.repeat) return;
@@ -3307,7 +3308,7 @@ export function Sidebar(props: SidebarProps) {
             if (!menuRoot.current?.contains(event.target as Node)) setItemMenu(undefined);
         };
         const closeOnEscape = (event: KeyboardEvent) => {
-            if (event.key === "Escape") setItemMenu(undefined);
+            if (event.key === "Escape" && !imeKeyboardEvent(event)) setItemMenu(undefined);
         };
         const dismiss = () => setItemMenu(undefined);
         document.addEventListener("pointerdown", close);
@@ -4894,6 +4895,7 @@ export function Sidebar(props: SidebarProps) {
     return (
         <nav
             {...rest}
+            {...imeCompositionHandlers}
             className={["happy-sidebar", local.className].filter(Boolean).join(" ")}
             ref={interactionRef}
             data-back={local.onBack ? "" : undefined}

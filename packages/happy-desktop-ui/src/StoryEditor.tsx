@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "./Icon";
 import { ModalOverlay } from "./ModalOverlay";
+import { imeCompositionHandlers, imeKeyboardEvent } from "./imeComposition";
 import { StoryCanvas, StoryRoundVideo, type StoryArtifactRender } from "./StoryCanvas";
 import type { StorySticker } from "./StickerView";
 import type { Story, StoryTransform } from "./storyTypes";
@@ -397,6 +398,7 @@ export function StoryEditor(props: StoryEditorProps) {
                         </div>
                         <div className="happy-story-viewer__bar happy-story-editor__bar">
                             <input
+                                {...imeCompositionHandlers}
                                 aria-label="Caption"
                                 // The editor opens to write: the caption takes the keys at once.
                                 autoFocus
@@ -406,7 +408,8 @@ export function StoryEditor(props: StoryEditorProps) {
                                     props.onCaptionChange(event.currentTarget.value)
                                 }
                                 onKeyDown={(event) => {
-                                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                                    if (imeKeyboardEvent(event.nativeEvent)) return;
+                                    if (event.key === "Enter") {
                                         event.preventDefault();
                                         if (!props.posting) props.onPost();
                                     }

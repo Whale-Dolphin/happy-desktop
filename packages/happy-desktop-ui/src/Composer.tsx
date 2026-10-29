@@ -27,6 +27,7 @@ import { EmojiPicker, type EmojiItem } from "./EmojiPicker";
 import { Icon, type IconName } from "./Icon";
 import { ScrollbarTracks, useScrollbarController } from "./Scrollbar";
 import { focusUnlessWritingElsewhere, useFocusOnType } from "./useFocusOnType";
+import { imeCompositionHandlers, imeKeyboardEvent } from "./imeComposition";
 /* ---- ContextChips ----------------------------------------------------- */
 export type ContextKind = "file" | "run";
 export type ContextItem = {
@@ -429,7 +430,6 @@ export function Composer(props: ComposerProps) {
     const fileInputEl = useRef<HTMLInputElement>(null);
     const inputEl = useRef<HTMLDivElement>(null);
     const textareaEl = useRef<HTMLTextAreaElement>(null);
-    const composingRef = useRef(false);
     const draftScrollbarController = useScrollbarController("vertical");
     const draftScrollbarHost = useCallback(
         (element: HTMLDivElement | null) => draftScrollbarController.hostSet(element),
@@ -766,16 +766,8 @@ export function Composer(props: ComposerProps) {
         });
     };
     const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-        // IME owns candidate navigation and confirmation, before any picker or
-        // composer shortcut. WebKit can end composition before the confirming
-        // keydown, leaving isComposing false but keyCode 229.
-        if (
-            composingRef.current ||
-            event.nativeEvent.isComposing ||
-            event.nativeEvent.keyCode === 229
-        ) {
-            return;
-        }
+        // Candidate navigation belongs to the IME before any picker/shortcut.
+        if (imeKeyboardEvent(event.nativeEvent)) return;
         if (
             event.key === "Tab" &&
             event.shiftKey &&
@@ -1081,22 +1073,16 @@ export function Composer(props: ComposerProps) {
                         ref={draftScrollbarHost}
                     >
                         <textarea
+                            {...imeCompositionHandlers}
                             className="happy-composer__textarea"
                             data-happy-desktop-ui="composer-textarea"
                             disabled={props.disabled}
                             readOnly={props.pending}
                             onBlur={() => {
-                                composingRef.current = false;
                                 rememberSelection();
                                 props.onFocusChange?.(false);
                             }}
                             onClick={rememberSelection}
-                            onCompositionStart={() => {
-                                composingRef.current = true;
-                            }}
-                            onCompositionEnd={() => {
-                                composingRef.current = false;
-                            }}
                             onFocus={() => props.onFocusChange?.(true)}
                             onInput={onInput}
                             onKeyDown={onKeyDown}
