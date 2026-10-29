@@ -2473,6 +2473,12 @@ export function happyAgentWorkspaceStoreCreate(
      * worktrees, bots, tasks, and subtasks. A later read missing one is its removal.
      */
     let authoritativeGroupIds: ReadonlySet<string> = new Set();
+    /**
+     * Tasks the reader archived from this window. Closing one is what they asked
+     * for, so its archive takes them off it; a task archived anywhere else stays
+     * readable where it is.
+     */
+    const tasksArchivedHere = new Set<HappyAgentTaskId>();
     let fileViewMode: HappyAgentFileViewMode = "unified";
     let fileViewWrap = false;
     /**
@@ -5079,6 +5085,10 @@ export function happyAgentWorkspaceStoreCreate(
             (entry) => entry.conversation.id === conversationId,
         );
         if (subtask) return subtask.conversation;
+        const archived = listSnapshot.tasksArchived.find(
+            (entry) => entry.conversation.id === conversationId,
+        );
+        if (archived) return archived.conversation;
         const projects = listSnapshot.projects;
         if (projects.type !== "ready") return undefined;
         for (const project of projects.value) {
@@ -5592,6 +5602,13 @@ export function happyAgentWorkspaceStoreCreate(
         for (const project of projects.value) {
             consider(project.id, project.path);
             for (const worktree of project.worktrees) consider(worktree.id, worktree.path);
+        }
+        return best === undefined ? undefined : { groupId: best.groupId, path: best.path };
+    };
+
+    /**
+     * This group's worktree id, or `undefined` when it is a project. It decides
+     * which route a session start takes, and a project has n.path);
         }
         return best === undefined ? undefined : { groupId: best.groupId, path: best.path };
     };
@@ -6442,6 +6459,11 @@ export function happyAgentWorkspaceStoreCreate(
         // A joined task is addressed the same way; leaving one moves the reader
         // off it the way archiving a bot does.
         for (const task of listSnapshot.tasks) listedIds.add(task.workspaceId);
+        // An archived task stays addressable: its row leaves the sidebar, but a
+        // reader with it open keeps reading it. One they archived themselves
+        // from here is closed, the way leaving one is.
+        for (const task of listSnapshot.tasksArchived)
+            if (!tasksArchivedHere.has(task.id)) listedIds.add(task.workspaceId);
         for (const subtask of happyAgentBotSubtasks([...listSnapshot.bots, ...listSnapshot.tasks]))
             listedIds.add(subtask.workspaceId);
         // Removed means it was here and is not any more. A group the host has
@@ -7529,7 +7551,10 @@ export function happyAgentWorkspaceStoreCreate(
         taskJoin: (taskId) => list.taskJoin(taskId),
         taskLeave: (taskId) => list.taskLeave(taskId),
         taskReorder: (taskId, afterId) => list.taskReorder(taskId, afterId),
-        taskArchive: (taskId) => list.taskArchive(taskId),
+        taskArchive: (taskId) => {
+            tasksArchivedHere.add(taskId);
+            return list.taskArchive(taskId);
+        },
         taskBrowseOpen() {
             if (taskBrowseOpen) return;
             taskBrowseOpen = true;

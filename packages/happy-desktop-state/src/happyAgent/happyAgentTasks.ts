@@ -24,6 +24,17 @@ export function happyAgentTasksJoined(tasks: readonly HappyAgentTask[]): readonl
         });
 }
 
+/**
+ * Every archived task, oldest first. A window that had one open keeps showing
+ * its conversation, read-only in spirit, rather than losing it the moment the
+ * host takes it off the reader's list.
+ */
+export function happyAgentTasksArchived(
+    tasks: readonly HappyAgentTask[],
+): readonly HappyAgentTask[] {
+    return tasks.filter((task) => task.archived);
+}
+
 /** Every active task, joined or not, oldest first: what the reader can browse and join. */
 export function happyAgentTasksBrowsable(
     tasks: readonly HappyAgentTask[],

@@ -143,6 +143,7 @@ function workspace(actions: TaskActions, listing: Listing): HappyAgentWorkspaceS
             bots: BOTS,
             tasks: listing.tasks,
             taskDirectory: listing.tasks,
+            tasksArchived: [],
             tasksJoining: new Set(),
             taskFailures: new Map(),
             projects: { type: "ready" as const, value: PROJECTS },

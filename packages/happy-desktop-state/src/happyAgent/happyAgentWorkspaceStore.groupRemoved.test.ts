@@ -6,6 +6,8 @@ import type {
     HappyAgentBotId,
     HappyAgentGroupId,
     HappyAgentSessionId,
+    HappyAgentTask,
+    HappyAgentTaskId,
     HappyAgentWorktreeId,
 } from "./happyAgentTypes.js";
 import {
@@ -40,6 +42,28 @@ const bot = (name: string): HappyAgentBot => ({
     subtasks: [],
 });
 
+const task = (name: string, archived = false): HappyAgentTask => ({
+    id: `task_${name}` as HappyAgentTaskId,
+    workspaceId: `ws_${name}` as HappyAgentWorktreeId,
+    name,
+    conversation: {
+        id: `ses_${name}`,
+        title: name,
+        subtitle: `~/Tasks/${name}`,
+        updatedAt: 1_763_999_000_000,
+        activity: "idle" as const,
+        participants: [],
+    },
+    subtasks: [],
+    owner: null,
+    path: `/work/ws_${name}`,
+    displayPath: `~/Tasks/${name}`,
+    createdAt: 1_763_999_000_000,
+    archived,
+    canArchive: true,
+    ...(archived ? {} : { membership: { orderKey: "a" } }),
+});
+
 function inert(): unknown {
     return new Proxy(() => undefined, {
         get: (_target, property) =>
@@ -65,6 +89,7 @@ function store(bots: readonly HappyAgentBot[]) {
         subtaskFailures: new Map(),
         tasks: [],
         taskDirectory: [],
+        tasksArchived: [],
         tasksJoining: new Set(),
         taskFailures: new Map(),
     } as unknown as HappyAgentSessionListSnapshot;
@@ -135,6 +160,30 @@ it("reports the group the reader is in when it goes", () => {
 
     hostAnswers({ bots: [bot("a")] });
     expect(removed()).toEqual([{ type: "groupRemoved", groupId: "ws_b" }]);
+    unsubscribe();
+});
+
+it("keeps a task archived elsewhere open and readable where the reader is", () => {
+    const { workspace, unsubscribe, removed, hostAnswers } = store([bot("a")]);
+    workspace.conversationOpen("ses_t" as HappyAgentSessionId, "ws_t" as HappyAgentGroupId);
+    hostAnswers({ tasks: [task("t")] });
+
+    // Another agent archives it: the row leaves the reader's list, and the
+    // task is still listed as archived.
+    hostAnswers({ tasks: [], tasksArchived: [task("t", true)] });
+    expect(removed()).toEqual([]);
+    expect(workspace.get().address).toMatchObject({ groupId: "ws_t", conversationId: "ses_t" });
+    unsubscribe();
+});
+
+it("closes a task the reader archived from this window", () => {
+    const { workspace, unsubscribe, removed, hostAnswers } = store([bot("a")]);
+    workspace.conversationOpen("ses_t" as HappyAgentSessionId, "ws_t" as HappyAgentGroupId);
+    hostAnswers({ tasks: [task("t")] });
+
+    void workspace.taskArchive("task_t" as HappyAgentTaskId);
+    hostAnswers({ tasks: [], tasksArchived: [task("t", true)] });
+    expect(removed()).toEqual([{ type: "groupRemoved", groupId: "ws_t" }]);
     unsubscribe();
 });
 

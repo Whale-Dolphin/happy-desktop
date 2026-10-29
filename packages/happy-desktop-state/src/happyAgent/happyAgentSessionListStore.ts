@@ -2,7 +2,11 @@ import type { MutationRejectedDelta, HappyAgentConnection } from "../happyAgentC
 import type { HappyAgentClient } from "@slopus/happy-agent-client";
 import { createStore } from "zustand/vanilla";
 import { happyAgentBotSubtasks, type HappyAgentSubtaskRoot } from "./happyAgentBotSubtasks.js";
-import { happyAgentTasksBrowsable, happyAgentTasksJoined } from "./happyAgentTasks.js";
+import {
+    happyAgentTasksArchived,
+    happyAgentTasksBrowsable,
+    happyAgentTasksJoined,
+} from "./happyAgentTasks.js";
 import type { Loadable } from "../conversation/loadable.js";
 import { UserError } from "../types.js";
 import {
@@ -13,6 +17,7 @@ import {
 } from "./happyAgentProjectGroupProject.js";
 import {
     HAPPY_AGENT_GROUP_UNLISTED_REFUSAL,
+    HAPPY_AGENT_TASK_ARCHIVED_REFUSAL,
     HAPPY_AGENT_SURFACE_CHAT_OTHER_REFUSAL,
     HAPPY_AGENT_GROUP_UNREAD_REFUSAL,
     happyAgentProjectWriteRefusal,
@@ -88,6 +93,8 @@ export interface HappyAgentSessionListSnapshot {
     readonly tasks: readonly HappyAgentTask[];
     /** Every active task, joined or not, oldest first: what the reader can browse and join. */
     readonly taskDirectory: readonly HappyAgentTask[];
+    /** Every archived task, oldest first: an open one stays readable where it is. */
+    readonly tasksArchived: readonly HappyAgentTask[];
     /** Tasks this window has asked to join and the host has not listed as joined yet. */
     readonly tasksJoining: ReadonlySet<HappyAgentTaskId>;
     /**
@@ -652,6 +659,7 @@ export function happyAgentSessionListStoreCreate(
         sessionCreateFailures: NO_SESSION_CREATE_FAILURES,
         subtaskFailures: NO_SUBTASK_FAILURES,
         taskDirectory: NO_TASKS,
+        tasksArchived: NO_TASKS,
         taskFailures: NO_TASK_FAILURES,
         tasks: NO_TASKS,
         tasksJoining: NO_TASKS_JOINING,
@@ -1290,6 +1298,7 @@ export function happyAgentSessionListStoreCreate(
     ): {
         readonly tasks: readonly HappyAgentTask[];
         readonly taskDirectory: readonly HappyAgentTask[];
+        readonly tasksArchived: readonly HappyAgentTask[];
     } => {
         for (const [taskId, mutationId] of taskLeaves) {
             const task = catalogTasks.find((candidate) => candidate.id === taskId);
@@ -1316,7 +1325,11 @@ export function happyAgentSessionListStoreCreate(
                 taskOrder = undefined;
             } else joined = orderByIds(joined, taskOrder.order);
         }
-        return { tasks: joined, taskDirectory: happyAgentTasksBrowsable(catalogTasks) };
+        return {
+            tasks: joined,
+            taskDirectory: happyAgentTasksBrowsable(catalogTasks),
+            tasksArchived: happyAgentTasksArchived(catalogTasks),
+        };
     };
 
     /** Keeps each unchanged task's previous object, and the previous list when nothing moved. */
@@ -1388,6 +1401,7 @@ export function happyAgentSessionListStoreCreate(
             const botsCreating = botsCreatingProject(bots, previous.botsCreating);
             const tasks = tasksPreserve(previous.tasks, taskLists.tasks);
             const taskDirectory = tasksPreserve(previous.taskDirectory, taskLists.taskDirectory);
+            const tasksArchived = tasksPreserve(previous.tasksArchived, taskLists.tasksArchived);
             const tasksJoining = tasksJoiningProject(previous.tasksJoining);
             // The revision alone is worth a notification: a read that confirmed the
             // list is unchanged is still the host's answer, and it is what a
@@ -1401,6 +1415,7 @@ export function happyAgentSessionListStoreCreate(
                 previous.botsCreating === botsCreating &&
                 previous.tasks === tasks &&
                 previous.taskDirectory === taskDirectory &&
+                previous.tasksArchived === tasksArchived &&
                 previous.tasksJoining === tasksJoining &&
                 previous.archivedSessions === archivedSessions &&
                 previous.catalogRevision === catalogRevision
@@ -1415,6 +1430,7 @@ export function happyAgentSessionListStoreCreate(
                 projects: { type: "ready", value: projects },
                 taskDirectory,
                 tasks,
+                tasksArchived,
                 tasksJoining,
             };
         });
@@ -2105,6 +2121,10 @@ export function happyAgentSessionListStoreCreate(
                 )
             )
                 return undefined;
+            // An archived task still answers for its conversation, which stays
+            // readable where it is open, and takes nothing new.
+            if (catalog.tasks.some((task) => task.archived && task.workspaceId === groupId))
+                return HAPPY_AGENT_TASK_ARCHIVED_REFUSAL;
             // A Surface chat's workspace is made with the chat, like a bot's,
             // and is there for that chat alone.
             const surfaceChat = surfaceChatRefusal(groupId, sessionId);
@@ -2134,6 +2154,10 @@ export function happyAgentSessionListStoreCreate(
                 )
             )
                 return undefined;
+            // An archived task still answers for its conversation, which stays
+            // readable where it is open, and takes nothing new.
+            if (catalog.tasks.some((task) => task.archived && task.workspaceId === groupId))
+                return HAPPY_AGENT_TASK_ARCHIVED_REFUSAL;
             // A Surface chat's workspace is made with the chat, like a bot's,
             // and is there for that chat alone.
             const surfaceChat = surfaceChatRefusal(groupId, sessionId);

@@ -55,6 +55,7 @@ function workspace(): HappyAgentWorkspaceStore {
         list: {
             bots: [],
             tasks: [],
+            tasksArchived: [],
             projects: { type: "ready" as const, value: [] },
             worktreeCreateFailures: new Map(),
             sessionCreateFailures: new Map(),

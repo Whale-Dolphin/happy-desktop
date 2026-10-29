@@ -73,6 +73,7 @@ function store(
         subtaskFailures: new Map(),
         tasks: [TASK],
         taskDirectory: [TASK],
+        tasksArchived: [],
         tasksJoining: new Set(),
         taskFailures: new Map(),
     } as unknown as HappyAgentSessionListSnapshot;

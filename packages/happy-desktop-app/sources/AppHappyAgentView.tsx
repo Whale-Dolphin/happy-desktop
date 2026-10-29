@@ -1953,6 +1953,7 @@ function openGroupFind(
     projects: readonly HappyAgentProjectGroup[],
     bots: readonly HappyAgentBot[],
     rootTasks: readonly HappyAgentTask[],
+    archivedTasks: readonly HappyAgentTask[],
     groupId: string | undefined,
     conversationId?: string,
 ): OpenGroup | undefined {
@@ -2044,6 +2045,19 @@ function openGroupFind(
                     path: worktree.displayPath,
                 };
     }
+    // Archived while open: the conversation stays on screen, its input locked
+    // with the reason, rather than the window falling back to an empty pane.
+    const archived = archivedTasks.find((candidate) => candidate.workspaceId === groupId);
+    if (archived)
+        return {
+            id: archived.workspaceId,
+            singleConversationId: archived.conversation.id,
+            name: archived.name,
+            home: false,
+            conversations: [archived.conversation],
+            changes: [],
+            path: archived.displayPath,
+        };
     return undefined;
 }
 
@@ -2875,7 +2889,7 @@ function rowDestination(
         // also what a workspace without the memory at all does.
         chatId:
             happyAgent.session?.workspace.get().groupResume?.get(rowId as HappyAgentGroupId) ??
-            openGroupFind(happyAgent.projects, happyAgent.bots, happyAgent.tasks ?? [], rowId)
+            openGroupFind(happyAgent.projects, happyAgent.bots, happyAgent.tasks ?? [], [], rowId)
                 ?.conversations[0]?.id,
     };
 }
@@ -5326,6 +5340,7 @@ function paletteFacts(
         rows,
         workspace.list.bots,
         workspace.list.tasks,
+        workspace.list.tasksArchived,
         groupId,
         workspace.address.conversationId,
     );
@@ -5807,7 +5822,7 @@ function paletteCommandRun(
             // sidebar row does; one never visited falls back to its first chat.
             const resume =
                 props.facts.groupResume?.get(command.groupId as HappyAgentGroupId) ??
-                openGroupFind(props.projects, props.bots, props.tasks, command.groupId)
+                openGroupFind(props.projects, props.bots, props.tasks, [], command.groupId)
                     ?.conversations[0]?.id;
             props.onChatSelect(command.happyAgentId, command.groupId, resume);
             return;
@@ -5827,6 +5842,7 @@ function paletteCommandRun(
                 props.projects,
                 props.bots,
                 props.tasks,
+                [],
                 props.groupId,
                 props.chatId,
             );
@@ -6998,6 +7014,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
         rows,
         workspace.list.bots,
         workspace.list.tasks,
+        workspace.list.tasksArchived,
         props.groupId,
         props.chatId,
     );
@@ -7310,6 +7327,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
             currentRows,
             current.list.bots,
             current.list.tasks,
+            current.list.tasksArchived,
             current.address.groupId,
             current.address.conversationId,
         );
@@ -7484,6 +7502,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
             current.list.projects.type === "ready" ? current.list.projects.value : [],
             current.list.bots,
             current.list.tasks,
+            current.list.tasksArchived,
             current.address.groupId,
             current.address.conversationId,
         );
@@ -7785,8 +7804,13 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                         groupId,
                         agentId ??
                             workspace.groupResume.get(groupId) ??
-                            openGroupFind(rows, workspace.list.bots, workspace.list.tasks, groupId)
-                                ?.conversations[0]?.id,
+                            openGroupFind(
+                                rows,
+                                workspace.list.bots,
+                                workspace.list.tasks,
+                                [],
+                                groupId,
+                            )?.conversations[0]?.id,
                     );
                 }}
                 activitySelected={panel.open && panel.activeViewId === "activity"}

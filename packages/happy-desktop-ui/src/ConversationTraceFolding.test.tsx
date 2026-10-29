@@ -304,6 +304,7 @@ it.each(
         subtaskFailures: new Map(),
         tasks: [],
         taskDirectory: [],
+        tasksArchived: [],
         tasksJoining: new Set(),
         taskFailures: new Map(),
     } as unknown as HappyAgentSessionListSnapshot;

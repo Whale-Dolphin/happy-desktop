@@ -58,6 +58,9 @@ export const HAPPY_AGENT_GROUP_ACCESS_OPEN: HappyAgentGroupAccess = {
 export const HAPPY_AGENT_GROUP_UNREAD_REFUSAL =
     "Happy is still reading this Happy Agent's workspaces.";
 export const HAPPY_AGENT_GROUP_UNLISTED_REFUSAL = "That project or workspace is no longer listed.";
+/** Why an archived task takes nothing new; its conversation stays readable. */
+export const HAPPY_AGENT_TASK_ARCHIVED_REFUSAL =
+    "This task is archived. Its conversation stays here to read.";
 /** Why a Surface chat's workspace refuses anything but that chat's own conversation. */
 export const HAPPY_AGENT_SURFACE_CHAT_OTHER_REFUSAL =
     "A shared chat’s folder holds only that chat’s conversation.";
