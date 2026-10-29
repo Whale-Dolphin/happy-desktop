@@ -275,8 +275,9 @@ writes `jump-shimmer.json`, working/idle screenshots, and a video.
 `new-work-reuse` turns on Stem Cells and requires there to be at most one
 empty new work: Create twice stays in the same one; leaving it removes
 nothing; Create from another row goes back to it. A draft keeps new work and
-makes Create make another, which Create then goes back to; a section heading's
-`+` opens it where it stands. Two quick Creates make one new work, and a reload
+makes Create make another, which Create then goes back to. A section heading's
+`+` makes new work under that heading whatever stands empty elsewhere, and goes
+to it when pressed again. Two quick Creates make one new work, and a reload
 keeps all of it. It writes `new-work-reuse.json`, screenshots, and a video.
 
 `window-zoom` sweeps the window's zoom over 80, 90, 100, 110, 125 and 150%,

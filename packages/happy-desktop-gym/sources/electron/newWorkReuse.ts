@@ -25,11 +25,11 @@ export interface NewWorkReuseResult {
     readonly made: readonly string[];
     /** New work the daemon still lists at the end, which must be all of it. */
     readonly listedAtEnd: readonly string[];
-    /** The space a section's `+` opened, and the section it stayed in. */
+    /** The heading whose `+` made new work under it while other new work stood empty. */
     readonly sectionPlus: {
-        readonly opened: string;
-        readonly sectionBefore: string | null;
-        readonly sectionAfter: string | null;
+        readonly heading: string;
+        readonly made: string;
+        readonly keptEmptyElsewhere: string;
     } | null;
     readonly video: string;
 }
@@ -60,6 +60,11 @@ export async function newWorkReuseRun(
     client: GymHappyAgentClient,
     artifacts: string,
 ): Promise<NewWorkReuseResult> {
+    // New work an earlier run left empty would be gone to; it is started first.
+    for (const space of (await client.spaceSidebar()).spaces)
+        if (space.title === null && space.icon?.type === "stem_cell" && space.target.agentId)
+            await client.sendMessage(space.target.agentId, "Started by an earlier run");
+    await page.waitForTimeout(2_000);
     const videoPath = join(artifacts, "new-work-reuse.webm");
     const video = await gymElectronVideoRecord(page, { path: videoPath, scale: 2 });
     /** Spaces the daemon has made since the run began, oldest first. */
@@ -135,42 +140,62 @@ export async function newWorkReuseRun(
         await openAt(`space:${b}`);
         await page.screenshot({ path: join(artifacts, "new-work-reuse.png") });
 
-        // A heading's `+` opens the empty new work where it stands.
+        // A heading's `+` makes new work under that heading, whatever empty new
+        // work stands elsewhere; pressed again, it goes to that one.
         let sectionPlus: NewWorkReuseResult["sectionPlus"] = null;
-        const heading = page.locator(`${ROWS}[data-kind="section"]:not([data-collapsed])`).first();
-        if (await heading.isVisible().catch(() => false)) {
-            await leave();
-            const sectionOf = async (): Promise<string | null> => {
-                const space = (await client.spaceSidebar()).spaces.find(
-                    (entry) => entry.id === b,
-                ) as { readonly sectionId?: string | null } | undefined;
-                return space?.sectionId ?? null;
-            };
-            const sectionBefore = await sectionOf();
+        const heading = page.locator(`${ROWS}[data-kind="section"]:not([data-collapsed])`).last();
+        await heading.waitFor({ state: "visible", timeout: 30_000 });
+        const headingId = (await heading.getAttribute("data-item-id")) ?? "";
+        const plus = async (): Promise<void> => {
             await heading.hover();
             await page.waitForTimeout(400);
             await heading.locator(PLUS).click();
-            await openAt(`space:${b}`);
-            const sectionAfter = await sectionOf();
-            sectionPlus = { opened: b, sectionBefore, sectionAfter };
-            if ((await spacesMade()).length !== 2 || sectionAfter !== sectionBefore)
-                throw new Error(
-                    `A heading's + made or moved new work: ${JSON.stringify(sectionPlus)}.`,
-                );
-        }
+        };
+        await leave();
+        await plus();
+        const d = await until(async () => (await spacesMade())[2], "new work under the heading");
+        await openAt(`space:${d}`);
+        const ids = await rowIds(page);
+        const under = ids[ids.indexOf(headingId) + 1];
+        if (under !== `space:${d}`)
+            throw new Error(
+                `The heading's + made new work at ${String(under)}, not under ${headingId}.`,
+            );
+        await leave();
+        await plus();
+        await openAt(`space:${d}`);
+        if ((await spacesMade()).length !== 3)
+            throw new Error("A heading's + made more while its empty new work stood there.");
+        sectionPlus = { heading: headingId, made: d, keptEmptyElsewhere: b };
+        await page.screenshot({ path: join(artifacts, "new-work-reuse-section.png") });
+
+        // Create still goes to empty new work wherever it is.
+        await leave();
+        await create();
+        await until(async () => {
+            const open = await selected();
+            return open === `space:${b}` || open === `space:${d}` ? true : undefined;
+        }, "Create to go to empty new work");
+        await page.waitForTimeout(1_200);
+        if ((await spacesMade()).length !== 3)
+            throw new Error("Create made new work while empty new work existed.");
 
         // Two quick Creates with nothing empty make one new work.
-        await page.locator(COMPOSER).first().fill("Another draft");
-        await page.waitForTimeout(1_000);
+        for (const rowId of [`space:${b}`, `space:${d}`]) {
+            await page.locator(`${ROWS}[data-item-id="${rowId}"]`).first().click();
+            await openAt(rowId);
+            await page.locator(COMPOSER).first().fill("Another draft");
+            await page.waitForTimeout(1_000);
+        }
         await leave();
         await create();
         await create();
-        const c = await until(async () => (await spacesMade())[2], "a third new work");
+        const c = await until(async () => (await spacesMade())[3], "a fourth new work");
         await openAt(`space:${c}`);
         await page.waitForTimeout(1_000);
-        if ((await spacesMade()).length !== 3)
+        if ((await spacesMade()).length !== 4)
             throw new Error(
-                `Two quick Creates made ${String((await spacesMade()).length - 2)} new work.`,
+                `Two quick Creates made ${String((await spacesMade()).length - 3)} new work.`,
             );
 
         // Leaving and reloading keeps it all.

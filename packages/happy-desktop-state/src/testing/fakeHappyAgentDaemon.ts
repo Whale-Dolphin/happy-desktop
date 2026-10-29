@@ -39,6 +39,7 @@ import {
 } from "@slopus/happy-agent-client";
 import { MINIMUM_HAPPY_AGENT_VERSION } from "../happyAgentConnection/compatibility.js";
 import { generateKeyBetween } from "../utils/fractionalIndexing.js";
+import { sidebarDocumentEdit, sidebarDocumentInsert } from "../spaces/spacesSidebarDocument.js";
 
 /**
  * A programmable in-memory Happy Agent daemon for state-package tests.
@@ -964,6 +965,11 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
             };
             const answer = { space, agent: response.task.agent };
             stemCells.set(id, answer);
+            // Written into the document where it was asked for, as the daemon does.
+            const html = sidebarDocumentEdit(spaceSidebar.html, (view) =>
+                sidebarDocumentInsert(view, id, request.sectionId ?? null, null),
+            );
+            if (html !== undefined) spaceSidebar = { version: spaceSidebar.version + 1, html };
             emit("space.created", { space });
             return answer;
         },

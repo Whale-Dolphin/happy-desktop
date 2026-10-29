@@ -3860,7 +3860,8 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             happyAgentSpaceHappyIs(space, spacesPlaces),
         );
         // New work open with nothing sent or drafted is what Create would
-        // make, so the reader stays in it, whichever heading's `+` they used.
+        // make, so Create leaves the reader in it. A heading's `+` is only
+        // about that heading, so the store decides whether it stands there.
         // Holding something, it is noted as such before Create looks for
         // empty new work, since its draft may not have reached the daemon.
         const workspace = active.session?.workspace;
@@ -3881,10 +3882,11 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 workspace.get().conversation,
                 props.chatId as HappyAgentSessionId,
             );
-            if (content !== undefined && content !== "started") return;
+            if (sectionId === null && content !== undefined && content !== "started") return;
             if (content === "started") spacesStore.stemCellContentUpdate(props.chatId, content);
         }
-        // Otherwise empty new work anywhere is gone to as it is, or new work is made.
+        // Otherwise empty new work is gone to as it is, anywhere for Create and
+        // only under the heading for its `+`, or new work is made.
         const creation = spacesStore.stemCellCreate(sectionId, happySpace?.id ?? null);
         const open = (cell: HappyAgentStemCell): void => {
             spacesStore.happyFocusUpdate(false);

@@ -7,7 +7,11 @@ import {
 import { connectHappyAgent } from "../happyAgentConnection/connectHappyAgent.js";
 import { happyAgentSyncCreate } from "../happyAgentConnection/happyAgentSync.js";
 import type { TaskGroup } from "../happyAgentConnection/types.js";
-import { sidebarDocumentEdit, sidebarDocumentInsert } from "./spacesSidebarDocument.js";
+import {
+    sidebarDocumentEdit,
+    sidebarDocumentInsert,
+    sidebarDocumentView,
+} from "./spacesSidebarDocument.js";
 import {
     happyAgentSpacesStoreCreate,
     type HappyAgentSpacesRead,
@@ -561,9 +565,25 @@ it("reads the rows and their document together and shows them in one change", as
     }
 });
 
-it("goes to empty new work wherever it is instead of making more, and leaves it in place", async () => {
+/** A sidebar with two headings, for new work made under one of them. */
+function sidebarWithSections(daemon: FakeHappyAgentDaemon): void {
+    daemon.spaceSidebarSet({
+        version: 1,
+        html: [
+            "<nav>",
+            "<happy-search/>",
+            "<happy-create/>",
+            '<happy-section id="section-a" label="A"/>',
+            '<happy-section id="section-b" label="B"/>',
+            "</nav>",
+        ].join("\n"),
+    });
+}
+
+it("goes to empty new work wherever it is on Create, and leaves it in place", async () => {
     const daemon = fakeHappyAgentDaemonCreate();
     daemon.healthSet({ stemCellIdentities: true });
+    sidebarWithSections(daemon);
     const window = await windowOpen(daemon);
     try {
         const first = await window.store.stemCellCreate("section-a", null).created;
@@ -573,15 +593,61 @@ it("goes to empty new work wherever it is instead of making more, and leaves it 
         // Left with nothing in it: it stays, and nothing asks the daemon to remove it.
         window.store.stemCellContentUpdate(first.agentId, "empty");
         expect(window.store.get().spaces.has(first.space.id)).toBe(true);
-        // Create from anywhere, under another heading too, goes to it as it is.
-        const again = window.store.stemCellCreate("section-b", null);
+        // Create goes to it, under its heading, as it is.
+        const again = window.store.stemCellCreate(null, null);
         expect(again.cell).toBeUndefined();
         await expect(again.created).resolves.toMatchObject({
             agentId: first.agentId,
-            space: { id: first.space.id, sectionId: "section-a" },
+            space: { id: first.space.id },
         });
         expect(daemon.callCount("createStemCell")).toBe(1);
         expect(daemon.callCount("removeSpace")).toBe(0);
+    } finally {
+        window.close();
+    }
+});
+
+it("makes new work under a heading's + there, whatever empty new work stands elsewhere", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ stemCellIdentities: true });
+    sidebarWithSections(daemon);
+    const window = await windowOpen(daemon);
+    try {
+        const top = await window.store.stemCellCreate(null, null).created;
+        const inA = await window.store.stemCellCreate("section-a", null).created;
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(inA.space.id)?.version).toBe(1),
+        );
+        // Empty new work at the top and under A: B's + still makes its own.
+        const inB = window.store.stemCellCreate("section-b", null);
+        expect(inB.cell).toBeDefined();
+        const made = await inB.created;
+        expect([top.agentId, inA.agentId]).not.toContain(made.agentId);
+        const items = sidebarDocumentView(window.store.get().sidebar?.html ?? "").items;
+        const heading = items.findIndex(
+            (item) => item.kind === "section" && item.id === "section-b",
+        );
+        expect(items[heading + 1]).toMatchObject({ kind: "space", id: made.space.id });
+        expect(daemon.callCount("createStemCell")).toBe(3);
+    } finally {
+        window.close();
+    }
+});
+
+it("goes to the empty new work already under a heading on its +", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ stemCellIdentities: true });
+    sidebarWithSections(daemon);
+    const window = await windowOpen(daemon);
+    try {
+        const inA = await window.store.stemCellCreate("section-a", null).created;
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(inA.space.id)?.version).toBe(1),
+        );
+        await expect(window.store.stemCellCreate("section-a", null).created).resolves.toMatchObject(
+            { agentId: inA.agentId },
+        );
+        expect(daemon.callCount("createStemCell")).toBe(1);
     } finally {
         window.close();
     }
@@ -648,7 +714,7 @@ it("answers Create again with the new work still being made", async () => {
     try {
         const release = daemon.pause("createStemCell");
         const first = window.store.stemCellCreate(null, null);
-        expect(window.store.stemCellCreate("elsewhere", null)).toBe(first);
+        expect(window.store.stemCellCreate(null, null)).toBe(first);
         release();
         await first.created;
         expect(daemon.callCount("createStemCell")).toBe(1);

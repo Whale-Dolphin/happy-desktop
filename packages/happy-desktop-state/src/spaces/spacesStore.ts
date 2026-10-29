@@ -25,6 +25,7 @@ import {
     sidebarDocumentClassicApply,
     sidebarDocumentEdit,
     sidebarDocumentInsert,
+    sidebarDocumentView,
     type SidebarDocumentClassic,
 } from "./spacesSidebarDocument.js";
 import { cuid2Create } from "../utils/cuid2Create.js";
@@ -220,11 +221,13 @@ export interface HappyAgentSpacesStore {
     get(): HappyAgentSpacesSnapshot;
     subscribe(listener: () => void): () => void;
     /**
-     * New work to go to: new work that holds nothing, wherever it is in the
-     * sidebar, or else new work made right after a section or separator, or
-     * for `null` right after Happy's row (`happySpaceId`, which the window
-     * knows by its bot). There is never more than one empty new work, so a
-     * Create while any is being made or found answers with that one.
+     * New work to go to. For Create (`null`): new work that holds nothing,
+     * wherever it is in the sidebar, or else new work made right after Happy's
+     * row (`happySpaceId`, which the window knows by its bot). For a section or
+     * separator's `+`: new work under that heading that holds nothing, or else
+     * new work made right after it; empty new work elsewhere is not its
+     * business. A Create while any is being made or found answers with that
+     * one; a `+`, with its own heading's.
      *
      * Made here, on a daemon that takes this window's names for it, the row
      * and its conversation exist at once and the daemon is told after;
@@ -1082,8 +1085,12 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         });
     };
 
-    /** New work being made or looked for, which every Create meanwhile answers with. */
-    let pending: HappyAgentStemCellCreation | undefined;
+    /**
+     * New work being made or looked for, by the heading whose `+` asked for it,
+     * or `null` for Create. A `+` meanwhile answers with its own heading's;
+     * Create, with any, since all of it is empty.
+     */
+    const pending = new Map<string | null, HappyAgentStemCellCreation>();
     /** What this window last saw new work holding when it was left, by its conversation. */
     const contents = new Map<string, HappyAgentConversationContent>();
     const stemCellOf = (space: HappyAgentSpace): HappyAgentStemCell | undefined =>
@@ -1112,25 +1119,45 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         }
     };
     /**
-     * The empty new work to go to instead of making more, nearest first: in the
-     * section asked for, then the newest anywhere else.
+     * The section or separator a top-level row stands under in the sidebar on
+     * screen, `null` above every heading, `undefined` when it is not a
+     * top-level row there.
      */
-    const stemCellEmptyFind = async (
-        sectionId: string | null,
-    ): Promise<HappyAgentStemCell | undefined> => {
-        const candidates = [...snapshot.spaces.values()]
-            .filter((space) => happyAgentSpaceNewWorkIs(space))
+    const spaceSectionOf = (spaceId: HappyAgentSpaceId): string | null | undefined => {
+        const html = snapshot.sidebar?.html;
+        if (html === undefined) return snapshot.spaces.get(spaceId)?.sectionId;
+        let section: string | null = null;
+        try {
+            for (const item of sidebarDocumentView(html).items) {
+                if (item.kind === "section" || item.kind === "separator") section = item.id;
+                else if (item.kind === "space" && item.id === spaceId) return section;
+            }
+        } catch {
+            return undefined;
+        }
+        return undefined;
+    };
+    /**
+     * New work that may be empty, newest first: anywhere for Create (`null`),
+     * and only under that heading for a heading's `+`.
+     */
+    const stemCellCandidates = (sectionId: string | null): HappyAgentStemCell[] =>
+        [...snapshot.spaces.values()]
+            .filter(
+                (space) =>
+                    happyAgentSpaceNewWorkIs(space) &&
+                    (sectionId === null || spaceSectionOf(space.id) === sectionId),
+            )
             .flatMap((space) => {
                 const cell = stemCellOf(space);
                 return cell !== undefined && contents.get(cell.agentId) !== "started" ? [cell] : [];
             })
-            .sort(
-                (left, right) =>
-                    Number(right.space.sectionId === sectionId) -
-                        Number(left.space.sectionId === sectionId) ||
-                    right.space.createdAt - left.space.createdAt,
-            );
-        for (const cell of candidates) {
+            .sort((left, right) => right.space.createdAt - left.space.createdAt);
+    /** The first of `stemCellCandidates` the daemon holds nothing for. */
+    const stemCellEmptyFind = async (
+        sectionId: string | null,
+    ): Promise<HappyAgentStemCell | undefined> => {
+        for (const cell of stemCellCandidates(sectionId)) {
             if (!(await stemCellEmptyRead(cell))) continue;
             // Still new work, and still listed, once the daemon has answered.
             const space = snapshot.spaces.get(cell.space.id);
@@ -1295,18 +1322,16 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             };
         },
         stemCellCreate(placeSectionId, happySpaceId) {
-            if (pending !== undefined) return pending;
+            const waiting =
+                placeSectionId === null ? [...pending.values()][0] : pending.get(placeSectionId);
+            if (waiting !== undefined) return waiting;
             const settle = <T>(promise: Promise<T>): Promise<T> =>
                 promise.finally(() => {
-                    if (pending === creation) pending = undefined;
+                    if (pending.get(placeSectionId) === creation) pending.delete(placeSectionId);
                 });
-            // Nothing that could be empty: made at once, as it always was.
-            const anyCandidate = [...snapshot.spaces.values()].some((space) => {
-                const cell = happyAgentSpaceNewWorkIs(space) ? stemCellOf(space) : undefined;
-                return cell !== undefined && contents.get(cell.agentId) !== "started";
-            });
             let creation: HappyAgentStemCellCreation;
-            if (!anyCandidate) {
+            // Nothing that could be empty: made at once, as it always was.
+            if (stemCellCandidates(placeSectionId).length === 0) {
                 const made = stemCellMake(placeSectionId, happySpaceId);
                 creation = { ...made, created: settle(made.created) };
             } else {
@@ -1319,7 +1344,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     ),
                 };
             }
-            pending = creation;
+            pending.set(placeSectionId, creation);
             void creation.created.catch(() => undefined);
             return creation;
         },
