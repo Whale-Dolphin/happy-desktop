@@ -2382,9 +2382,11 @@
  * a ring is drawn outside the disc, in room every row keeps, so no disc moves
  * or shrinks when a story arrives. The text starts 10px right of the disc:
  * the name (baseline 19.5px down) with the time at its end, then the status
- * in up to two lines (baselines 37 and 53px), then an ellipsis. The time's
- * ink and the corner signal's ink end 7px inside the card's right edge, the
- * time's top and the signal's bottom 9.5px inside its top and bottom. Every
+ * in up to two lines (baselines 37 and 53px), then an ellipsis. The corners
+ * are measured on the type's guide lines: the time's cap top shares the
+ * name's, 8.7px under the card's top, and the signal stands on the last
+ * status baseline, 11.9px above its bottom. The time's ink and the signal's
+ * ink end the larger of the two, 11.9px, inside the card's right edge. Every
  * box is fixed, so hover, selection, a ring, a status of any length, a time
  * or a signal arriving never moves anything.
  *
@@ -2415,6 +2417,9 @@
     --happy-sidebar-story-signal: 14px;
     --happy-sidebar-story-signal-lane: 20px;
     --happy-sidebar-story-dot: 10px;
+    /* The last status baseline's height above the card's bottom, and the inset
+       of the time and the signal from its right edge. */
+    --happy-sidebar-story-corner: 11.9px;
 }
 
 /* The card: one fixed box, wider than an ordinary row by the column's own
@@ -2482,13 +2487,14 @@
     transform: none;
 }
 
-/* Lifted 1px and pulled out 0.5px, so its ink, not its line box, stands
-   9.5px from the card's top and 7px from its right edge. */
+/* Lifted 2.1px, so its cap top shares the name's, and held in so its ink,
+   past the digits' 0.5px side bearing, ends the corner inset from the
+   card's right edge. */
 .happy-sidebar__item-time {
     position: relative;
-    top: -1px;
+    top: -2.1px;
     flex: none;
-    margin-right: -0.5px;
+    margin-right: calc(var(--happy-sidebar-story-corner) - var(--happy-sidebar-story-pad) - 0.5px);
     color: var(--text-secondary);
     font-size: 12.5px;
     font-variant-numeric: tabular-nums;
@@ -2516,7 +2522,10 @@
 }
 
 .happy-sidebar__item[data-story]:not([data-depth]) .happy-sidebar__item-subtitle {
-    padding-right: var(--happy-sidebar-story-signal-lane);
+    padding-right: calc(
+        var(--happy-sidebar-story-corner) - var(--happy-sidebar-story-pad) +
+            var(--happy-sidebar-story-signal-lane)
+    );
 }
 
 /* With a draft, or nothing at all to say, the status keeps one line and the
@@ -2532,7 +2541,10 @@
     flex: none;
     height: 16px;
     overflow: hidden;
-    padding-right: var(--happy-sidebar-story-signal-lane);
+    padding-right: calc(
+        var(--happy-sidebar-story-corner) - var(--happy-sidebar-story-pad) +
+            var(--happy-sidebar-story-signal-lane)
+    );
     color: var(--text-secondary);
     font-size: 14px;
     line-height: 16px;
@@ -2582,16 +2594,14 @@
 
 .happy-sidebar__item-corner {
     /* Out of the row's flow on purpose: the corner is a badge on the row, so
-       a signal coming and going never takes width from the status. Its box is
-       centred on the dot, whose ink ends 7px inside the card's right edge and
-       9.5px above its bottom, mirroring the time. */
+       a signal coming and going never takes width from the status. Its box
+       stands on the last status baseline, and the dot or the spinner's ink
+       sits on that line, the corner inset from the card's right edge. */
     position: absolute;
-    right: var(--happy-sidebar-story-pad);
-    bottom: calc(
-        9.5px + var(--happy-sidebar-story-dot) / 2 - var(--happy-sidebar-story-signal) / 2
-    );
+    right: var(--happy-sidebar-story-corner);
+    bottom: var(--happy-sidebar-story-corner);
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: flex-end;
     width: var(--happy-sidebar-story-signal);
     height: var(--happy-sidebar-story-signal);
@@ -2609,9 +2619,11 @@
 }
 
 .happy-sidebar__item-corner[data-signal="working"] .happy-spinner {
-    /* The braille glyph ends 1px short of its canvas; its ink shares the
-       dot's and the time's right edge. */
+    /* The braille glyph ends 1px short of its canvas and keeps one device
+       pixel under its last row (0.5px on Retina); its ink shares the dot's
+       right edge and baseline. */
     margin-right: -1px;
+    margin-bottom: -0.5px;
     color: var(--text-secondary);
 }
 
@@ -2681,13 +2693,14 @@
     top: 13px;
     right: var(--happy-panel-row-padding);
     bottom: auto;
+    align-items: center;
     width: 18px;
     height: 18px;
     transform: translateY(-50%);
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-corner .happy-spinner {
-    margin-right: 0;
+    margin: 0;
 }
 
 .happy-sidebar__item[data-story][data-depth]
