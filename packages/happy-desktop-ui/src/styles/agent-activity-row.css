@@ -155,6 +155,11 @@
     color: var(--text);
 }
 
+/* A call told in its own words alone has no verb, and leaves no gap for one. */
+.happy-agent-activity__verb[data-empty] {
+    display: none;
+}
+
 /* A command or path longer than the row scrolls sideways (see ScrollingText)
    rather than losing its tail, so nothing an agent did is unreadable. */
 .happy-agent-activity__text {
@@ -458,6 +463,23 @@
 .happy-agent-activity[data-single-line][data-mono] .happy-agent-activity__text {
     font-family: var(--happy-font-mono);
     font-size: 13px;
+}
+
+/* A call told as what it did reads as words, in the transcript's own type;
+   only a raw command, path, or argument list keeps the monospace. */
+.happy-agent-activity[data-action] .happy-agent-activity__text,
+.happy-agent-activity[data-single-line][data-action] .happy-agent-activity__text {
+    font-family: var(--happy-font-ui);
+    font-size: 14px;
+}
+
+/* The label inside, typed or still, sets its own monospace; here it reads in
+   the row's words too, verb included. */
+.happy-agent-activity[data-action] .happy-agent-activity__verb .happy-typed-text,
+.happy-agent-activity[data-action] .happy-agent-activity__verb .happy-agent-activity__still-text,
+.happy-agent-activity[data-action] .happy-agent-activity__text .happy-typed-text,
+.happy-agent-activity[data-action] .happy-agent-activity__text .happy-agent-activity__still-text {
+    font-family: var(--happy-font-ui);
 }
 
 /* An agent a message names: its name, marked as something to open only under

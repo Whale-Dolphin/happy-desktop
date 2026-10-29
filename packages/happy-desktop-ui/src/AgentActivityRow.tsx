@@ -473,7 +473,7 @@ function statusTone(status: ConversationActivityStatus): "success" | "warning" |
 function diffVerb(kind: ConversationFileDiff["kind"]): string {
     if (kind === "add") return "Added";
     if (kind === "delete") return "Deleted";
-    return "Edit";
+    return "Edited";
 }
 
 /**
@@ -500,6 +500,113 @@ function terminalInputSummary(input: string): string {
 function fileName(path: string): string {
     const normalized = path.replaceAll("\\", "/");
     return normalized.slice(normalized.lastIndexOf("/") + 1) || path;
+}
+
+/** One string argument of a call, when it has one by that name. */
+function argumentString(
+    argumentsValue: ConversationToolCall["arguments"],
+    key: string,
+): string | undefined {
+    if (typeof argumentsValue !== "object" || argumentsValue === null) return undefined;
+    if (Array.isArray(argumentsValue)) return undefined;
+    const value = (argumentsValue as Record<string, ConversationJson>)[key];
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/** What an artifact type is called in a sentence about it; nothing for one with no common name. */
+const ARTIFACT_NOUN: Readonly<Record<string, string>> = {
+    html: "preview",
+    markdown: "document",
+    image: "image",
+    video: "video",
+};
+
+/**
+ * What a call did, said the way a person would say it: a verb and its object
+ * in plain words, such as "Read VoiceBar.tsx" or "Told Steve". Read from the
+ * tool and its own arguments; the raw call stays in the row's body. Only a
+ * call that is running or done is told this way: one that failed, stopped, or
+ * waits for approval keeps its status word, which is the louder fact.
+ */
+function toolAction(
+    tool: ConversationToolCall,
+    presentation: ConversationActivityPresentation | undefined,
+    summary: string | undefined,
+    references: MessageReferences | undefined,
+): { verb: string; subject: string } | undefined {
+    if (tool.failed || (tool.status !== "running" && tool.status !== "success")) return undefined;
+    const running = tool.status === "running";
+    const said = (done: string, active: string, subject: string) => ({
+        verb: running ? active : done,
+        subject,
+    });
+    const lower = tool.toolName.toLowerCase();
+    // A command that said what it does is told in its own words alone.
+    if (
+        summary !== undefined &&
+        (presentation?.type === "execCommand" || /^(bash|exec_command|shell)$/.test(lower))
+    )
+        return { verb: "", subject: summary };
+    if (
+        presentation?.type === "exploration" &&
+        presentation.operations.every((operation) => operation.kind === "read")
+    ) {
+        const names = [
+            ...new Set(
+                presentation.operations.flatMap((operation) =>
+                    operation.kind === "read" ? [fileName(operation.name)] : [],
+                ),
+            ),
+        ];
+        if (names.length > 0) return said("Read", "Reading", names.join(", "));
+    }
+    if (presentation === undefined && /^(read|read_file|view)$/.test(lower)) {
+        const file = argumentFilePath(tool.arguments);
+        if (file !== undefined) return said("Read", "Reading", fileName(file));
+    }
+    if (presentation?.type === "artifact" && lower === "create_artifact") {
+        const noun = ARTIFACT_NOUN[presentation.artifactType];
+        // The live title once it has been read, else the one it was published with.
+        const view = references?.view({ kind: "artifact", id: presentation.artifactId });
+        const title =
+            view?.type === "link" && !view.reading && view.label.trim()
+                ? view.label.trim()
+                : presentation.title.trim();
+        return said(
+            "Created",
+            "Creating",
+            !title ? "an artifact" : noun === undefined ? title : `the ${title} ${noun}`,
+        );
+    }
+    const artifactVerbs: Readonly<Record<string, readonly [string, string]>> = {
+        write_artifact_file: ["Wrote", "Writing"],
+        edit_artifact_file: ["Edited", "Editing"],
+        edit_artifact_files: ["Edited", "Editing"],
+        update_artifact: ["Updated", "Updating"],
+    };
+    const artifactVerb = presentation === undefined ? artifactVerbs[lower] : undefined;
+    if (artifactVerb !== undefined) {
+        const id = argumentString(tool.arguments, "artifactId");
+        const view = id === undefined ? undefined : references?.view({ kind: "artifact", id });
+        return said(
+            artifactVerb[0],
+            artifactVerb[1],
+            view?.type === "link" && view.label.trim() ? view.label.trim() : "an artifact",
+        );
+    }
+    if (lower === "list_teammates") return said("Checked", "Checking", "who's on the team");
+    if (lower === "notify_teammate") {
+        const id = argumentString(tool.arguments, "userId");
+        const label =
+            id === undefined ? undefined : references?.view({ kind: "user", id }).label.trim();
+        const name = label?.replace(/^@/, "");
+        return said(
+            "Told",
+            "Telling",
+            name === undefined || name.length === 0 || name === "…" ? "a teammate" : name,
+        );
+    }
+    return undefined;
 }
 
 /** Argument names the file-reading and file-writing tools carry a path under. */
@@ -820,7 +927,12 @@ function AgentToolActivity(props: {
     }
     /* Said in the call's own words rather than its raw input. */
     const described = summary !== undefined && primaryText === summary;
-    if (focused && presentation?.type !== "fileDiff") verb = toolVerbFocused(verb);
+    /* Said as what it did, in plain words, rather than as the tool it was. */
+    const action = mcp ? undefined : toolAction(tool, presentation, summary, props.references);
+    if (action) {
+        verb = action.verb;
+        primaryText = action.subject;
+    } else if (focused && presentation?.type !== "fileDiff") verb = toolVerbFocused(verb);
     /* Ran outside the sandbox. Said in colour alone — the whole line turns
        amber — because a word in the verb would push the command itself out of
        a row that is already short. A call that stopped or failed never got
@@ -851,10 +963,20 @@ function AgentToolActivity(props: {
     /* What a reader reaches for the clipboard to get: the subject that scrolled
        out of the row, followed by the output or result the row only shows in
        part. Both are elided on screen, so the copy is the unabridged text. */
+    /* The raw call a row told in words stands for: its command, or the tool
+       and its arguments. A single-line row never opens, so it is the row's
+       hover title there and part of what it copies. */
+    const rawCall =
+        action === undefined
+            ? undefined
+            : presentation?.type === "execCommand"
+              ? `$ ${presentation.command}`
+              : `${tool.toolName} ${JSON.stringify(tool.arguments)}`;
     const copyText = [
         primaryText,
         // A described command copies with the command itself, which the row no longer shows.
         described && presentation?.type === "execCommand" ? presentation.command : undefined,
+        action !== undefined && presentation?.type !== "execCommand" ? rawCall : undefined,
         presentation?.type === "execCommand"
             ? presentation.output
             : presentation?.type === "search"
@@ -878,7 +1000,8 @@ function AgentToolActivity(props: {
           : presentation?.type === "search"
             ? (presentation.sources?.length ?? 0) > 0
             : presentation?.type === "execCommand"
-              ? presentation.output.trim().length > 0
+              ? // A described command keeps the command itself one click away.
+                described || presentation.output.trim().length > 0
               : presentation?.type === "backgroundTerminalInteraction"
                 ? presentation.input.trim().length > 0
                 : argsPresent;
@@ -939,6 +1062,7 @@ function AgentToolActivity(props: {
             </span>
             <span
                 className="happy-agent-activity__verb"
+                data-empty={verb === "" ? "" : undefined}
                 data-happy-desktop-ui="agent-activity-verb"
             >
                 <AgentActivityChangingText typed={verbTyped} value={verb} />
@@ -1015,6 +1139,7 @@ function AgentToolActivity(props: {
             data-tone={tone}
             data-presentation={presentation?.type ?? "generic"}
             data-described={described ? "" : undefined}
+            data-action={action || presentation?.type === "fileDiff" ? "" : undefined}
             data-review={tool.review ? "" : undefined}
             data-elevated={elevated ? "" : undefined}
             data-single-line={singleLine ? "" : undefined}
@@ -1030,6 +1155,7 @@ function AgentToolActivity(props: {
                         className="happy-agent-activity__header"
                         data-happy-desktop-ui="agent-activity-header"
                         onClick={() => props.onSelect?.(tool)}
+                        title={rawCall}
                         type="button"
                     >
                         {header}
@@ -1038,6 +1164,7 @@ function AgentToolActivity(props: {
                     <div
                         className="happy-agent-activity__header"
                         data-happy-desktop-ui="agent-activity-header"
+                        title={rawCall}
                     >
                         {header}
                     </div>
@@ -1178,7 +1305,20 @@ function AgentToolActivity(props: {
                           })()
                         : null}
 
-                    {presentation?.type === "execCommand" && execOutput
+                    {described && presentation?.type === "execCommand" ? (
+                        <pre
+                            className="happy-agent-activity__output"
+                            data-happy-desktop-ui="agent-activity-command"
+                        >
+                            <div className="happy-agent-activity__output-line">
+                                $ {presentation.command}
+                            </div>
+                        </pre>
+                    ) : null}
+
+                    {presentation?.type === "execCommand" &&
+                    execOutput &&
+                    presentation.output.trim().length > 0
                         ? (() => {
                               const headCount =
                                   execOutput.omitted > 0 ? EXEC_HEAD_TAIL : execOutput.lines.length;

@@ -146,7 +146,7 @@ it("renders each tool presentation and status with the correct dot tone", async 
     expect(
         view.$('[data-testid="diff"] [data-happy-desktop-ui="agent-activity-verb"]').element
             .textContent,
-    ).toBe("Edit");
+    ).toBe("Edited");
     expect(
         view.$('[data-testid="diff"] [data-happy-desktop-ui="agent-activity-text"]').element
             .textContent,
@@ -482,11 +482,11 @@ it("reads a call and a message in their own few words, naming the agents they me
             `[data-testid="${row}"] [data-happy-desktop-ui="${name}"]`,
         );
 
-    // The description stands where the command did.
+    // The description stands alone where the command did.
     await vi.waitFor(() =>
         expect(part("described", "agent-activity-text")?.textContent).toBe("Run the UI tests"),
     );
-    expect(part("described", "agent-activity-verb")?.textContent).toBe("Bash");
+    expect(part("described", "agent-activity-verb")?.textContent).toBe("");
     const call = part("described", "agent-activity-call")!;
     expect(call.dataset.described).toBe("");
     await vi.waitFor(() =>
@@ -506,4 +506,166 @@ it("reads a call and a message in their own few words, naming the agents they me
     mention.click();
     expect(opened).toEqual(["zsyz6h9mborjt94esaykcqjs"]);
     expect(part("message", "agent-activity-message-body")).toBeNull();
+}, 120_000);
+
+it("tells each call as what it did, in words, and keeps the raw call one click away", async () => {
+    const references = {
+        view: (reference: { kind: string; id: string }) =>
+            reference.kind === "user" && reference.id === "u-steve"
+                ? ({ type: "link", label: "@Steve", busy: false } as const)
+                : reference.kind === "artifact" && reference.id === "a-wave"
+                  ? ({ type: "link", label: "Voice waveform", busy: false } as const)
+                  : ({ type: "text", label: "…" } as const),
+        open: () => undefined,
+    };
+    const call = (
+        toolCallId: string,
+        toolName: string,
+        args: ConversationToolCall["arguments"],
+        rest: Partial<ConversationToolCall> = {},
+    ): ConversationToolCall => ({
+        toolCallId,
+        toolName,
+        arguments: args,
+        status: "success",
+        failed: false,
+        ...rest,
+    });
+    const rows: Array<[string, ConversationToolCall]> = [
+        ["read", call("t-read", "read", { file_path: "src/voice/VoiceBar.tsx" })],
+        ["edit", fileDiffTool],
+        [
+            "create",
+            call(
+                "t-create",
+                "create_artifact",
+                { title: "Voice waveform" },
+                {
+                    presentation: {
+                        type: "artifact",
+                        artifactId: "a-wave" as never,
+                        version: 1,
+                        artifactType: "html",
+                        title: "Voice waveform",
+                        shows: "latest",
+                    },
+                },
+            ),
+        ],
+        [
+            "update",
+            call("t-update", "write_artifact_file", { artifactId: "a-wave", path: "index.html" }),
+        ],
+        ["team", call("t-team", "list_teammates", {})],
+        ["tell", call("t-tell", "notify_teammate", { userId: "u-steve", text: "Have a look" })],
+        [
+            "ship",
+            call(
+                "t-ship",
+                "bash",
+                { command: "pnpm release --production", description: "Ship to production" },
+                {
+                    summary: "Ship to production",
+                    presentation: {
+                        type: "execCommand",
+                        command: "pnpm release --production",
+                        output: "",
+                    },
+                },
+            ),
+        ],
+        [
+            "telling",
+            call("t-telling", "notify_teammate", { userId: "u-steve" }, { status: "running" }),
+        ],
+        ["raw", execTool],
+    ];
+    const view = createRenderer();
+    view.render(
+        () => (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "600px" }}>
+                {rows.map(([id, tool]) => (
+                    <AgentActivityRow
+                        key={id}
+                        activity={{ kind: "tool", tool }}
+                        data-testid={id}
+                        references={references}
+                        singleLine
+                    />
+                ))}
+                {/* The transcript's still motion draws its labels in another span. */}
+                <AgentActivityRow
+                    activity={{ kind: "tool", tool: rows[5]![1] }}
+                    data-testid="tell-calm"
+                    motion="calm"
+                    references={references}
+                    singleLine
+                />
+                <AgentActivityRow
+                    activity={{ kind: "tool", tool: execTool }}
+                    data-testid="raw-calm"
+                    motion="calm"
+                    singleLine
+                />
+                <AgentActivityRow
+                    activity={{ kind: "tool", tool: rows[6]![1] }}
+                    data-testid="ship-full"
+                />
+            </div>
+        ),
+        { width: 660, height: 560, padding: 16 },
+    );
+    await view.ready();
+    const part = (row: string, name: string) =>
+        view.container.querySelector<HTMLElement>(
+            `[data-testid="${row}"] [data-happy-desktop-ui="${name}"]`,
+        );
+    const said = (row: string) =>
+        `${part(row, "agent-activity-verb")?.textContent ?? ""} ${part(row, "agent-activity-text")?.textContent ?? ""}`.trim();
+
+    await vi.waitFor(() => expect(said("read")).toBe("Read VoiceBar.tsx"));
+    expect(said("edit")).toBe("Edited a.ts");
+    expect(said("create")).toBe("Created the Voice waveform preview");
+    expect(said("update")).toBe("Wrote Voice waveform");
+    expect(said("team")).toBe("Checked who's on the team");
+    expect(said("tell")).toBe("Told Steve");
+    expect(said("telling")).toBe("Telling Steve");
+    expect(said("ship")).toBe("Ship to production");
+    // With no verb, its words start where a verb would.
+    expect(part("ship", "agent-activity-text")!.getBoundingClientRect().x).toBe(
+        part("read", "agent-activity-verb")!.getBoundingClientRect().x,
+    );
+
+    // The words are the transcript's own type; only a raw command stays monospace.
+    // Read from the glyphs' own span, typed or still, which is what draws them.
+    const fontOf = (row: string, name = "agent-activity-text") => {
+        const label = part(row, name)!;
+        const glyphs =
+            label.querySelector(".happy-typed-text, .happy-agent-activity__still-text") ?? label;
+        return getComputedStyle(glyphs).fontFamily;
+    };
+    const mono = fontOf("raw");
+    expect(fontOf("raw-calm")).toBe(mono);
+    for (const row of ["read", "edit", "create", "update", "team", "tell", "ship", "tell-calm"])
+        expect(fontOf(row), row).not.toBe(mono);
+    for (const row of ["read", "tell", "tell-calm"])
+        expect(fontOf(row, "agent-activity-verb"), `${row} verb`).not.toBe(mono);
+
+    // A transcript row never opens, so the raw call is its hover title.
+    expect(part("ship", "agent-activity-header")?.title).toBe("$ pnpm release --production");
+    expect(part("tell", "agent-activity-header")?.title).toBe(
+        'notify_teammate {"userId":"u-steve","text":"Have a look"}',
+    );
+    expect(part("raw", "agent-activity-header")?.title).toBe("");
+
+    // A full row keeps the command a description stands for one click away.
+    expect(part("ship-full", "agent-activity-command")).toBeNull();
+    part("ship-full", "agent-activity-header")!.click();
+    await vi.waitFor(() =>
+        expect(part("ship-full", "agent-activity-command")?.textContent).toBe(
+            "$ pnpm release --production",
+        ),
+    );
+
+    await view.screenshot("AgentActivityRow.actions.test");
 }, 120_000);
