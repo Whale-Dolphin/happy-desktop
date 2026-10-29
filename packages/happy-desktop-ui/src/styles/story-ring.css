@@ -1,5 +1,5 @@
 /*
- * StoryRing — a mark inside the ring of its stories. The box is 40px whether
+ * StoryRing — a mark inside the ring of its stories. The box is 48px whether
  * or not there is a ring, so a story arriving never moves anything beside it.
  */
 .happy-story-ring {
@@ -8,8 +8,8 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
 }
 
 .happy-story-ring[data-opens] {
@@ -38,16 +38,16 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 38px;
+    height: 38px;
 }
 
 /*
- * The row's own 20px mark, laid out at 20 and drawn at 28, so a clay icon, a
+ * The row's own 20px mark, laid out at 20 and drawn at 38, so a clay icon, a
  * stem cell, an avatar and a glyph all grow by the same factor and keep the
  * proportions they were drawn at. Zoom rather than a transform: the mark is
  * laid out and rasterized at its drawn size, so its edges stay sharp.
  */
 .happy-story-ring__mark > * {
-    zoom: 1.4;
+    zoom: 1.9;
 }

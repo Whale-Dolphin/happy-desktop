@@ -40,6 +40,7 @@ import {
     clayIconMarkLarge,
     clayIconSlugIs,
     happyIconMark,
+    localListTime,
     makeStuffIntroHeader,
     Sidebar,
     SidebarChanges,
@@ -688,8 +689,8 @@ export function happyAgentSpacesAgentIdentity(
 
 /**
  * A conversation's row as Stories draw it: the agent's status line under the
- * title, its ring, and one corner signal: a dot while it waits on the person,
- * a bar while it works.
+ * title with when it was set at the title's end, its ring, and one corner
+ * signal: a dot while it waits on the person, a bar while it works.
  */
 function storyRow(
     item: SidebarItem,
@@ -708,7 +709,12 @@ function storyRow(
     return {
         ...item,
         story: {
-            ...(statusLine ? { subtitle: statusLine } : {}),
+            ...(statusLine
+                ? {
+                      subtitle: statusLine.text,
+                      time: localListTime(statusLine.updatedAt, Date.now()),
+                  }
+                : {}),
             ...(ring ? { ring } : {}),
             ...(signal ? { signal } : {}),
         },
@@ -1312,8 +1318,12 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
     const stories = props.stories;
     const items = stories
         ? drawn.items.map((item) => {
-              const agentId = item.kind === "separator" ? undefined : rowAgentId(item.id);
-              return agentId === undefined ? item : storyRow(item, agentId, places, stories);
+              if (item.kind === "separator") return item;
+              const agentId = rowAgentId(item.id);
+              if (agentId !== undefined) return storyRow(item, agentId, places, stories);
+              // A Surface has no agent to report, but stands in the same
+              // column as the agents around it, at their height.
+              return item.id.startsWith("space:") ? { ...item, story: {} } : item;
           })
         : drawn.items;
     const pending = changes.some((change) => !proposal?.declined.has(change.id));

@@ -912,7 +912,14 @@ function projectAgent(
         status: agent.status === "idle" ? "idle" : "running",
         ...(agent.wait == null ? {} : { wait: agent.wait }),
         ...(agent.title === null ? {} : { title: agent.title }),
-        ...(agent.statusLine ? { statusLine: agent.statusLine.text } : {}),
+        ...(agent.statusLine
+            ? {
+                  statusLine: {
+                      text: agent.statusLine.text,
+                      updatedAt: agent.statusLine.updatedAt,
+                  },
+              }
+            : {}),
         trackUnread: true,
         ...(agent.unread === null
             ? {}

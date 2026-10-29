@@ -49,6 +49,18 @@ export function localDayTime(at: number, now: number, zone: LocalTimeZone = {}):
 }
 
 /**
+ * When something last happened, as a chat list tells it beside a name: the
+ * time alone today, the short weekday within the past week, and the short
+ * numeric date before that.
+ */
+export function localListTime(at: number, now: number, zone: LocalTimeZone = {}): string {
+    const days = localDaysFrom(now, at, zone);
+    if (days === 0) return localClockTime(at, zone);
+    if (days < 0 && days > -7) return localWeekdayShort(at, zone);
+    return format(zone, { day: "numeric", month: "numeric" }).format(at);
+}
+
+/**
  * When something happens, as it reads after "until": the exact local time,
  * with a day whenever it is not today. Tomorrow says so, the rest of the coming
  * week names its weekday, and anything else, including a day already past,

@@ -2366,57 +2366,126 @@
 /* ---- Story rows ------------------------------------------------------- */
 
 /*
- * An agent's row while Stories are on: two lines beside its mark grown into
- * a 40px story ring, and one signal in the bottom-right corner. The row is
- * 52px whether or not it has a ring, a status or a signal, so none of them
- * arriving ever moves a row.
+ * A row while Stories are on reads as a messenger's chat list: the mark grown
+ * into a 48px story ring, centred; the name on a first line with the time and
+ * the row's controls at its end; and the agent's status under them in two
+ * lines. The row is 64px and every box in it is fixed, so a ring, a status of
+ * any length, a time or a signal arriving never moves the name or the row.
  */
 .happy-sidebar__item[data-story] {
-    height: 52px;
+    height: 64px;
     gap: 10px;
 }
 
 .happy-sidebar__item-leading[data-story] {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
 }
 
-.happy-sidebar__item-text,
-.happy-sidebar__item-main > .happy-sidebar__item-text {
+/* Everything right of the ring: one line laid out as a plain row lays its
+   only line, then the status. Stretched to the row's height, with the two
+   blocks set from its top, so the name stands at the same height in every row. */
+.happy-sidebar__item-body {
+    position: relative;
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
+    align-self: stretch;
     gap: 2px;
     min-width: 0;
-    /* Clear of the corner signal, so neither line ever runs under it. */
-    padding-right: 14px;
+    padding-top: 6px;
 }
 
-.happy-sidebar__item-text > .happy-sidebar__item-label {
+.happy-sidebar__item-line {
+    display: flex;
     flex: none;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 18px;
+}
+
+.happy-sidebar__item[data-story] .happy-sidebar__item-label {
     color: var(--text);
+    font-weight: 600;
 }
 
-.happy-sidebar__item-subtitle {
-    display: block;
+.happy-sidebar__item-time {
     flex: none;
-    height: 16px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    line-height: 16px;
+    white-space: nowrap;
+    transform: translateY(var(--happy-sidebar-meta-optical-y, 0px));
+}
+
+/* The same fold column as a plain row's, from inside the first line. */
+.happy-sidebar__item[data-fold-placement="trailing"]
+    .happy-sidebar__item-line
+    > .happy-sidebar__item-fold {
+    position: static;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-right: calc(var(--happy-sidebar-fold-inset) - var(--happy-panel-row-padding));
+    opacity: 1;
+}
+
+/* Two lines, kept whether the status fills none, one or both, then cut with
+   an ellipsis. Its right edge stays clear of the corner signal, so the text
+   never reflows when a signal comes or goes. */
+.happy-sidebar__item-subtitle {
+    display: -webkit-box;
+    flex: none;
+    height: 32px;
+    padding-right: 22px;
     overflow: hidden;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 400;
     line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     transform: translateY(var(--happy-sidebar-label-optical-y, 0px));
+}
+
+/* A hairline between two story rows, from the text column to the row's edge.
+   None after a list's last row, and none against the selected row, whose own
+   fill already parts it from its neighbours. */
+.happy-sidebar__item[data-story]:has(+ .happy-sidebar__item[data-story])
+    > .happy-sidebar__item-body::after {
+    position: absolute;
+    right: calc(-1 * var(--happy-panel-row-padding));
+    bottom: -1px;
+    left: 0;
+    height: 1px;
+    background: var(--divider);
+    content: "";
+    pointer-events: none;
+}
+
+.happy-sidebar__item[data-story]:is(
+        [data-active],
+        [data-dragging],
+        :has(+ .happy-sidebar__item[data-active]),
+        :has(+ .happy-sidebar__item[data-dragging])
+    )
+    > .happy-sidebar__item-body::after {
+    display: none;
 }
 
 .happy-sidebar__item-corner {
     /* Out of the row's flow on purpose: the corner is a badge on the row, so
-       a signal coming and going never takes width from the name. */
+       a signal coming and going never takes width from the name. Centred on
+       the status's second line, which ends 6px above the row's bottom. */
     position: absolute;
     right: var(--happy-panel-row-padding);
-    bottom: 10px;
+    bottom: 14px;
+    transform: translateY(50%);
     pointer-events: none;
 }
 

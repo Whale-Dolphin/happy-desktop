@@ -223,18 +223,22 @@ export type SidebarItem = {
      */
     pin?: SidebarSeparatorPinEdge;
     /**
-     * Draws the row as an agent's story row: two lines, the row's mark enlarged
-     * inside the ring of its stories, the agent's own status under its name,
-     * and at most one signal in the row's bottom-right corner. Such a row
-     * reports only through these: it has no title shimmer, no activity glyph
-     * and no unread dot, and an unread row says so by its heavier name alone.
+     * Draws the row as a messenger's chat row: one fixed height, the row's mark
+     * enlarged inside the ring of its stories, the name on a first line that
+     * never moves, the agent's own status in up to two lines under it, and at
+     * most one signal in the row's bottom-right corner. Such a row reports only
+     * through these: it has no title shimmer, no activity glyph and no unread
+     * dot. A row with no agent behind it states this empty, to stand in the
+     * same column at the same height.
      */
     story?: SidebarItemStory;
 };
 /** What a story row shows besides its name. See `SidebarItem.story`. */
 export type SidebarItemStory = {
-    /** The agent's own status, as it last set it; absent leaves the line empty. */
+    /** The agent's own status, as it last set it; absent leaves both lines empty. */
     subtitle?: string;
+    /** When the status was set, as the list tells it ("14:05", "Tue"); shown at the first line's end. */
+    time?: string;
     /** The agent's stories, one segment each; absent draws no ring. */
     ring?: StoryRingSegments;
     /**
@@ -2538,200 +2542,220 @@ function SidebarRow({
                     {props.foldControlPlacement !== "trailing" ? foldControl() : null}
                 </span>
             ) : null}
-            {((marks: ReactNode) =>
-                /* With trailing folds, what the row is doing follows its name: the
+            {((line: ReactNode) =>
+                /* A story row is a messenger's chat row: everything a plain row
+                   lays out in one line is its first line, and the agent's status
+                   runs under all of it, two lines tall whether it has none, one
+                   or two, so the name never moves when the status comes, changes
+                   or goes. */
+                story() ? (
+                    <span
+                        className="happy-sidebar__item-body"
+                        data-happy-desktop-ui="sidebar-item-body"
+                    >
+                        <span
+                            className="happy-sidebar__item-line"
+                            data-happy-desktop-ui="sidebar-item-line"
+                        >
+                            {line}
+                        </span>
+                        <span
+                            className="happy-sidebar__item-subtitle"
+                            data-happy-desktop-ui="sidebar-item-subtitle"
+                        >
+                            {story()?.subtitle ?? ""}
+                        </span>
+                    </span>
+                ) : (
+                    line
+                ))(
+                <>
+                    {((marks: ReactNode) =>
+                        /* With trailing folds, what the row is doing follows its name: the
                    name gives up its width first, so the mark is never pushed off
                    or under the chevron, and the controls at the far edge hold one
                    column whatever the name says. */
-                lanes ? (
-                    <span
-                        className="happy-sidebar__item-main"
-                        data-happy-desktop-ui="sidebar-item-main"
-                    >
-                        {marks}
-                    </span>
-                ) : (
-                    marks
-                ))(
-                <>
-                    {((label: ReactNode) =>
-                        /* A story row reads as two lines: its name, and under it
-                           the status its agent last set. An agent that set none
-                           leaves the line empty rather than the client making one
-                           up, and the row keeps its height either way. */
-                        story() ? (
+                        lanes ? (
                             <span
-                                className="happy-sidebar__item-text"
-                                data-happy-desktop-ui="sidebar-item-text"
+                                className="happy-sidebar__item-main"
+                                data-happy-desktop-ui="sidebar-item-main"
                             >
-                                {label}
-                                <span
-                                    className="happy-sidebar__item-subtitle"
-                                    data-happy-desktop-ui="sidebar-item-subtitle"
-                                >
-                                    {story()?.subtitle ?? ""}
-                                </span>
+                                {marks}
                             </span>
                         ) : (
-                            label
+                            marks
                         ))(
-                        <span
-                            aria-label={
-                                props.rename ? `Rename ${props.rename.initialValue}` : undefined
-                            }
-                            aria-multiline={props.rename ? false : undefined}
-                            className={
-                                props.rename
-                                    ? "happy-sidebar__item-label happy-sidebar__item-rename"
-                                    : "happy-sidebar__item-label"
-                            }
-                            contentEditable={props.rename ? "plaintext-only" : undefined}
-                            data-happy-desktop-ui="sidebar-item-label"
-                            onBlur={
-                                props.rename
-                                    ? (event) => renameFinish(event.currentTarget.textContent ?? "")
-                                    : undefined
-                            }
-                            onClick={props.rename ? (event) => event.stopPropagation() : undefined}
-                            onContextMenu={
-                                props.rename ? (event) => event.stopPropagation() : undefined
-                            }
-                            onPointerDown={
-                                props.rename ? (event) => event.stopPropagation() : undefined
-                            }
-                            onPaste={
-                                props.rename
-                                    ? (event) => {
-                                          event.preventDefault();
-                                          // insertText preserves the browser's undo history for single-line paste.
-                                          document.execCommand(
-                                              "insertText",
-                                              false,
-                                              event.clipboardData
-                                                  .getData("text/plain")
-                                                  .replace(/[\r\n]+/g, " "),
-                                          );
-                                      }
-                                    : undefined
-                            }
-                            onKeyDown={
-                                props.rename
-                                    ? (event) => {
-                                          event.stopPropagation();
-                                          if (event.nativeEvent.isComposing) return;
-                                          if (event.key === "Enter" || event.key === "Escape") {
+                        <>
+                            <span
+                                aria-label={
+                                    props.rename ? `Rename ${props.rename.initialValue}` : undefined
+                                }
+                                aria-multiline={props.rename ? false : undefined}
+                                className={
+                                    props.rename
+                                        ? "happy-sidebar__item-label happy-sidebar__item-rename"
+                                        : "happy-sidebar__item-label"
+                                }
+                                contentEditable={props.rename ? "plaintext-only" : undefined}
+                                data-happy-desktop-ui="sidebar-item-label"
+                                onBlur={
+                                    props.rename
+                                        ? (event) =>
+                                              renameFinish(event.currentTarget.textContent ?? "")
+                                        : undefined
+                                }
+                                onClick={
+                                    props.rename ? (event) => event.stopPropagation() : undefined
+                                }
+                                onContextMenu={
+                                    props.rename ? (event) => event.stopPropagation() : undefined
+                                }
+                                onPointerDown={
+                                    props.rename ? (event) => event.stopPropagation() : undefined
+                                }
+                                onPaste={
+                                    props.rename
+                                        ? (event) => {
                                               event.preventDefault();
-                                              if (event.repeat) return;
-                                              renameRestoreFocus.current = true;
-                                              renameFinish(
-                                                  event.key === "Enter"
-                                                      ? (event.currentTarget.textContent ?? "")
-                                                      : undefined,
+                                              // insertText preserves the browser's undo history for single-line paste.
+                                              document.execCommand(
+                                                  "insertText",
+                                                  false,
+                                                  event.clipboardData
+                                                      .getData("text/plain")
+                                                      .replace(/[\r\n]+/g, " "),
                                               );
                                           }
-                                      }
-                                    : undefined
-                            }
-                            ref={props.rename ? renameLabelRef : undefined}
-                            role={props.rename ? "textbox" : undefined}
-                            suppressContentEditableWarning={props.rename !== undefined}
-                            tabIndex={props.rename ? 0 : undefined}
-                        >
-                            {/* The row's own colour, with a near-white band wiping through
+                                        : undefined
+                                }
+                                onKeyDown={
+                                    props.rename
+                                        ? (event) => {
+                                              event.stopPropagation();
+                                              if (event.nativeEvent.isComposing) return;
+                                              if (event.key === "Enter" || event.key === "Escape") {
+                                                  event.preventDefault();
+                                                  if (event.repeat) return;
+                                                  renameRestoreFocus.current = true;
+                                                  renameFinish(
+                                                      event.key === "Enter"
+                                                          ? (event.currentTarget.textContent ?? "")
+                                                          : undefined,
+                                                  );
+                                              }
+                                          }
+                                        : undefined
+                                }
+                                ref={props.rename ? renameLabelRef : undefined}
+                                role={props.rename ? "textbox" : undefined}
+                                suppressContentEditableWarning={props.rename !== undefined}
+                                tabIndex={props.rename ? 0 : undefined}
+                            >
+                                {/* The row's own colour, with a near-white band wiping through
                         it. Busy is a passing state, so it may not restyle the name:
                         an unread row is already heavier and darker than its
                         neighbours, and painting the name again here would stack a
                         second emphasis on top of one the row had already earned.
                         Only the travelling band is new. */}
-                            {props.rename ? (
-                                props.rename.initialValue
-                            ) : shimmerLabel() ? (
-                                <ShimmerText sweep="sheen" tone="inherit">
-                                    {item().label}
-                                </ShimmerText>
-                            ) : (
-                                item().label
-                            )}
-                        </span>,
-                    )}
-                    {item().voiceFocus ? (
-                        <span
-                            aria-label="Voice focus"
-                            className="happy-sidebar__item-voice"
-                            data-happy-desktop-ui="sidebar-item-voice"
-                            role="img"
-                        >
-                            <Icon name="mic" size={12} />
-                        </span>
-                    ) : null}
-                    {props.shortcut ? (
-                        <KeyCap
-                            className="happy-sidebar__item-shortcut"
-                            decorative
-                            keys={props.shortcut.caps}
-                        />
-                    ) : null}
-                    {unreadDot() && !unreadOnLeading() && !mentioned() ? (
-                        <span
-                            aria-label="Unread"
-                            className="happy-sidebar__item-unread"
-                            data-happy-desktop-ui="sidebar-item-unread"
-                        />
-                    ) : null}
-                    {mentioned() ? (
-                        <CountBadge className="happy-sidebar__item-badge" count={item().badge!} />
-                    ) : null}
-
-                    {showLifecycle() ? (
-                        <span
-                            className="happy-sidebar__item-lifecycle"
-                            data-happy-desktop-ui="sidebar-item-lifecycle"
-                            data-lifecycle={lifecycle()}
-                        >
-                            {item().lifecycleLabel}
-                        </span>
-                    ) : null}
-                    {showStatus() ? (
-                        <>
-                            {item().status === "working" ? (
+                                {props.rename ? (
+                                    props.rename.initialValue
+                                ) : shimmerLabel() ? (
+                                    <ShimmerText sweep="sheen" tone="inherit">
+                                        {item().label}
+                                    </ShimmerText>
+                                ) : (
+                                    item().label
+                                )}
+                            </span>
+                            {item().voiceFocus ? (
                                 <span
-                                    className="happy-sidebar__item-working"
-                                    data-happy-desktop-ui="sidebar-item-working"
+                                    aria-label="Voice focus"
+                                    className="happy-sidebar__item-voice"
+                                    data-happy-desktop-ui="sidebar-item-voice"
+                                    role="img"
                                 >
-                                    working
+                                    <Icon name="mic" size={12} />
                                 </span>
                             ) : null}
-                            <span
-                                aria-hidden="true"
-                                className="happy-sidebar__item-status"
-                                data-happy-desktop-ui="sidebar-item-status"
-                                data-status={item().status}
-                            />
-                        </>
-                    ) : null}
-                    {lanes && showCount() ? (
+                            {props.shortcut ? (
+                                <KeyCap
+                                    className="happy-sidebar__item-shortcut"
+                                    decorative
+                                    keys={props.shortcut.caps}
+                                />
+                            ) : null}
+                            {unreadDot() && !unreadOnLeading() && !mentioned() ? (
+                                <span
+                                    aria-label="Unread"
+                                    className="happy-sidebar__item-unread"
+                                    data-happy-desktop-ui="sidebar-item-unread"
+                                />
+                            ) : null}
+                            {mentioned() ? (
+                                <CountBadge
+                                    className="happy-sidebar__item-badge"
+                                    count={item().badge!}
+                                />
+                            ) : null}
+
+                            {showLifecycle() ? (
+                                <span
+                                    className="happy-sidebar__item-lifecycle"
+                                    data-happy-desktop-ui="sidebar-item-lifecycle"
+                                    data-lifecycle={lifecycle()}
+                                >
+                                    {item().lifecycleLabel}
+                                </span>
+                            ) : null}
+                            {showStatus() ? (
+                                <>
+                                    {item().status === "working" ? (
+                                        <span
+                                            className="happy-sidebar__item-working"
+                                            data-happy-desktop-ui="sidebar-item-working"
+                                        >
+                                            working
+                                        </span>
+                                    ) : null}
+                                    <span
+                                        aria-hidden="true"
+                                        className="happy-sidebar__item-status"
+                                        data-happy-desktop-ui="sidebar-item-status"
+                                        data-status={item().status}
+                                    />
+                                </>
+                            ) : null}
+                            {lanes && showCount() ? (
+                                <span
+                                    className="happy-sidebar__item-count"
+                                    data-happy-desktop-ui="sidebar-item-count"
+                                >
+                                    {String(item().count)}
+                                </span>
+                            ) : null}
+                            {lanes && !activityLeading() ? activityMark() : null}
+                        </>,
+                    )}
+
+                    {showMeta() && item().trailingWidth === undefined ? (
                         <span
-                            className="happy-sidebar__item-count"
-                            data-happy-desktop-ui="sidebar-item-count"
+                            className="happy-sidebar__item-meta"
+                            data-happy-desktop-ui="sidebar-item-meta"
                         >
-                            {String(item().count)}
+                            {item().meta}
                         </span>
                     ) : null}
-                    {lanes && !activityLeading() ? activityMark() : null}
-                </>,
-            )}
+                    {story()?.time !== undefined ? (
+                        <span
+                            className="happy-sidebar__item-time"
+                            data-happy-desktop-ui="sidebar-item-time"
+                        >
+                            {story()?.time}
+                        </span>
+                    ) : null}
 
-            {showMeta() && item().trailingWidth === undefined ? (
-                <span
-                    className="happy-sidebar__item-meta"
-                    data-happy-desktop-ui="sidebar-item-meta"
-                >
-                    {item().meta}
-                </span>
-            ) : null}
-
-            {((state, controls, stats, swaps, count) =>
-                /* One lane at the trailing edge, and everything in it is ranged
+                    {((state, controls, stats, swaps, count) =>
+                        /* One lane at the trailing edge, and everything in it is ranged
                    right. The Git delta is the last thing in flow, so at rest it
                    ends the row on the same column as the marks above and below
                    it. Work adds the activity cell after the delta and moves it
@@ -2740,67 +2764,72 @@ function SidebarRow({
                    controls are laid over the lane rather than placed in it, so
                    arriving and leaving costs no reflow: what they cover is
                    hidden where it stands. */
-                state ||
-                controls ||
-                stats ||
-                count !== undefined ||
-                item().trailingWidth !== undefined ? (
-                    <span
-                        className="happy-sidebar__item-trailing"
-                        data-happy-desktop-ui="sidebar-item-trailing"
-                        data-fixed={item().trailingWidth !== undefined ? "" : undefined}
-                        data-swaps={controls && swaps ? "" : undefined}
-                        style={{
-                            columnGap: SIDEBAR_TRAILING_GAP,
-                            minWidth: lanes ? 0 : trailingLaneMinWidth(),
-                            ...(item().trailingWidth !== undefined
-                                ? { width: item().trailingWidth, minWidth: item().trailingWidth }
-                                : {}),
-                        }}
-                    >
-                        {showMeta() && item().trailingWidth !== undefined ? (
+                        state ||
+                        controls ||
+                        stats ||
+                        count !== undefined ||
+                        item().trailingWidth !== undefined ? (
                             <span
-                                className="happy-sidebar__item-meta"
-                                data-happy-desktop-ui="sidebar-item-meta"
+                                className="happy-sidebar__item-trailing"
+                                data-happy-desktop-ui="sidebar-item-trailing"
+                                data-fixed={item().trailingWidth !== undefined ? "" : undefined}
+                                data-swaps={controls && swaps ? "" : undefined}
+                                style={{
+                                    columnGap: SIDEBAR_TRAILING_GAP,
+                                    minWidth: lanes ? 0 : trailingLaneMinWidth(),
+                                    ...(item().trailingWidth !== undefined
+                                        ? {
+                                              width: item().trailingWidth,
+                                              minWidth: item().trailingWidth,
+                                          }
+                                        : {}),
+                                }}
                             >
-                                {item().meta}
+                                {showMeta() && item().trailingWidth !== undefined ? (
+                                    <span
+                                        className="happy-sidebar__item-meta"
+                                        data-happy-desktop-ui="sidebar-item-meta"
+                                    >
+                                        {item().meta}
+                                    </span>
+                                ) : null}
+                                {count !== undefined ? (
+                                    <span
+                                        className="happy-sidebar__item-count"
+                                        data-happy-desktop-ui="sidebar-item-count"
+                                    >
+                                        {String(count)}
+                                    </span>
+                                ) : null}
+                                {stats ? (
+                                    <ChangeStats
+                                        added={stats.added}
+                                        className="happy-sidebar__item-change-stats"
+                                        data-happy-desktop-ui="sidebar-item-change-stats"
+                                        deleted={stats.deleted}
+                                    />
+                                ) : null}
+                                {state ? activityMark() : null}
+                                {controls ? trailingLane() : null}
                             </span>
-                        ) : null}
-                        {count !== undefined ? (
-                            <span
-                                className="happy-sidebar__item-count"
-                                data-happy-desktop-ui="sidebar-item-count"
-                            >
-                                {String(count)}
-                            </span>
-                        ) : null}
-                        {stats ? (
-                            <ChangeStats
-                                added={stats.added}
-                                className="happy-sidebar__item-change-stats"
-                                data-happy-desktop-ui="sidebar-item-change-stats"
-                                deleted={stats.deleted}
-                            />
-                        ) : null}
-                        {state ? activityMark() : null}
-                        {controls ? trailingLane() : null}
-                    </span>
-                ) : null)(
-                lanes || activityLeading() ? undefined : activity(),
-                trailingActions().length > 0,
-                hasChangeStats() ? item().changeStats! : undefined,
-                // Beside a trailing fold the controls take a place of their own:
-                // nothing a row reports is covered while the pointer is on it.
-                !lanes && swapsTrailing(),
-                !lanes && showCount() ? item().count : undefined,
-            )}
-            {/* Only a row that folds has a fold at its edge. Revealed on hover, it
+                        ) : null)(
+                        lanes || activityLeading() ? undefined : activity(),
+                        trailingActions().length > 0,
+                        hasChangeStats() ? item().changeStats! : undefined,
+                        // Beside a trailing fold the controls take a place of their own:
+                        // nothing a row reports is covered while the pointer is on it.
+                        !lanes && swapsTrailing(),
+                        !lanes && showCount() ? item().count : undefined,
+                    )}
+                    {/* Only a row that folds has a fold at its edge. Revealed on hover, it
                 is laid over the trailing lane and takes the delta's place while
                 it shows; always shown, it is the row's last column and the delta
                 stands left of it. A row with nothing to fold keeps no empty
                 column: what it reports ends at the row's edge. */}
-            {changeMark()}
-            {lanes ? foldControl() : null}
+                    {changeMark()}
+                    {lanes ? foldControl() : null}
+                </>,
+            )}
             {/* One signal, always in the row's bottom-right corner, where a
                 messenger puts its unread dot: a dot while the agent waits on
                 the reader, a quiet bar while it works, nothing otherwise. */}

@@ -1,6 +1,7 @@
 import type { UserError } from "../types.js";
 import type { ConversationAuthor } from "./conversationAuthor.js";
 import type { Loadable } from "./loadable.js";
+import type { HappyAgentStatusLine } from "../happyAgent/happyAgentTypes.js";
 
 /**
  * One row of a conversation list. `subtitle` is the second line a reader needs
@@ -13,7 +14,7 @@ export interface ConversationSummary {
     readonly title: string;
     readonly subtitle?: string;
     /** The line the agent last wrote about where its work stands; absent while it has none. */
-    readonly statusLine?: string;
+    readonly statusLine?: HappyAgentStatusLine;
     readonly activity: "running" | "awaitingInput" | "waiting" | "idle";
     /** Epoch milliseconds of the newest content, for relative timestamps. */
     readonly updatedAt: number;

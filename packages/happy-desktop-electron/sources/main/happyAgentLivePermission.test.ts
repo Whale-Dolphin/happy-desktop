@@ -112,16 +112,40 @@ describe("native GPT-Live microphone and window boundary", () => {
             expect(
                 f.microphoneCheck(f.contents, { requestingUrl: "https://app.example/preview" }),
             ).toBe(false);
-            expect(f.microphoneCheck(f.contents, { mediaType: "video" })).toBe(false);
             expect(f.microphoneCheck(f.contents, { mediaType: "unknown" })).toBe(false);
-            expect(f.microphoneRequest(f.contents, { mediaTypes: ["video"] })).toBe(false);
-            expect(f.microphoneRequest(f.contents, { mediaTypes: ["audio", "video"] })).toBe(false);
             const guest = { ...f.contents, id: 2 } as WebContents;
             expect(f.microphoneCheck(guest)).toBe(false);
             expect(f.microphoneRequest(guest)).toBe(false);
             f.native.liveMicrophoneRevoke(f.contents, f.contents.mainFrame);
             expect(f.microphoneCheck()).toBe(false);
+            expect(f.microphoneRequest()).toBe(false);
             expect(f.sent).toEqual([{ type: "live-window-start", windowId: "host-window" }]);
+        } finally {
+            f.native.close();
+        }
+    });
+
+    it("lets only the app main document open the default camera, with its microphone, for a round video", async () => {
+        const f = await fixture();
+        try {
+            // No Start needed: the camera is the round video's, and macOS asks the person.
+            expect(f.microphoneCheck(f.contents, { mediaType: "video" })).toBe(true);
+            expect(f.microphoneRequest(f.contents, { mediaTypes: ["video"] })).toBe(true);
+            expect(f.microphoneRequest(f.contents, { mediaTypes: ["audio", "video"] })).toBe(true);
+            // The microphone alone is still GPT-Live's.
+            expect(f.microphoneRequest(f.contents, { mediaTypes: ["audio"] })).toBe(false);
+            const guest = { ...f.contents, id: 2 } as WebContents;
+            expect(f.microphoneCheck(guest, { mediaType: "video" })).toBe(false);
+            expect(f.microphoneRequest(guest, { mediaTypes: ["audio", "video"] })).toBe(false);
+            expect(
+                f.microphoneRequest(f.contents, { mediaTypes: ["video"], isMainFrame: false }),
+            ).toBe(false);
+            expect(
+                f.microphoneRequest(f.contents, {
+                    mediaTypes: ["video"],
+                    requestingUrl: "https://app.example/preview",
+                }),
+            ).toBe(false);
         } finally {
             f.native.close();
         }
@@ -210,6 +234,8 @@ describe("native GPT-Live microphone and window boundary", () => {
                 f.native.liveMicrophoneStart(preview, preview.mainFrame, { enabled: true }),
             ).toThrow();
             expect(f.microphoneCheck(preview)).toBe(false);
+            expect(f.microphoneCheck(preview, { mediaType: "video" })).toBe(false);
+            expect(f.microphoneRequest(preview, { mediaTypes: ["audio", "video"] })).toBe(false);
         } finally {
             f.native.close();
         }

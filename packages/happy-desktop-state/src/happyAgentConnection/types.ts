@@ -639,7 +639,7 @@ export interface GroupSession {
     status: SessionState["status"];
     title?: string;
     /** The line the agent last wrote about where its work stands; absent while it has none. */
-    statusLine?: string;
+    statusLine?: { text: string; updatedAt: number };
     trackUnread: boolean;
     unread?: { reason: "attention_needed" | "turn_finished"; since: number };
     wait?: { startedAt: number; dueAt: number };

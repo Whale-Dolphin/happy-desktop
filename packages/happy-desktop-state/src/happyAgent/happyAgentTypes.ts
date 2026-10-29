@@ -238,6 +238,12 @@ export interface HappyAgentSessionWait {
     readonly dueAt: number;
 }
 
+/** The line an agent last wrote about where its work stands, and when, in epoch milliseconds. */
+export interface HappyAgentStatusLine {
+    readonly text: string;
+    readonly updatedAt: number;
+}
+
 /** Activity of direct interactive children, already rolled up through their own trees. */
 export interface HappyAgentSubtaskActivity {
     readonly activity: ConversationSummary["activity"];
@@ -785,7 +791,7 @@ export interface HappyAgentSessionSummary {
     /** Why this chat is waiting for the person, as durably tracked by Happy Agent. */
     readonly unreadReason?: "attention_needed" | "turn_finished";
     /** The line the agent last wrote about where its work stands, with `set_status`. */
-    readonly statusLine?: string;
+    readonly statusLine?: HappyAgentStatusLine;
     readonly title?: string;
     readonly recap?: string;
     /** Chronological sort key: when the session was first created. */

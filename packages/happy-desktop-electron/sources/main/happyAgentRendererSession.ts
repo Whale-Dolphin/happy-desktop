@@ -107,6 +107,26 @@ export async function happyAgentRendererSessionCreate(
             liveDocumentAllowed(contents.mainFrame.url, window.document)
         );
     };
+    // A round video for a story: the registered app document itself, and only
+    // its main frame, may open the system's default camera, with the
+    // microphone alongside it. macOS asks the person the first time; a guest,
+    // a subframe or a media preview never may. The microphone alone stays
+    // GPT-Live's, behind its Start.
+    const cameraAllowed = (
+        contents: WebContents | null,
+        details: { readonly isMainFrame: boolean; readonly requestingUrl?: string },
+    ) => {
+        if (!contents || !details.isMainFrame || contents.isDestroyed()) return false;
+        const window = windows.get(contents.id);
+        return (
+            window !== undefined &&
+            !window.mediaOnly &&
+            !contents.mainFrame.detached &&
+            details.requestingUrl !== undefined &&
+            liveDocumentAllowed(details.requestingUrl, window.document) &&
+            liveDocumentAllowed(contents.mainFrame.url, window.document)
+        );
+    };
     // The default session previously used Electron's default grant behavior.
     // Change only media capture; browser and HTML-preview profiles keep their own handlers.
     // Screen capture used to arrive as `media` without an audio track and was denied;
@@ -115,7 +135,8 @@ export async function happyAgentRendererSessionCreate(
         (contents, permission, _origin, details) =>
             permission !== "display-capture" &&
             (permission !== "media" ||
-                (details.mediaType === "audio" && microphoneAllowed(contents, details))),
+                (details.mediaType === "audio" && microphoneAllowed(contents, details)) ||
+                (details.mediaType === "video" && cameraAllowed(contents, details))),
     );
     session.setPermissionRequestHandler((contents, permission, callback, details) => {
         if (permission === "display-capture") {
@@ -127,10 +148,12 @@ export async function happyAgentRendererSessionCreate(
             return;
         }
         const media = details as Electron.MediaAccessPermissionRequest;
+        const types = media.mediaTypes ?? [];
         callback(
-            media.mediaTypes?.length === 1 &&
-                media.mediaTypes[0] === "audio" &&
-                microphoneAllowed(contents, details),
+            (types.length === 1 && types[0] === "audio" && microphoneAllowed(contents, details)) ||
+                (types.includes("video") &&
+                    types.every((type) => type === "video" || type === "audio") &&
+                    cameraAllowed(contents, details)),
         );
     });
     // No DNS lookup or DIRECT fallback for happy-agent. Other origins use the

@@ -52,11 +52,13 @@ const DAY: readonly SidebarItem[] = [
         imageMark: happyIconMark(),
         kind: "project",
         label: "Happy",
-        story: { subtitle: "Two things running" },
+        story: { subtitle: "Two things running", time: "09:12" },
     },
     story("focus", "Focus Agent", "triage", {
         story: {
-            subtitle: "Good morning. What matters today?",
+            subtitle:
+                "Good morning. Three things need you today; the release can't wait past noon.",
+            time: "08:30",
             ring: { total: 1, unseen: 1 },
             signal: "waiting",
         },
@@ -66,12 +68,14 @@ const DAY: readonly SidebarItem[] = [
     story("inline-diffs", "Inline sidebar diffs", "new-feature", {
         story: {
             subtitle: "Shipped — Focus's ideas now show right in the sidebar",
+            time: "Tue",
             ring: { total: 3, unseen: 3 },
         },
     }),
     story("stories", "Stories", "design", {
         story: {
             subtitle: "Testing with a few friends",
+            time: "11:04",
             ring: { total: 4, unseen: 2 },
             signal: "working",
         },
@@ -80,19 +84,31 @@ const DAY: readonly SidebarItem[] = [
     story("ios", "iOS Stem Cells", "app-store-release", {
         story: {
             subtitle: "Ready for a new test build. Send it?",
+            time: "10:47",
             ring: { total: 1, unseen: 1 },
             signal: "waiting",
         },
     }),
     story("x-post", "X post", "marketing", {
-        story: { subtitle: "Draft is ready to read", ring: { total: 2, unseen: 0 } },
+        story: {
+            subtitle: "Draft is ready to read",
+            time: "Mon",
+            ring: { total: 2, unseen: 0 },
+        },
     }),
+    story("launch-list", "Launch checklist", "kanban", { story: {} }),
     heading("chores", "Chores"),
     story("phone", "Phone connection", "debugging", {
-        story: { subtitle: "Making reconnects survive restarts", signal: "working" },
+        story: {
+            subtitle: "Making reconnects survive restarts",
+            time: "11:20",
+            signal: "working",
+        },
     }),
     heading("side-quests", "Side quests"),
-    story("bench", "Agent benchmark", "performance", { story: { subtitle: "Paused" } }),
+    story("bench", "Agent benchmark", "performance", {
+        story: { subtitle: "Paused", time: "12.10" },
+    }),
     story("quiet", "A row whose agent set no status", "wip", { story: {} }),
 ];
 
@@ -119,13 +135,13 @@ function DaySidebar() {
     const [opened, setOpened] = useState("Press a ring or a row");
     return (
         <div data-screen="02-rows" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <DimensionRule label="width 300 · rows 52" />
+            <DimensionRule label="width 300 · rows 64" />
             <div
                 style={{
                     background: "var(--groupped-background)",
                     display: "flex",
                     flexDirection: "column",
-                    height: "760px",
+                    height: "900px",
                     width: "300px",
                 }}
             >
@@ -149,16 +165,75 @@ function DaySidebar() {
     );
 }
 
+const STATUS_LINES = {
+    none: undefined,
+    one: "Running the third pass",
+    two: "Ready for a test build once the last two crash reports are triaged and the changelog is short enough to read in one go",
+} as const;
+const SIGNALS = { idle: undefined, working: "working", waiting: "waiting" } as const;
+
+/*
+ * Every combination a row can be in, one under another: no status, one line
+ * and more than two, each idle, working and waiting, and a Surface with no
+ * agent at all. They are all one height and their names all stand on one line.
+ */
+const STATES: readonly SidebarItem[] = (
+    Object.entries(STATUS_LINES) as [keyof typeof STATUS_LINES, string | undefined][]
+).flatMap(([lines, subtitle]) =>
+    (Object.entries(SIGNALS) as [keyof typeof SIGNALS, "working" | "waiting" | undefined][]).map(
+        ([signal, value]) =>
+            story(`${lines}-${signal}`, `Status ${lines} · ${signal}`, "wip", {
+                story: {
+                    ...(subtitle === undefined ? {} : { subtitle, time: "14:05" }),
+                    ...(value === undefined ? {} : { signal: value }),
+                    ...(lines === "one" ? { ring: { total: 2, unseen: 1 } } : {}),
+                },
+            }),
+    ),
+);
+
+function StatesSidebar() {
+    return (
+        <div
+            data-screen="03-states"
+            style={{
+                background: "var(--groupped-background)",
+                display: "flex",
+                flexDirection: "column",
+                height: "720px",
+                width: "300px",
+            }}
+        >
+            <Sidebar
+                activeItemId=""
+                foldControlPlacement="trailing"
+                onItemSelect={noop}
+                onItemStoryOpen={noop}
+                sections={[
+                    {
+                        id: "states",
+                        items: [
+                            ...STATES,
+                            story("surface", "A Surface, no agent", "notes", { story: {} }),
+                        ],
+                    },
+                ]}
+                style={{ width: "100%" }}
+            />
+        </div>
+    );
+}
+
 export function StoryRingPage() {
     return (
         <ComponentPage
             number={componentNumber}
-            summary="A row's mark grown to 28px inside a 40px story ring: one segment per story, seen ones first in thin grey and unseen ones last in the stories gradient, 3px apart. No stories, no ring, and the box keeps its size. The ring never spins. In the sidebar a story row is two lines — the name and the status its agent set — with one signal in the bottom-right corner: a dot while it waits on you, a quiet bar while it works."
+            summary="A row's mark grown to 38px inside a 48px story ring: one segment per story, seen ones first in thin grey and unseen ones last in the stories gradient, 3px apart. No stories, no ring, and the box keeps its size. The ring never spins. In the sidebar a story row is a messenger's chat row, 64px whatever it says: the name in bold on a first line with the time the status was set at its end, the status under it in up to two muted lines, then an ellipsis, and one signal in the bottom-right corner — a dot while it waits on you, a quiet bar while it works. A hairline from the text column parts two story rows."
             title="Story ring"
         >
             <div className="specimen-grid">
                 <Specimen
-                    detail="Box 40 · mark 28 · ring radius 18.5 · unseen 2px, seen 1.25px, gap 3px"
+                    detail="Box 48 · mark 38 · ring radius 22.75 · unseen 2px, seen 1.5px, gap 3px"
                     label="Segments"
                     number="RG-01"
                     stage="chrome"
@@ -194,6 +269,14 @@ export function StoryRingPage() {
                     stage="app"
                 >
                     <DaySidebar />
+                </Specimen>
+                <Specimen
+                    detail="Status none, one line, past two lines × idle, working, waiting · and a Surface · all 64"
+                    label="Every state, one height"
+                    number="RG-03"
+                    stage="app"
+                >
+                    <StatesSidebar />
                 </Specimen>
             </div>
         </ComponentPage>

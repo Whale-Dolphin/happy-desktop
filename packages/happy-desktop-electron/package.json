@@ -121,8 +121,8 @@
         ],
         "mac": {
             "extendInfo": {
-                "NSCameraUsageDescription": "Happy lets tools you run, such as agents or terminal commands, use your camera when you allow it.",
-                "NSMicrophoneUsageDescription": "Happy uses your microphone for GPT-Live voice conversations when you choose Start."
+                "NSCameraUsageDescription": "Happy uses your camera for round videos you record for stories, and lets tools you run, such as agents or terminal commands, use it when you allow it.",
+                "NSMicrophoneUsageDescription": "Happy uses your microphone for GPT-Live voice conversations when you choose Start, and for the sound of round videos you record for stories."
             },
             "category": "public.app-category.developer-tools",
             "entitlements": "build/entitlements.mac.plist",

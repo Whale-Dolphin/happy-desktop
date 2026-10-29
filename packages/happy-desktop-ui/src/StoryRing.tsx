@@ -19,16 +19,16 @@ export interface StoryRingProps {
 }
 
 /*
- * The geometry is the stories row's, scaled to a 40px box: the ring's centre
- * line 18.5px from the middle, 2px wide while unseen and 1.25px once seen,
- * one segment per story with 3px between them, and the mark 28px across
+ * The geometry is the stories row's, scaled to a 48px box: the ring's centre
+ * line 22.75px from the middle, 2px wide while unseen and 1.5px once seen,
+ * one segment per story with 3px between them, and the mark 38px across
  * inside it, so a row with no ring keeps the same box and its name never
  * moves when a story arrives.
  */
-const STORY_RING_BOX = 40;
-const STORY_RING_RADIUS = 18.5;
+const STORY_RING_BOX = 48;
+const STORY_RING_RADIUS = 22.75;
 const STORY_RING_UNSEEN = 2;
-const STORY_RING_SEEN = 1.25;
+const STORY_RING_SEEN = 1.5;
 const STORY_RING_GAP = 3;
 const STORY_RING_MAX_SEGMENTS = 30;
 
