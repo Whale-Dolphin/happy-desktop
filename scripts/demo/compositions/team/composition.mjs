@@ -40,8 +40,9 @@ export default {
     // Steve's typing plays at 2×: the native driver performs one key touch
     // at a time, and the desktop waits, unchanged, while he types.
     speedUps: [
-        { from: "phone-typing-feedback", to: "phone-sent", rate: 2 },
-        { from: "phone-typing-thanks", to: "phone-thanks", rate: 2 },
+        { from: "phone-typing-approval", to: "phone-sent", rate: 2 },
+        // The offline ship runs for several seconds with nothing new on screen.
+        { from: "changes-cleared", to: "deployed", rate: 2 },
     ],
     captions: [
         { from: 0, text: "Any model: Claude, Codex, Grok, Gemini, and more" },
@@ -57,11 +58,14 @@ export default {
             from: "phone-enter",
             text: "Happy supports *teams*: people join only the work they care about",
         },
-        { from: "phone-typing-feedback", text: "Steve answers *from his phone*" },
-        { from: "narrowed", text: "The agent *fixes it*" },
-        { from: "ship-running", text: "and *ships it*" },
-        { from: "phone-thanks", text: "Steve signs off" },
-        { from: "archiving", text: "Focus *cleans up* when the work is done" },
+        { from: "phone-typing-approval", text: "Steve approves *from his phone*" },
+        { from: "ship-running", text: "and the agent *ships it*" },
+        { from: "routing-typing", text: "Ask about anything in your code" },
+        { from: "diagram-shown", text: "It *draws you* the answer" },
+        {
+            from: "archiving",
+            text: "Finished work *archives itself*. It no longer needs your attention.",
+        },
         { from: "outro", text: "*Stem cells.* For you and your whole team." },
     ],
     // The desktop's hints are drawn in the app itself, at its own resolution;

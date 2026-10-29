@@ -832,49 +832,34 @@ export default {
                 10000,
             );
             await demo.hold(1800);
-            await phoneTypeAndSend(demo, phone, transcript, world.steveFeedback, "feedback");
+            await phoneTypeAndSend(demo, phone, transcript, world.steveApproval, "approval");
             cue("phone-sent", demo, phone);
         } else {
             await steve.sendMessage(recordedAgentId, {
-                text: world.steveFeedback,
+                text: world.steveApproval,
                 mode: { ...world.opusMode, permissionMode: "auto" },
             });
         }
-        steveSent = page.getByText(world.steveFeedback, { exact: true }).last();
+        steveSent = page.getByText(world.steveApproval, { exact: true }).last();
         await steveSent.waitFor({ timeout: 15000 });
-        cue("steve-feedback-visible", demo, phone);
-        const feedback = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
+        cue("steve-approval-visible", demo, phone);
+        const approval = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
             .flatMap((run) => run.messages)
             .findLast((message) => message.role === "user");
-        if (feedback?.metadata?.userId !== loopInEvidence.teammate.userId)
-            throw new Error("Steve's feedback must arrive as Steve.");
+        if (approval?.metadata?.userId !== loopInEvidence.teammate.userId)
+            throw new Error("Steve's approval must arrive as Steve.");
 
-        // ---- The agent narrows the waveform, ships, and tells Steve.
-        await until(demo, () => world.hasReached("narrow", recordedAgentId), "the feedback run");
-        await demo.hold(700);
-        world.release("narrow", recordedAgentId);
-        await until(demo, () => world.hasReached("ship", recordedAgentId), "the narrowed preview");
-        const narrowedContent = page
-            .locator('[data-happy-desktop-ui="inline-page"]')
-            .filter({ hasText: world.narrowedTitle })
-            .last()
-            .locator('[data-happy-desktop-ui="inline-page-content"]');
-        await until(
-            demo,
-            async () => ((await narrowedContent.boundingBox())?.height ?? 0) > 60,
-            "the narrowed waveform to draw inline",
-            20000,
-        );
-        await demo.hold(400);
-        cue("narrowed", demo, phone, await rectOf(narrowedContent));
-        await demo.hold(1800);
+        // ---- The agent ships; Steve's phone leaves as it does.
+        await until(demo, () => world.hasReached("ship", recordedAgentId), "the approval run");
+        await demo.hold(900);
         world.release("ship", recordedAgentId);
         const shell = page
             .locator('[data-happy-desktop-ui="agent-activity-call"]')
-            .filter({ hasText: "Bash" })
+            .filter({ hasText: "Ship to production" })
             .last();
         await shell.waitFor({ timeout: 20000 });
         cue("ship-running", demo, phone);
+        if (phone) cue("phone-exit", demo, phone);
         await until(
             demo,
             async () => (await gym.client.getWorkspaceGit(workspace.id)).git.changedFiles === 0,
@@ -882,62 +867,26 @@ export default {
             60000,
         );
         cue("changes-cleared", demo, phone);
+        if (phone)
+            // Out of frame, Steve goes back to his sidebar.
+            await touch(phone, await phone.inspect("phone-away"), "stem-chat-back");
         await until(
             demo,
             () => world.hasReached("shipped", recordedAgentId),
             "the completed shipping command",
         );
         world.release("shipped", recordedAgentId);
-        const shipped = page.getByText(world.shippedLead.slice(0, 24)).last();
+        const shipped = page.getByText(world.shippedText).filter({ visible: true }).last();
         await shipped.waitFor({ timeout: 60000 });
         await until(demo, () => settled(shipped), "the shipped reply to finish arriving");
         cue("deployed", demo, phone);
-
-        if (phone) {
-            const session = await until(
-                demo,
-                async () => {
-                    const screen = await phone.inspect("phone-shipped");
-                    return (
-                        screen.some(
-                            (item) =>
-                                item.id === "stem-message" &&
-                                item.text?.includes(world.shippedLead.slice(0, 24)),
-                        ) && screen
-                    );
-                },
-                "Steve's phone to show the shipped reply",
-                15000,
-            );
-            await demo.hold(1200);
-            // Simulator screenshots on each side of his reply: evidence the phone
-            // kept drawing, apart from what the screen recording captured.
-            await phone.screenshot("check-shipped");
-            await phoneTypeAndSend(demo, phone, session, world.steveThanks, "thanks");
-            await phone.screenshot("check-thanks-sent");
-            cue("phone-thanks", demo, phone);
-            await demo.hold(1400);
-            cue("phone-exit", demo, phone);
-            // Out of frame, Steve goes back to his sidebar.
-            await demo.hold(1000);
-            await touch(phone, await phone.inspect("phone-away"), "stem-chat-back");
-        } else {
-            await steve.sendMessage(recordedAgentId, {
-                text: world.steveThanks,
-                mode: { ...world.opusMode, permissionMode: "auto" },
-            });
-        }
-        await page.getByText(world.steveThanks, { exact: true }).last().waitFor({ timeout: 15000 });
-        cue("steve-thanks-visible", demo, phone);
-
-        // ---- The owner's Focus hears Steve sign off and archives the shipped work.
         await until(
             demo,
             async () =>
                 (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs.every(
                     (run) => run.status !== "running",
                 ),
-            "the agent's thanks",
+            "the shipping run to settle",
         );
         // The shipped checkout, read before archiving takes its workspace away.
         shippingEvidence = await shippingVerify(gym, workspace.id, {
@@ -947,26 +896,73 @@ export default {
             before: world.logicBefore,
         });
         loopInEvidence.history = await gym.client.getMessages(recordedAgentId, { limit: 64 });
-        await until(demo, () => world.focusHasReached("archive"), "Focus to read Steve's reply");
-        // The person moves on to their next voice work; the shipped row is
-        // still in the sidebar beside it.
-        const next = page
+        // Steve's approval woke the owner's Focus; it reads the conversation
+        // once the agent has answered him.
+        await until(demo, () => world.focusHasReached("read"), "Focus to hear Steve's approval");
+        world.focusRelease("read");
+        await demo.hold(1600);
+
+        // ---- The person moves on: Voice routing, and the architecture of voice.
+        const routing = page
             .locator('[data-happy-desktop-ui="sidebar-item"]')
-            .filter({ hasText: world.seeds[1].title })
+            .filter({ hasText: world.seeds[0].title })
             .first();
         await demo.pointerVisible(true);
-        await demo.click(next, { after: 300 });
-        await page.getByText(world.seeds[1].reply.slice(0, 40)).first().waitFor();
-        // The pointer leaves the sidebar, so only the opened row is highlighted.
-        await demo.moveTo({ x: framing.sidebarWidth + 220, y: viewport.height * 0.6 });
+        await demo.click(routing, { after: 300 });
+        await page.getByText(world.seeds[0].reply.slice(0, 40)).first().waitFor();
+        cue("routing-open", demo, phone);
+        const routingComposer = page
+            .locator('[data-happy-desktop-ui="composer-textarea"]')
+            .filter({ visible: true })
+            .first();
+        await demo.moveTo(routingComposer, { duration: 700 });
+        await demo.click(routingComposer, { after: 150 });
         await demo.pointerVisible(false);
-        cue("moved-on", demo, phone);
+        cue("routing-typing", demo, phone);
+        await demo.type(world.architecturePrompt, { perKey: 52, after: 0 });
+        await demo.hold(400);
+        await demo.press("Enter", { badge: 0, before: 0, after: 200 });
+        cue("routing-asked", demo, phone);
+        await until(demo, () => world.hasReached("diagram"), "the architecture request");
+        await demo.hold(900);
+        world.release("diagram");
+        const diagram = page
+            .locator('[data-happy-desktop-ui="inline-page"]')
+            .filter({ hasText: world.architectureTitle })
+            .last();
+        await diagram.waitFor({ timeout: 20000 });
+        const diagramContent = diagram.locator('[data-happy-desktop-ui="inline-page-content"]');
+        await until(
+            demo,
+            async () => ((await diagramContent.boundingBox())?.height ?? 0) > 200,
+            "the voice diagram to draw inline",
+            20000,
+        );
+        const line = page.getByText(world.architectureLine).filter({ visible: true }).last();
+        await line.waitFor({ timeout: 20000 });
+        await until(demo, () => settled(line), "the diagram's line to finish arriving");
+        cue("diagram-shown", demo, phone, await rectOf(diagramContent));
+        await demo.hold(1200);
+        // The diagram is taller than what stays in view above its line, so the
+        // person scrolls up until all of it is on screen, title included.
+        const diagramTop = (await diagram.boundingBox()).y;
+        await demo.pointerVisible(true);
+        await demo.scroll(diagramContent, diagramTop - 52, { duration: 900, after: 200 });
+        await demo.pointerVisible(false);
+        const shown = await diagram.boundingBox();
+        if (shown.y < 40 || shown.y + shown.height > viewport.height - 150)
+            throw new Error(`The diagram is not wholly in view: ${JSON.stringify(shown)}`);
+        cue("diagram-read", demo, phone, await rectOf(diagramContent));
+        await page.screenshot({ path: join(output, "diagram.png") });
+        // Time to read it.
+        await demo.hold(6000);
+
+        // ---- Focus archives the shipped work, and its row leaves the sidebar.
+        await until(demo, () => world.focusHasReached("archive"), "Focus to read that it shipped");
         const rowPlace = await rectOf(row);
-        await demo.hold(1000);
         cue("archiving", demo, phone, rowPlace);
-        await highlight(row, { text: "Shipped, so Focus archives it", seconds: 1.5 });
-        // The hint is read and gone before the row leaves.
-        await demo.hold(1700);
+        await highlight(row, { seconds: 1.4 });
+        await demo.hold(1500);
         world.focusRelease("archive");
         await until(
             demo,
@@ -981,7 +977,7 @@ export default {
         );
         cue("archived", demo, phone, rowPlace);
         await page.screenshot({ path: join(output, "archived.png") });
-        await demo.hold(2400);
+        await demo.hold(2600);
         cue("outro", demo, phone);
         await demo.hold(3600);
         cue("end", demo, phone);
@@ -1010,9 +1006,11 @@ export default {
                     "Fictional Steve is a real second member. The agent's real list_teammates and notify_teammate tools loop him in; his own Focus answers with its real join_task; his membership carries the looped_in unread mark. His messages are authored by his own token.",
                 steveSidebar:
                     "Steve's Design section and two rows were made off camera through his own client, filed by his Focus the same way.",
-                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera as Steve to this team daemon through its real direct mobile connector. It shows the looped-in row by live sync; Steve opens it and types both replies on the real iOS keyboard.",
+                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera as Steve to this team daemon through its real direct mobile connector. It shows the looped-in row by live sync; Steve opens it and types his approval on the real iOS keyboard.",
                 archive:
-                    "The owner's Focus hears Steve's reply in the owner's work and calls its real archive_shipped_task; the screenplay chooses to.",
+                    "Steve's approval wakes the owner's Focus (a teammate wrote in their work). Once the agent has said Shipped, Focus reads the conversation with its real read_conversations and calls its real archive_shipped_task. The screenplay chooses both calls, gates the read until Shipped exists, and holds the archive until the architecture diagram has been read.",
+                architecture:
+                    "The person's message in Voice routing is real; the screenplay answers it with real create_artifact and write_artifact_file calls. The diagram (voice-architecture.html) was drawn from the happy-agent Live module and happy-desktop gptLive code and reviewed by Grok 4.7.",
                 artifact:
                     "Real create_artifact and write_artifact_file through the daemon; the screenplay writes the page. Browser-local mode has no artifact page host, so the demo patch artifact-site.patch serves the daemon's own artifact files and renders them in an iframe, where Electron uses its own view.",
                 shipping:

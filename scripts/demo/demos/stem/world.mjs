@@ -6,6 +6,7 @@
 // who follows voice work. That teammate is a real second member of a team
 // daemon, with their own Focus, sidebar, and paired phone.
 export * from "../core/world.mjs";
+import { readFileSync } from "node:fs";
 import * as core from "../core/world.mjs";
 import { shipCommand } from "../core/shipping.mjs";
 
@@ -61,12 +62,17 @@ export const opusMode = {
     providerId: "claude",
 };
 export const artifactTitle = "Voice waveform";
-/** The preview after Steve's review, published beside the reply that answers him. */
-export const narrowedTitle = "Voice waveform, five bars";
 
-/** What Steve types on his phone, word for word, and his answer once it ships. */
-export const steveFeedback = "Good, just a bit wide";
-export const steveThanks = "Great!";
+/** What Steve types on his phone, word for word. */
+export const steveApproval = "Looks great, ship it.";
+
+/** What the person asks in the Voice routing row, and the diagram the agent answers with. */
+export const architecturePrompt = "Show me the architecture of voice.";
+export const architectureTitle = "Voice architecture";
+export const architectureLine = "How a spoken request reaches the right conversation.";
+/** The diagram itself, drawn from Happy's voice code; see voice-architecture.html. */
+export const architecturePage = () =>
+    readFileSync(new URL("./voice-architecture.html", import.meta.url), "utf8");
 
 /** The teammate's Happy user ID, read from the daemon before the take. */
 let steveUserId;
@@ -82,10 +88,7 @@ export const loopInText = () =>
     `${loopInLead}\n\n${loopInLine} ${steveMention()}, our design expert.`;
 export const loopInReason =
     "The voice waveform is ready for a design review: it animates while either side speaks.";
-export const narrowLead = "Narrowing it to five bars.";
-export const shippedLead = "Shipped: five bars at most, live on main.";
-export const shippedText = () => `${shippedLead} ${steveMention()}`;
-export const thanksReply = "Thanks for the quick review.";
+export const shippedText = "Shipped.";
 
 /** The page the agent publishes: the waveform itself, speaking and silent. */
 export function artifactPage(bars) {
@@ -258,22 +261,33 @@ async function focusReply(payload) {
         return focusPaced([text("Added Voice waveform for your review.")]);
     }
 
-    // The owner's Focus: the teammate answered in the owner's own work.
+    // The owner's Focus: the teammate answered in the owner's own work. Approval
+    // is not shipping, so it reads the conversation, and archives only once that
+    // reading says the work shipped.
     const teammate = brief.match(/Conversation in (\w+): their teammate Steve wrote in/u);
     if (teammate) {
-        if (!brief.includes(`Steve: ${steveThanks}`))
+        if (!brief.includes(`Steve: ${steveApproval}`))
             return focusPaced([text("Steve is reviewing Voice waveform.")]);
-        if (answered === 0) return focusPaced([tool("list_sidebar", {})]);
+        if (answered === 0) {
+            await focusGate("read");
+            return focusPaced([tool("read_conversations", { ids: [teammate[1]], turns: 2 })]);
+        }
         if (answered === 1) {
+            const read = textOf(
+                messages.slice(briefAt + 1).findLast((message) => message.role !== "assistant") ??
+                    {},
+            );
+            if (!read.includes(shippedText))
+                return focusPaced([text("Steve approved Voice waveform; it has not shipped yet.")]);
             await focusGate("archive");
             return focusPaced([
                 tool("archive_shipped_task", {
                     spaceId: teammate[1],
-                    shipped: "The voice waveform is on main.",
+                    shipped: "The voice waveform is live on main.",
                 }),
             ]);
         }
-        return focusPaced([text("Archived Voice waveform: it shipped and Steve signed off.")]);
+        return focusPaced([text("Archived Voice waveform: it shipped.")]);
     }
 
     const placing = [...brief.matchAll(/New work started in row (\w+)\. Its first message:/gu)]
@@ -363,13 +377,14 @@ export async function reply(payload, emitted) {
         if (seed) return { content: [text(`<title>${seed.title}</title>`)] };
         return undefined;
     }
-    const seed = [...seeds, ...steveSeeds].find((candidate) => input.includes(candidate.message));
-    if (seed && !input.includes(prompt))
-        return focusPaced([text(seed.reply)], { textDeltaDelayMs: 0, completionDelayMs: 0 });
-    if (!input.includes(prompt)) return undefined;
     const last = textOf(messages.findLast((message) => message.role === "user") ?? {}).trim();
-    if (last === steveFeedback) return await feedbackReply(payload, emitted);
-    if (last === steveThanks) return core.paced([text(thanksReply)], { completionDelayMs: 400 });
+    const seed = [...seeds, ...steveSeeds].find((candidate) => input.includes(candidate.message));
+    if (seed && !input.includes(prompt)) {
+        if (last === architecturePrompt) return await architectureReply(payload, emitted);
+        return focusPaced([text(seed.reply)], { textDeltaDelayMs: 0, completionDelayMs: 0 });
+    }
+    if (!input.includes(prompt)) return undefined;
+    if (last === steveApproval) return await approvalReply(payload, emitted);
     return await workReply(payload, emitted);
 }
 
@@ -467,36 +482,14 @@ async function workReply(payload, emitted) {
     return core.paced([text(loopInText())], { textDeltaDelayMs: 900, completionDelayMs: 600 });
 }
 
-/** Steve's feedback from his phone: narrow the waveform, ship it, and tell him. */
-async function feedbackReply(payload, emitted) {
+/** Steve approves from his phone: the agent ships it and says so. */
+async function approvalReply(payload, emitted) {
     const sessionId = payload.options?.sessionId ?? "";
     const messages = payload.context?.messages ?? [];
-    const key = `feedback:${sessionId}`;
+    const key = `approval:${sessionId}`;
     const step = emitted.get(key) ?? 0;
     emitted.set(key, step + 1);
     if (step === 0) {
-        await core.gate(sessionId, "narrow");
-        return core.paced(
-            [
-                text(narrowLead),
-                tool("create_artifact", {
-                    type: "html",
-                    title: narrowedTitle,
-                    display: "inline_expanded",
-                }),
-            ],
-            { textDeltaDelayMs: 500 },
-        );
-    }
-    if (step === 1)
-        return core.paced([
-            tool("write_artifact_file", {
-                artifactId: artifactIdRead(messages),
-                path: "index.html",
-                content: artifactPage(5),
-            }),
-        ]);
-    if (step === 2) {
         await core.gate(sessionId, "ship");
         return core.paced(
             [
@@ -513,5 +506,36 @@ async function feedbackReply(payload, emitted) {
     if (core.shipCommandFailed(messages))
         return core.paced([text(core.shipFailure)], { completionDelayMs: 800 });
     await core.gate(sessionId, "shipped");
-    return core.paced([text(shippedText())], { textDeltaDelayMs: 700, completionDelayMs: 800 });
+    return core.paced([text(shippedText)], { textDeltaDelayMs: 500, completionDelayMs: 600 });
+}
+
+/**
+ * The person asks in Voice routing for the architecture of voice: the agent
+ * answers with the diagram and one line, through the real artifact tools.
+ */
+async function architectureReply(payload, emitted) {
+    const sessionId = payload.options?.sessionId ?? "";
+    const messages = payload.context?.messages ?? [];
+    const key = `architecture:${sessionId}`;
+    const step = emitted.get(key) ?? 0;
+    emitted.set(key, step + 1);
+    if (step === 0) {
+        await core.gate(sessionId, "diagram");
+        return core.paced([
+            tool("create_artifact", {
+                type: "html",
+                title: architectureTitle,
+                display: "inline_expanded",
+            }),
+        ]);
+    }
+    if (step === 1)
+        return core.paced([
+            tool("write_artifact_file", {
+                artifactId: artifactIdRead(messages),
+                path: "index.html",
+                content: architecturePage(),
+            }),
+        ]);
+    return core.paced([text(architectureLine)], { textDeltaDelayMs: 400, completionDelayMs: 400 });
 }
