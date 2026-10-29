@@ -888,6 +888,12 @@ export default {
             duration: 900,
             after: 200,
         });
+        // Into the empty strip under the composer, where no row arrives to light
+        // up as hovered while the pointer is hidden.
+        await demo.moveTo(
+            { x: framing.sidebarWidth + 420, y: viewport.height - 6 },
+            { duration: 500 },
+        );
         await demo.pointerVisible(false);
 
         // ---- Then it ships; Steve's phone leaves as it does.

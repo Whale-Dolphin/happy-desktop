@@ -66,7 +66,7 @@ export default {
             text: "Finished work *archives itself*. It no longer needs your attention.",
         },
         { from: "create-clicked", text: "*Stem cells* for you and your team." },
-        { from: "outro", text: "*Go divide and conquer.*" },
+        { from: "outro", text: "*Go divide and conquer* :D" },
     ],
     // The desktop's hints are drawn in the app itself, at its own resolution;
     // only the phone's, which the app cannot draw on, is laid on here.
