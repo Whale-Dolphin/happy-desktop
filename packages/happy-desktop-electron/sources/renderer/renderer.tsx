@@ -70,6 +70,7 @@ import {
     type HappyAgentModelPreferencePersistence,
     type HappyAgentSessionId,
     happyOnboardingStoreCreate,
+    happyOnboardingStoreNoop,
     type HappyOnboardingStore,
 } from "happy-desktop-state";
 import {
@@ -744,12 +745,14 @@ function DesktopRenderer(props: DesktopRendererProps) {
         props.appearance.get,
         props.appearance.get,
     );
+    const conversationCarried = useHappyOnboardingCarried(props.happyOnboarding);
     // A first launch opens on the welcome itself. It needs nothing from the
     // machine, so it is not held behind the boot cover while the main process
     // works out what this machine still owes. Entering setup acknowledges it and
     // enables the renderer-owned automatic download and launch. A preview's
-    // first run is Happy's chat instead, which acknowledges it when it is over.
-    if (!welcome.welcomeAcknowledged && !props.happyOnboarding)
+    // first run is Happy's chat instead, which acknowledges it when it is over;
+    // a Happy Agent that does not run that chat gets the welcome after all.
+    if (!welcome.welcomeAcknowledged && !conversationCarried)
         return (
             <WelcomeScreen
                 appearance={appearance.mode}
@@ -932,8 +935,20 @@ function DesktopScreens(props: DesktopRendererProps) {
     );
 }
 
+/**
+ * Whether Happy's first conversation carries first run in this window: a
+ * preview's, unless this machine's Happy Agent does not run it, when the
+ * window's own welcome and setup take its place.
+ */
+function useHappyOnboardingCarried(happyOnboarding: HappyOnboardingStore | undefined): boolean {
+    const store = happyOnboarding ?? happyOnboardingStoreNoop;
+    const onboarding = useSyncExternalStore(store.subscribe, store.get, store.get);
+    return happyOnboarding !== undefined && onboarding.status !== "unsupported";
+}
+
 function DesktopLocalScreens(props: DesktopRendererProps) {
     const snapshot = useSyncExternalStore(props.store.subscribe, props.store.get, props.store.get);
+    const conversationCarried = useHappyOnboardingCarried(props.happyOnboarding);
     const hostedUpdate = useSyncExternalStore(
         props.localWebUpdate.subscribe,
         props.localWebUpdate.get,
@@ -965,7 +980,7 @@ function DesktopLocalScreens(props: DesktopRendererProps) {
                 experiments={props.experiments}
                 platform={props.platform}
                 store={props.onboarding}
-                conversationCarried={props.happyOnboarding !== undefined}
+                conversationCarried={conversationCarried}
             >
                 {content}
             </DesktopOnboardingGate>
@@ -1736,6 +1751,17 @@ if (mediaPreviewBridge) {
                   );
         if (happyOnboarding) {
             appDisposers.push(() => happyOnboarding.dispose());
+            // A Happy Agent without onboarding of its own falls back to the
+            // welcome and setup. Once the person has entered them, an update
+            // that brings onboarding must not start it over the setup they chose.
+            const fallbackFollow = () => {
+                if (
+                    welcome.get().welcomeAcknowledged &&
+                    happyOnboarding.get().status === "unsupported"
+                )
+                    happyOnboarding.dispose();
+            };
+            appDisposers.push(welcome.subscribe(fallbackFollow));
             // Setting the machine up starts with the conversation, not after it.
             onboardingStore.agentSetupBegin();
             // Spaces, stem cells and Focus run on Stem Cells; the stories

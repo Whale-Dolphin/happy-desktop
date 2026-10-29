@@ -24,8 +24,9 @@ import {
 export type HappyOnboardingSnapshot = {
     /**
      * `waiting` until this machine's Happy Agent answers; `running` while
-     * onboarding goes on in Happy's chat; `unsupported` for a Happy Agent that
-     * does not run it; `finished` once it is over.
+     * onboarding goes on in Happy's chat; `unsupported` while this machine's
+     * Happy Agent does not run it, so the window's own welcome and setup take
+     * its place; `finished` once it is over.
      */
     readonly status: "waiting" | "running" | "unsupported" | "finished";
     /** The sidebar shows the example, from Happy's first message until Start onboarding. */
@@ -52,14 +53,18 @@ export interface HappyOnboardingHost {
      * window has gone there.
      */
     happyOpen(agentId: string): Promise<void>;
-    /** Onboarding is over, or this Happy Agent does not run it. */
+    /** Onboarding in Happy's chat is over. */
     finish(): void;
 }
 
 export interface HappyOnboardingStore {
     get(): HappyOnboardingSnapshot;
     subscribe(listener: () => void): () => void;
-    /** Starts once this machine's Happy Agent answers, or carries on where it stands. */
+    /**
+     * Starts once this machine's Happy Agent answers, or carries on where it
+     * stands. A Happy Agent that does not run onboarding is asked again each
+     * time the window reconnects to it, since an update may have brought it.
+     */
     begin(): void;
     /**
      * Runs a press only the window can, a vendor's page; false for one that
@@ -160,10 +165,16 @@ export function happyOnboardingStoreCreate(host: HappyOnboardingHost): HappyOnbo
     /** Once Happy Agent answers: onboarding begins, or carries on where it stands. */
     const flowBegin = async () => {
         try {
-            if (!(await host.flow.supported())) {
-                /* An older Happy Agent has no onboarding of its own; the window is ordinary. */
-                publish({ status: "unsupported" });
-                host.finish();
+            const supported = await host.flow.supported();
+            if (disposed) return;
+            if (!supported) {
+                /*
+                 * An older Happy Agent has no onboarding of its own. The window
+                 * falls back to its own welcome and setup, and nothing is
+                 * finished, so a Happy Agent that gains onboarding later still
+                 * runs it if the person has not been welcomed by then.
+                 */
+                if (snapshot.status !== "unsupported") publish({ status: "unsupported" });
                 return;
             }
             publish({ status: "running" });
@@ -222,11 +233,20 @@ export function happyOnboardingStoreCreate(host: HappyOnboardingHost): HappyOnbo
             if (begun) return;
             begun = true;
             stops.push(host.providerClis.subscribe(cliSet));
-            let started = false;
+            /* Asked once per connection, until one Happy Agent runs onboarding. */
+            let asking = false;
+            let askedConnected = false;
             const readyFollow = () => {
-                if (started || !host.ready.get()) return;
-                started = true;
-                void flowBegin();
+                const ready = host.ready.get();
+                if (!ready) askedConnected = false;
+                if (disposed || asking || askedConnected || !ready) return;
+                if (snapshot.status !== "waiting" && snapshot.status !== "unsupported") return;
+                asking = true;
+                askedConnected = true;
+                void flowBegin().finally(() => {
+                    asking = false;
+                    readyFollow();
+                });
             };
             stops.push(host.ready.subscribe(readyFollow));
             readyFollow();
