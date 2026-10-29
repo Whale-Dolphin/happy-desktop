@@ -5,22 +5,22 @@ import {
     type ProjectsVisibilityCacheDocument,
 } from "./projectsVisibilityStore.js";
 
-it("starts hidden, shows at once for every subscriber, and writes only the change", () => {
+it("starts shown, hides at once for every subscriber, and writes only the change", () => {
     const write = vi.fn<(document: ProjectsVisibilityCacheDocument) => void>();
     const store = projectsVisibilityStoreCreate({ persistence: { read: () => undefined, write } });
     const listener = vi.fn();
     store.subscribe(listener);
-    expect(projectsVisibilityConnection(store.get(), "local").projectsHidden).toBe(true);
-
-    store.projectsHiddenUpdate("local", false);
     expect(projectsVisibilityConnection(store.get(), "local").projectsHidden).toBe(false);
+
+    store.projectsHiddenUpdate("local", true);
+    expect(projectsVisibilityConnection(store.get(), "local").projectsHidden).toBe(true);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledWith({
-        connections: { local: expect.objectContaining({ device: { projectsHidden: false } }) },
+        connections: { local: expect.objectContaining({ device: { projectsHidden: true } }) },
     });
 
     // Saying the same thing again changes nothing.
-    store.projectsHiddenUpdate("local", false);
+    store.projectsHiddenUpdate("local", true);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledTimes(1);
 });
@@ -30,13 +30,13 @@ it("reads the stored choice back, and treats a malformed or refused record as no
         projectsVisibilityConnection(
             projectsVisibilityStoreCreate({
                 persistence: {
-                    read: () => ({ connections: { local: { device: { projectsHidden: false } } } }),
+                    read: () => ({ connections: { local: { device: { projectsHidden: true } } } }),
                     write: () => undefined,
                 },
             }).get(),
             "local",
         ).projectsHidden,
-    ).toBe(false);
+    ).toBe(true);
     expect(
         projectsVisibilityConnection(
             projectsVisibilityStoreCreate({
@@ -47,7 +47,7 @@ it("reads the stored choice back, and treats a malformed or refused record as no
             }).get(),
             "local",
         ).projectsHidden,
-    ).toBe(true);
+    ).toBe(false);
     const refused = projectsVisibilityStoreCreate({
         persistence: {
             read: () => {
@@ -58,7 +58,7 @@ it("reads the stored choice back, and treats a malformed or refused record as no
             },
         },
     });
-    expect(projectsVisibilityConnection(refused.get(), "local").projectsHidden).toBe(true);
-    refused.projectsHiddenUpdate("local", false);
     expect(projectsVisibilityConnection(refused.get(), "local").projectsHidden).toBe(false);
+    refused.projectsHiddenUpdate("local", true);
+    expect(projectsVisibilityConnection(refused.get(), "local").projectsHidden).toBe(true);
 });
