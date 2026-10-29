@@ -1143,6 +1143,10 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
                 hasMore: hasMore.get(agentId) ?? false,
             };
         },
+        async getAgentDraft(agentId: string, ...rest: unknown[]) {
+            await record("getAgentDraft", [agentId, ...rest]);
+            return { draft: drafts.get(agentId) ?? { value: null, updatedAt: null } };
+        },
         async getAgentBootstrap(agentId: string, ...rest: unknown[]) {
             await record("getAgentBootstrap", [agentId, ...rest]);
             const history = historyOf(agentId);

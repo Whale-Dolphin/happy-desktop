@@ -339,7 +339,6 @@ import {
     type HappyAgentSidebarProposalsStore,
     happyAgentSpaceNewWorkIs,
     happyAgentConversationContent,
-    type HappyAgentConversationContent,
 } from "happy-desktop-state";
 import { HappyAgentSidebarProposal } from "./components/HappyAgentSidebarProposal";
 import {
@@ -3861,8 +3860,9 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             happyAgentSpaceHappyIs(space, spacesPlaces),
         );
         // New work open with nothing sent or drafted is what Create would
-        // make, so it stays the one rather than gaining a twin. Asked for in
-        // another section, it is left, which closes it, for new work there.
+        // make, so the reader stays in it, whichever heading's `+` they used.
+        // Holding something, it is noted as such before Create looks for
+        // empty new work, since its draft may not have reached the daemon.
         const workspace = active.session?.workspace;
         const openWork =
             props.chatId === undefined
@@ -3875,14 +3875,16 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             openWork !== undefined &&
             props.chatId !== undefined &&
             workspace !== undefined &&
-            happyAgentSpaceNewWorkIs(openWork) &&
-            (sectionId === null || openWork.sectionId === sectionId) &&
-            happyAgentConversationContent(
+            happyAgentSpaceNewWorkIs(openWork)
+        ) {
+            const content = happyAgentConversationContent(
                 workspace.get().conversation,
                 props.chatId as HappyAgentSessionId,
-            ) !== "started"
-        )
-            return;
+            );
+            if (content !== undefined && content !== "started") return;
+            if (content === "started") spacesStore.stemCellContentUpdate(props.chatId, content);
+        }
+        // Otherwise empty new work anywhere is gone to as it is, or new work is made.
         const creation = spacesStore.stemCellCreate(sectionId, happySpace?.id ?? null);
         const open = (cell: HappyAgentStemCell): void => {
             spacesStore.happyFocusUpdate(false);
@@ -4098,13 +4100,18 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             happySpace.target.agentId === sessionId
                 ? happyAgentSpacesNotes(spaces.batches)
                 : undefined,
-        newWorkDiscard: (sessionId, content) => {
+        newWorkLeave: (sessionId) => {
             const space = spaceOfChat(sessionId);
-            if (space === undefined || !spacesStore.stemCellLeave(sessionId, content)) return false;
-            // Closing is leaving: the reader goes back to where they were
-            // before Create at once, not once the daemon has answered.
-            if (active && space.target.workspaceId !== null)
-                props.onGroupClose?.(active.id, space.target.workspaceId);
+            if (
+                !active ||
+                space === undefined ||
+                !happyAgentSpaceNewWorkIs(space) ||
+                space.target.workspaceId === null
+            )
+                return false;
+            // Its tab closes and the reader goes back to where they were
+            // before it; the new work itself stays, for Create to come back to.
+            props.onGroupClose?.(active.id, space.target.workspaceId);
             return true;
         },
     };
@@ -6888,11 +6895,11 @@ interface HappyAgentWorkspaceSpaces {
     /** Bookkeeping a conversation reads as one-line summaries, such as Happy's sidebar batches. */
     chatNotes(sessionId: string): ReadonlyMap<string, ConversationNote> | undefined;
     /**
-     * Closes the chat when it is new work nobody has named yet that holds
-     * nothing, as `stemCellLeave` decides from `content`, and takes the reader
-     * back to where they were before it. Says whether it closed.
+     * Closes the tab of new work nobody has named yet, taking the reader back
+     * to where they were before it, and says whether it was new work. The
+     * work stays: nothing is removed or archived.
      */
-    newWorkDiscard(sessionId: string, content: HappyAgentConversationContent): boolean;
+    newWorkLeave(sessionId: string): boolean;
 }
 
 /**
@@ -7444,14 +7451,9 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
             props.workspace.get().conversation,
             tabId as HappyAgentSessionId,
         );
-        // New work holding nothing closes before the task behind it is even
-        // known to be archivable: there is nothing in it to ask about.
-        if (
-            content !== undefined &&
-            content !== "started" &&
-            happyAgentOnline() &&
-            props.spaces?.newWorkDiscard(tabId, content)
-        )
+        // New work holding nothing is only left: it stays for Create to come
+        // back to, and there is nothing in it to archive.
+        if (content !== undefined && content !== "started" && props.spaces?.newWorkLeave(tabId))
             return;
         const archive = conversationArchiveTargetFind(tabId);
         if (!archive) {

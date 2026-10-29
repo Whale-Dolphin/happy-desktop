@@ -220,16 +220,29 @@ export interface HappyAgentSpacesStore {
     get(): HappyAgentSpacesSnapshot;
     subscribe(listener: () => void): () => void;
     /**
-     * Makes new work right after a section or separator, or for `null` right
-     * after Happy's row (`happySpaceId`, which the window knows by its bot).
-     * On a daemon that takes this window's names for it, the row and its
-     * conversation exist here at once and the daemon is told after; otherwise
-     * they exist once the daemon has made them.
+     * New work to go to: new work that holds nothing, wherever it is in the
+     * sidebar, or else new work made right after a section or separator, or
+     * for `null` right after Happy's row (`happySpaceId`, which the window
+     * knows by its bot). There is never more than one empty new work, so a
+     * Create while any is being made or found answers with that one.
+     *
+     * Made here, on a daemon that takes this window's names for it, the row
+     * and its conversation exist at once and the daemon is told after;
+     * otherwise they exist once the daemon has made them. Whether existing new
+     * work holds nothing is read from the daemon, unless this window last saw
+     * it holding something (`stemCellContentUpdate`).
      */
     stemCellCreate(
         sectionId: string | null,
         happySpaceId: string | null,
     ): HappyAgentStemCellCreation;
+    /**
+     * What the person left a conversation holding, as this window saw it.
+     * New work left `started` is not gone back to as empty: its draft may not
+     * have reached the daemon yet, and an attachment never does. Nothing is
+     * removed or archived for any content.
+     */
+    stemCellContentUpdate(agentId: string, content: HappyAgentConversationContent): void;
     /** Puts away the note that new work could not be made. */
     stemCellErrorDismiss(): void;
     /** Moves a row after another in a section, or first for `null`. */
@@ -248,21 +261,12 @@ export interface HappyAgentSpacesStore {
     /** Asks the manager to tidy now; its batch applies as soon as it is done. */
     tidyRequest(): void;
     /**
-     * Closes new work nobody started: the row leaves the sidebar at once, and
-     * the daemon removes it and archives its empty chat. The daemon refuses
-     * once the chat has any message, and only that refusal brings the row back.
-     * The caller asks only of new work it knows holds nothing, sent or drafted.
+     * Closes new work nobody started, when the person asks to: the daemon
+     * removes the row and its empty chat, and refuses once the chat has any
+     * message, which leaves it alone. Nothing but an explicit close calls this;
+     * opening, leaving or selecting a row never does.
      */
     stemCellDiscard(spaceId: HappyAgentSpaceId): void;
-    /**
-     * The person left a conversation, holding what it was found to hold. New
-     * work nobody has named yet goes, as `stemCellDiscard` closes it, when it
-     * is `empty`; and when it is `unread`, nothing typed or sent here while
-     * its transcript was still on its way, only if this window made it and it
-     * was never left holding anything. Says whether it went. Anything else
-     * stays, and new work left `started` is never closed as `unread` again.
-     */
-    stemCellLeave(agentId: string, content: HappyAgentConversationContent): boolean;
     /**
      * Shows the name the person just gave a row's task or bot, whose rename is
      * on its way: the row and its tab wear it at once and keep it through any
@@ -436,46 +440,8 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         return { proposal: next, proposalSeen: proposalSeenOf(next) };
     };
 
-    /**
-     * New work taken out of the sidebar, by space, as it was last heard of. It
-     * stays out whatever a read or an event still says about it: while the
-     * daemon is asked, and after it has agreed. A refusal puts it back.
-     */
-    const discarded = new Map<HappyAgentSpaceId, HappyAgentSpace>();
-    /** New work being made, until the daemon has answered for it. */
-    const creations = new Map<
-        string,
-        {
-            readonly placement: {
-                readonly sectionId: string | null;
-                readonly happySpaceId: string | null;
-            };
-            readonly creation: HappyAgentStemCellCreation;
-        }
-    >();
-    /**
-     * New work this window made and nobody has left holding anything: what is
-     * in it is only what was typed or sent here, so leaving it before its
-     * transcript is read still leaves it empty.
-     */
-    const fresh = new Set<string>();
-    /** New work the daemon has taken out; a late refusal does not bring it back. */
-    const removed = new Set<string>();
-    const discardedOut = (next: SpacesPatch): SpacesPatch => {
-        if (next.spaces === undefined || discarded.size === 0) return next;
-        let spaces: Map<HappyAgentSpaceId, HappyAgentSpace> | undefined;
-        for (const spaceId of discarded.keys()) {
-            const space = next.spaces.get(spaceId);
-            if (space === undefined) continue;
-            discarded.set(spaceId, space);
-            spaces ??= new Map(next.spaces);
-            spaces.delete(spaceId);
-        }
-        return spaces === undefined ? next : { ...next, spaces };
-    };
-
     const publish = (next: Partial<HappyAgentSpacesSnapshot>): void => {
-        snapshot = { ...snapshot, ...discardedOut(next) };
+        snapshot = { ...snapshot, ...next };
         for (const listener of listeners) listener();
     };
 
@@ -742,7 +708,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     sections: sectionsOrdered(response.sections.map(sectionOf)),
                 };
                 const taken = sidebar !== undefined && sidebarAnswerTake(sidebar, next);
-                snapshot = { ...snapshot, ...discardedOut(next) };
+                snapshot = { ...snapshot, ...next };
                 for (const event of pending) eventApply(event, false);
                 publish({});
                 batchesLoad(active.signal);
@@ -810,7 +776,6 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                 break;
             case "space.removed": {
                 const spaceId = event.payload.spaceId as HappyAgentSpaceId;
-                removed.add(spaceId);
                 if (snapshot.spaces.has(spaceId)) {
                     const spaces = new Map(snapshot.spaces);
                     spaces.delete(spaceId);
@@ -907,7 +872,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             }
         }
         if (announce) publish(next);
-        else snapshot = { ...snapshot, ...discardedOut(next) };
+        else snapshot = { ...snapshot, ...next };
     };
 
     const start = (): void => {
@@ -1117,6 +1082,208 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         });
     };
 
+    /** New work being made or looked for, which every Create meanwhile answers with. */
+    let pending: HappyAgentStemCellCreation | undefined;
+    /** What this window last saw new work holding when it was left, by its conversation. */
+    const contents = new Map<string, HappyAgentConversationContent>();
+    const stemCellOf = (space: HappyAgentSpace): HappyAgentStemCell | undefined =>
+        space.target.kind === "task" &&
+        space.target.agentId !== null &&
+        space.target.workspaceId !== null
+            ? { space, agentId: space.target.agentId, workspaceId: space.target.workspaceId }
+            : undefined;
+    /** Whether the daemon holds nothing for new work: no message sent or waiting, no drafted words. */
+    const stemCellEmptyRead = async (cell: HappyAgentStemCell): Promise<boolean> => {
+        try {
+            const [history, agent] = await Promise.all([
+                deps.client.getMessages(cell.agentId, { limit: 1 }, { signal: life.signal }),
+                deps.client.getAgentBootstrap(cell.agentId, { signal: life.signal }),
+            ]);
+            return (
+                history.runs.length === 0 &&
+                agent.pending.length === 0 &&
+                agent.agent.status === "idle" &&
+                agent.agent.archivedAt === null &&
+                (agent.draft.value?.text.trim() ?? "") === ""
+            );
+        } catch {
+            // Not known to be empty, so not gone back to.
+            return false;
+        }
+    };
+    /**
+     * The empty new work to go to instead of making more, nearest first: in the
+     * section asked for, then the newest anywhere else.
+     */
+    const stemCellEmptyFind = async (
+        sectionId: string | null,
+    ): Promise<HappyAgentStemCell | undefined> => {
+        const candidates = [...snapshot.spaces.values()]
+            .filter((space) => happyAgentSpaceNewWorkIs(space))
+            .flatMap((space) => {
+                const cell = stemCellOf(space);
+                return cell !== undefined && contents.get(cell.agentId) !== "started" ? [cell] : [];
+            })
+            .sort(
+                (left, right) =>
+                    Number(right.space.sectionId === sectionId) -
+                        Number(left.space.sectionId === sectionId) ||
+                    right.space.createdAt - left.space.createdAt,
+            );
+        for (const cell of candidates) {
+            if (!(await stemCellEmptyRead(cell))) continue;
+            // Still new work, and still listed, once the daemon has answered.
+            const space = snapshot.spaces.get(cell.space.id);
+            if (space !== undefined && happyAgentSpaceNewWorkIs(space)) return stemCellOf(space);
+        }
+        return undefined;
+    };
+
+    const stemCellMake = (
+        placeSectionId: string | null,
+        happySpaceId: string | null,
+    ): HappyAgentStemCellCreation => {
+        const id = idCreate() as HappyAgentSpaceId;
+        const mutationId = idCreate();
+        const sectionId = placeSectionId as HappyAgentSpaceSectionId | null;
+        const placement = { sectionId: placeSectionId, happySpaceId };
+        // Names the daemon takes are names this window can use before it
+        // answers; one that does not take them names everything itself.
+        const identity: HappyAgentStemCellIdentity | undefined =
+            deps.sync.health()?.capabilities?.stemCellIdentities === true
+                ? { taskId: idCreate(), workspaceId: idCreate(), agentId: idCreate() }
+                : undefined;
+        creating.set(id, placement);
+        // One request under one set of names, repeated until it is heard:
+        // a repeat after a lost answer settles on the work already made.
+        const request = happyAgentSyncRead(
+            life.signal,
+            async (): Promise<CreateStemCellResponse | { readonly refused: unknown }> => {
+                try {
+                    return await deps.client.createStemCell(
+                        { sectionId, id, mutationId, ...identity },
+                        { signal: life.signal },
+                    );
+                } catch (error) {
+                    if (error instanceof HappyAgentApiError && error.status < 500)
+                        return { refused: error };
+                    throw error;
+                }
+            },
+            () => undefined,
+        ).then((response) => {
+            if ("refused" in response) throw response.refused;
+            return response;
+        });
+        let cell: HappyAgentStemCell | undefined;
+        if (identity !== undefined) {
+            // The task is listed before the row, so the row never points
+            // at a conversation the window cannot open.
+            deps.stemCellTaskBegin?.(identity, request);
+            const at = (deps.now ?? Date.now)();
+            const peers = happyAgentSpacesIn(snapshot.spaces, sectionId);
+            const after = peers.findIndex((peer) => peer.id === happySpaceId);
+            let orderKey: string;
+            try {
+                orderKey = orderKeyDecimalBetween(
+                    peers[after]?.orderKey ?? null,
+                    peers[after + 1]?.orderKey ?? null,
+                );
+            } catch {
+                orderKey = peers[after]?.orderKey ?? "";
+            }
+            // Version 0 is older than anything the daemon says about it.
+            const space: HappyAgentSpace = {
+                id,
+                createdAt: at,
+                updatedAt: at,
+                icon: { type: "stem_cell" },
+                orderKey,
+                placement: "pending",
+                sectionId,
+                target: {
+                    kind: "task",
+                    id: identity.taskId,
+                    agentId: identity.agentId,
+                    workspaceId: identity.workspaceId,
+                },
+                title: null,
+                version: 0,
+                visibility: "shown",
+                working: false,
+            };
+            const html = snapshot.sidebar && insert(snapshot.sidebar.html, id, placement);
+            publish({
+                spaces: new Map(snapshot.spaces).set(id, space),
+                ...(html && snapshot.sidebar ? { sidebar: { ...snapshot.sidebar, html } } : {}),
+                agentWorkspaces: new Map(snapshot.agentWorkspaces).set(
+                    identity.agentId,
+                    identity.workspaceId,
+                ),
+                stemCellError: undefined,
+            });
+            cell = { space, agentId: identity.agentId, workspaceId: identity.workspaceId };
+        } else if (snapshot.stemCellError !== undefined) publish({ stemCellError: undefined });
+        const created = request
+            .then(
+                (response): HappyAgentStemCell => {
+                    const space = spaceRead(response.space);
+                    if (disposed)
+                        return {
+                            space,
+                            agentId: response.agent.id,
+                            workspaceId: response.agent.workspaceId,
+                        };
+                    const spaces = new Map(snapshot.spaces);
+                    spaceAdopt(spaces, space);
+                    const html =
+                        snapshot.sidebar && insert(snapshot.sidebar.html, space.id, placement);
+                    publish({
+                        spaces,
+                        ...(html && snapshot.sidebar
+                            ? { sidebar: { ...snapshot.sidebar, html } }
+                            : {}),
+                        agentWorkspaces: new Map(snapshot.agentWorkspaces).set(
+                            response.agent.id,
+                            response.agent.workspaceId,
+                        ),
+                    });
+                    return {
+                        space,
+                        agentId: response.agent.id,
+                        workspaceId: response.agent.workspaceId,
+                    };
+                },
+                (error: unknown) => {
+                    const failure = happyAgentUserError(error);
+                    if (!disposed && !life.signal.aborted) {
+                        // The row this window showed goes, and the
+                        // document is read back without it.
+                        const spaces = new Map(snapshot.spaces);
+                        if (spaces.get(id)?.version === 0) spaces.delete(id);
+                        sidebarStale = true;
+                        publish({
+                            spaces,
+                            stemCellError: new UserError(
+                                `New work could not be made. ${failure.message}`,
+                                failure.code,
+                                failure,
+                            ),
+                        });
+                    }
+                    throw failure;
+                },
+            )
+            .finally(() => {
+                creating.delete(id);
+                if (creating.size === 0 && sidebarStale) {
+                    sidebarStale = false;
+                    sidebarLoad();
+                }
+            });
+        return { ...(cell === undefined ? {} : { cell }), created };
+    };
+
     const store: HappyAgentSpacesStore = {
         get: () => snapshot,
         subscribe(listener) {
@@ -1128,162 +1295,36 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             };
         },
         stemCellCreate(placeSectionId, happySpaceId) {
-            // Asked again for the same place while the daemon is still making
-            // it, the answer is the work already on its way, not a twin.
-            for (const [pendingId, pending] of creations)
-                if (
-                    !discarded.has(pendingId as HappyAgentSpaceId) &&
-                    pending.placement.sectionId === placeSectionId &&
-                    pending.placement.happySpaceId === happySpaceId
-                )
-                    return pending.creation;
-            const id = idCreate() as HappyAgentSpaceId;
-            const mutationId = idCreate();
-            const sectionId = placeSectionId as HappyAgentSpaceSectionId | null;
-            const placement = { sectionId: placeSectionId, happySpaceId };
-            // Names the daemon takes are names this window can use before it
-            // answers; one that does not take them names everything itself.
-            const identity: HappyAgentStemCellIdentity | undefined =
-                deps.sync.health()?.capabilities?.stemCellIdentities === true
-                    ? { taskId: idCreate(), workspaceId: idCreate(), agentId: idCreate() }
-                    : undefined;
-            creating.set(id, placement);
-            // One request under one set of names, repeated until it is heard:
-            // a repeat after a lost answer settles on the work already made.
-            const request = happyAgentSyncRead(
-                life.signal,
-                async (): Promise<CreateStemCellResponse | { readonly refused: unknown }> => {
-                    try {
-                        return await deps.client.createStemCell(
-                            { sectionId, id, mutationId, ...identity },
-                            { signal: life.signal },
-                        );
-                    } catch (error) {
-                        if (error instanceof HappyAgentApiError && error.status < 500)
-                            return { refused: error };
-                        throw error;
-                    }
-                },
-                () => undefined,
-            ).then((response) => {
-                if ("refused" in response) throw response.refused;
-                return response;
+            if (pending !== undefined) return pending;
+            const settle = <T>(promise: Promise<T>): Promise<T> =>
+                promise.finally(() => {
+                    if (pending === creation) pending = undefined;
+                });
+            // Nothing that could be empty: made at once, as it always was.
+            const anyCandidate = [...snapshot.spaces.values()].some((space) => {
+                const cell = happyAgentSpaceNewWorkIs(space) ? stemCellOf(space) : undefined;
+                return cell !== undefined && contents.get(cell.agentId) !== "started";
             });
-            let cell: HappyAgentStemCell | undefined;
-            if (identity !== undefined) {
-                // The task is listed before the row, so the row never points
-                // at a conversation the window cannot open.
-                deps.stemCellTaskBegin?.(identity, request);
-                const at = (deps.now ?? Date.now)();
-                const peers = happyAgentSpacesIn(snapshot.spaces, sectionId);
-                const after = peers.findIndex((peer) => peer.id === happySpaceId);
-                let orderKey: string;
-                try {
-                    orderKey = orderKeyDecimalBetween(
-                        peers[after]?.orderKey ?? null,
-                        peers[after + 1]?.orderKey ?? null,
-                    );
-                } catch {
-                    orderKey = peers[after]?.orderKey ?? "";
-                }
-                // Version 0 is older than anything the daemon says about it.
-                const space: HappyAgentSpace = {
-                    id,
-                    createdAt: at,
-                    updatedAt: at,
-                    icon: { type: "stem_cell" },
-                    orderKey,
-                    placement: "pending",
-                    sectionId,
-                    target: {
-                        kind: "task",
-                        id: identity.taskId,
-                        agentId: identity.agentId,
-                        workspaceId: identity.workspaceId,
-                    },
-                    title: null,
-                    version: 0,
-                    visibility: "shown",
-                    working: false,
-                };
-                const html = snapshot.sidebar && insert(snapshot.sidebar.html, id, placement);
-                publish({
-                    spaces: new Map(snapshot.spaces).set(id, space),
-                    ...(html && snapshot.sidebar ? { sidebar: { ...snapshot.sidebar, html } } : {}),
-                    agentWorkspaces: new Map(snapshot.agentWorkspaces).set(
-                        identity.agentId,
-                        identity.workspaceId,
+            let creation: HappyAgentStemCellCreation;
+            if (!anyCandidate) {
+                const made = stemCellMake(placeSectionId, happySpaceId);
+                creation = { ...made, created: settle(made.created) };
+            } else {
+                // Asked of the daemon first; a creation only when none is empty.
+                creation = {
+                    created: settle(
+                        stemCellEmptyFind(placeSectionId).then(
+                            (found) => found ?? stemCellMake(placeSectionId, happySpaceId).created,
+                        ),
                     ),
-                    stemCellError: undefined,
-                });
-                cell = { space, agentId: identity.agentId, workspaceId: identity.workspaceId };
-            } else if (snapshot.stemCellError !== undefined) publish({ stemCellError: undefined });
-            const created = request
-                .then(
-                    (response): HappyAgentStemCell => {
-                        const space = spaceRead(response.space);
-                        if (disposed)
-                            return {
-                                space,
-                                agentId: response.agent.id,
-                                workspaceId: response.agent.workspaceId,
-                            };
-                        const spaces = new Map(snapshot.spaces);
-                        spaceAdopt(spaces, space);
-                        const html =
-                            snapshot.sidebar && insert(snapshot.sidebar.html, space.id, placement);
-                        publish({
-                            spaces,
-                            ...(html && snapshot.sidebar
-                                ? { sidebar: { ...snapshot.sidebar, html } }
-                                : {}),
-                            agentWorkspaces: new Map(snapshot.agentWorkspaces).set(
-                                response.agent.id,
-                                response.agent.workspaceId,
-                            ),
-                        });
-                        return {
-                            space,
-                            agentId: response.agent.id,
-                            workspaceId: response.agent.workspaceId,
-                        };
-                    },
-                    (error: unknown) => {
-                        const failure = happyAgentUserError(error);
-                        fresh.delete(id);
-                        if (!disposed && !life.signal.aborted) {
-                            // The row this window showed goes, and the
-                            // document is read back without it.
-                            const spaces = new Map(snapshot.spaces);
-                            if (spaces.get(id)?.version === 0) spaces.delete(id);
-                            sidebarStale = true;
-                            publish({
-                                spaces,
-                                stemCellError: new UserError(
-                                    `New work could not be made. ${failure.message}`,
-                                    failure.code,
-                                    failure,
-                                ),
-                            });
-                        }
-                        throw failure;
-                    },
-                )
-                .finally(() => {
-                    creations.delete(id);
-                    creating.delete(id);
-                    if (creating.size === 0 && sidebarStale) {
-                        sidebarStale = false;
-                        sidebarLoad();
-                    }
-                });
-            const creation: HappyAgentStemCellCreation = {
-                ...(cell === undefined ? {} : { cell }),
-                created,
-            };
-            creations.set(id, { placement, creation });
-            fresh.add(id);
+                };
+            }
+            pending = creation;
+            void creation.created.catch(() => undefined);
             return creation;
+        },
+        stemCellContentUpdate(agentId, content) {
+            contents.set(agentId, content);
         },
         stemCellErrorDismiss() {
             if (snapshot.stemCellError !== undefined) publish({ stemCellError: undefined });
@@ -1445,68 +1486,25 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             });
         },
         stemCellDiscard(spaceId) {
-            const space = snapshot.spaces.get(spaceId);
-            if (space === undefined || discarded.has(spaceId)) return;
-            // Gone from the sidebar at once; only the daemon's refusal brings it back.
-            discarded.set(spaceId, space);
-            fresh.delete(spaceId);
-            publish({ spaces: snapshot.spaces });
             const mutationId = idCreate();
-            const refused = (): void => {
-                const held = discarded.get(spaceId);
-                discarded.delete(spaceId);
-                if (disposed || held === undefined || removed.has(spaceId)) return;
-                if (!snapshot.spaces.has(spaceId))
-                    publish({ spaces: new Map(snapshot.spaces).set(spaceId, held) });
-                // What the daemon kept is read back rather than assumed.
-                void load();
-            };
-            // New work this window is still making is removed once it exists.
-            void (creations.get(spaceId)?.creation.created ?? Promise.resolve())
-                .then(
-                    () =>
-                        happyAgentSyncRead(
-                            life.signal,
-                            async () => {
-                                try {
-                                    await deps.client.removeSpace(spaceId, {
-                                        mutationId,
-                                        signal: life.signal,
-                                    });
-                                    return true;
-                                } catch (error) {
-                                    // Unknown to the daemon: already gone.
-                                    if (error instanceof HappyAgentApiError && error.status === 404)
-                                        return true;
-                                    // A chat that has a message is real work and stays.
-                                    if (error instanceof HappyAgentApiError && error.status < 500)
-                                        return false;
-                                    throw error;
-                                }
-                            },
-                            () => undefined,
-                        ),
-                    // Never made: the row went with the refusal to make it.
-                    () => true,
-                )
-                .then((gone) => {
-                    if (!gone) refused();
-                })
-                .catch(() => undefined);
-        },
-        stemCellLeave(agentId, content) {
-            for (const space of snapshot.spaces.values()) {
-                if (space.target.kind !== "task" || space.target.agentId !== agentId) continue;
-                if (!happyAgentSpaceNewWorkIs(space)) return false;
-                if (content === "started") {
-                    fresh.delete(space.id);
-                    return false;
-                }
-                if (content === "unread" && !fresh.has(space.id)) return false;
-                store.stemCellDiscard(space.id);
-                return true;
-            }
-            return false;
+            void happyAgentSyncRead(
+                life.signal,
+                async () => {
+                    try {
+                        await deps.client.removeSpace(spaceId, {
+                            mutationId,
+                            signal: life.signal,
+                        });
+                        return undefined;
+                    } catch (error) {
+                        // A chat that has a message is real work and stays.
+                        if (error instanceof HappyAgentApiError && error.status < 500)
+                            return undefined;
+                        throw error;
+                    }
+                },
+                () => undefined,
+            ).catch(() => undefined);
         },
         spaceTitleUpdate(spaceId, title) {
             const current = snapshot.spaces.get(spaceId);
@@ -1550,6 +1548,7 @@ export const happyAgentSpacesStoreNoop: HappyAgentSpacesStore = {
         return { created };
     },
     stemCellErrorDismiss: () => undefined,
+    stemCellContentUpdate: () => undefined,
     spaceMove: () => undefined,
     sectionCollapsedUpdate: () => undefined,
     sectionTailExpandedUpdate: () => undefined,
@@ -1558,7 +1557,6 @@ export const happyAgentSpacesStoreNoop: HappyAgentSpacesStore = {
     proposalSeenRecord: () => undefined,
     tidyRequest: () => undefined,
     stemCellDiscard: () => undefined,
-    stemCellLeave: () => false,
     spaceTitleUpdate: () => undefined,
     spaceTitleWithdraw: () => undefined,
     sidebarWrite: () => undefined,

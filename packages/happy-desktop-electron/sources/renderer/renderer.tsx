@@ -9,7 +9,6 @@ import {
     happyAgentHistoryCreate,
     happyAgentWelcomeSlides,
     happyAgentRouterConversationOpen,
-    happyAgentRouterNewWorkLeave,
     happyAgentRouterGroupOpen,
     happyAgentRouterGroupForget,
     happyAgentRouterSubtasksForget,
@@ -1246,15 +1245,6 @@ if (mediaPreviewBridge) {
         appDisposers.push(() =>
             window.removeEventListener("mouseup", sideButtonWalk, { capture: true }),
         );
-        // Closing the window leaves every conversation open in it, as going to
-        // another row would: new work with nothing sent or drafted goes.
-        const windowLeave = (): void => {
-            const routers = new Set([happyAgentRouter]);
-            for (const ui of connectionUis.values()) routers.add(ui.router);
-            for (const router of routers) happyAgentRouterNewWorkLeave(router);
-        };
-        window.addEventListener("pagehide", windowLeave);
-        appDisposers.push(() => window.removeEventListener("pagehide", windowLeave));
         // Appearance, title motion, and model choices share one durable desktop
         // document. The adapter keeps its current value synchronous so writes
         // from any product store preserve changes already made by the others.

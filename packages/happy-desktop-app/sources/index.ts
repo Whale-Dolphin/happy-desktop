@@ -58,7 +58,6 @@ export {
     happyAgentRouterConversationOpen,
     happyAgentRouterGroupOpen,
     happyAgentRouterWorkspaceVisible,
-    happyAgentRouterNewWorkLeave,
     happyAgentRouterGroupForget,
     happyAgentRouterSubtasksForget,
     happyAgentRouterCreate,

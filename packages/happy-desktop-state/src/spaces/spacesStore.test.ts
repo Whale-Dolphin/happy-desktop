@@ -561,172 +561,97 @@ it("reads the rows and their document together and shows them in one change", as
     }
 });
 
-it("takes new work left with nothing in it out of the sidebar at once, and the daemon closes it", async () => {
+it("goes to empty new work wherever it is instead of making more, and leaves it in place", async () => {
     const daemon = fakeHappyAgentDaemonCreate();
     daemon.healthSet({ stemCellIdentities: true });
     const window = await windowOpen(daemon);
     try {
-        const creation = window.store.stemCellCreate(null, null);
-        const cell = await creation.created;
+        const first = await window.store.stemCellCreate("section-a", null).created;
         await vi.waitFor(() =>
-            expect(window.store.get().spaces.get(cell.space.id)?.version).toBe(1),
+            expect(window.store.get().spaces.get(first.space.id)?.version).toBe(1),
         );
-        const release = daemon.pause("removeSpace");
-        expect(window.store.stemCellLeave(cell.agentId, "empty")).toBe(true);
-        // Gone before the daemon has heard of it.
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
-        await vi.waitFor(() => expect(daemon.callCount("removeSpace")).toBe(1));
-        expect(daemon.calls.find((call) => call.method === "removeSpace")?.args[0]).toBe(
-            cell.space.id,
-        );
-        // Leaving it again asks nothing more.
-        expect(window.store.stemCellLeave(cell.agentId, "empty")).toBe(false);
-        window.store.stemCellDiscard(cell.space.id);
-        release();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(daemon.callCount("removeSpace")).toBe(1);
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
-    } finally {
-        window.close();
-    }
-});
-
-it("puts new work back when the daemon refuses to close it, and reads what it kept", async () => {
-    const daemon = fakeHappyAgentDaemonCreate();
-    daemon.healthSet({ stemCellIdentities: true });
-    const window = await windowOpen(daemon);
-    try {
-        const cell = await window.store.stemCellCreate(null, null).created;
-        await vi.waitFor(() =>
-            expect(window.store.get().spaces.get(cell.space.id)?.version).toBe(1),
-        );
-        // A message the window had not seen yet: the daemon keeps the work.
-        window.connection.sendMessage(cell.agentId, "Hello");
-        await vi.waitFor(() => expect(daemon.callCount("sendMessage")).toBe(1));
-        const reads = daemon.callCount("listSpaces");
-        window.store.stemCellLeave(cell.agentId, "empty");
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
-        await vi.waitFor(() => expect(window.store.get().spaces.has(cell.space.id)).toBe(true));
-        expect(daemon.callCount("removeSpace")).toBe(1);
-        await vi.waitFor(() => expect(daemon.callCount("listSpaces")).toBe(reads + 1));
-    } finally {
-        window.close();
-    }
-});
-
-it("takes a row the daemon no longer knows as gone, and never brings back a removed one", async () => {
-    const daemon = fakeHappyAgentDaemonCreate();
-    daemon.healthSet({ stemCellIdentities: true });
-    const window = await windowOpen(daemon);
-    try {
-        const unknown = await window.store.stemCellCreate(null, null).created;
-        await vi.waitFor(() =>
-            expect(window.store.get().spaces.get(unknown.space.id)?.version).toBe(1),
-        );
-        daemon.failOnce("removeSpace", new HappyAgentApiError(404, "Unknown.", "not_found", null));
-        window.store.stemCellLeave(unknown.agentId, "empty");
-        await vi.waitFor(() => expect(daemon.callCount("removeSpace")).toBe(1));
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(window.store.get().spaces.has(unknown.space.id)).toBe(false);
-
-        // The daemon says it removed the row, then refuses the window's own request.
-        const raced = await window.store.stemCellCreate(null, null).created;
-        await vi.waitFor(() =>
-            expect(window.store.get().spaces.get(raced.space.id)?.version).toBe(1),
-        );
-        const release = daemon.pause("removeSpace");
-        window.store.stemCellLeave(raced.agentId, "empty");
-        daemon.eventEmit("space.removed", { spaceId: raced.space.id });
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        daemon.failOnce(
-            "removeSpace",
-            new HappyAgentApiError(409, "Has a message.", "conflict", null),
-        );
-        release();
-        await vi.waitFor(() => expect(daemon.callCount("removeSpace")).toBe(2));
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(window.store.get().spaces.has(raced.space.id)).toBe(false);
-    } finally {
-        window.close();
-    }
-});
-
-it("closes new work left before the daemon has made it, once it exists", async () => {
-    const daemon = fakeHappyAgentDaemonCreate();
-    daemon.healthSet({ stemCellIdentities: true });
-    const window = await windowOpen(daemon);
-    try {
-        const release = daemon.pause("createStemCell");
-        const creation = window.store.stemCellCreate(null, null);
-        const cell = creation.cell!;
-        // Its transcript is not read yet, but this window made it just now.
-        expect(window.store.stemCellLeave(cell.agentId, "unread")).toBe(true);
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Left with nothing in it: it stays, and nothing asks the daemon to remove it.
+        window.store.stemCellContentUpdate(first.agentId, "empty");
+        expect(window.store.get().spaces.has(first.space.id)).toBe(true);
+        // Create from anywhere, under another heading too, goes to it as it is.
+        const again = window.store.stemCellCreate("section-b", null);
+        expect(again.cell).toBeUndefined();
+        await expect(again.created).resolves.toMatchObject({
+            agentId: first.agentId,
+            space: { id: first.space.id, sectionId: "section-a" },
+        });
+        expect(daemon.callCount("createStemCell")).toBe(1);
         expect(daemon.callCount("removeSpace")).toBe(0);
-        release();
-        await creation.created;
-        await vi.waitFor(() => expect(daemon.callCount("removeSpace")).toBe(1));
-        // The daemon's own row, arriving after, stays out too.
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
     } finally {
         window.close();
     }
 });
 
-it("answers Create again with the new work still being made in the same place", async () => {
+it("makes new work when the existing one holds a message or drafted words", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ stemCellIdentities: true });
+    const window = await windowOpen(daemon);
+    try {
+        const sent = await window.store.stemCellCreate(null, null).created;
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(sent.space.id)?.version).toBe(1),
+        );
+        window.connection.sendMessage(sent.agentId, "Hello");
+        await vi.waitFor(() => expect(daemon.callCount("sendMessage")).toBe(1));
+        const drafted = await window.store.stemCellCreate(null, null).created;
+        expect(drafted.agentId).not.toBe(sent.agentId);
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(drafted.space.id)?.version).toBe(1),
+        );
+        await daemon.client.saveAgentDraft(drafted.agentId, {
+            draft: {
+                text: "A draft",
+                providerId: "p",
+                modelId: "m",
+                effort: "medium",
+                serviceTier: null,
+                permissionMode: "auto",
+            },
+            updatedAt: 5,
+        });
+        const third = await window.store.stemCellCreate(null, null).created;
+        expect([sent.agentId, drafted.agentId]).not.toContain(third.agentId);
+        expect(daemon.callCount("createStemCell")).toBe(3);
+    } finally {
+        window.close();
+    }
+});
+
+it("does not go back to new work this window last saw holding something", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ stemCellIdentities: true });
+    const window = await windowOpen(daemon);
+    try {
+        const first = await window.store.stemCellCreate(null, null).created;
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(first.space.id)?.version).toBe(1),
+        );
+        // An attachment, or words still on their way to the daemon.
+        window.store.stemCellContentUpdate(first.agentId, "started");
+        const second = await window.store.stemCellCreate(null, null).created;
+        expect(second.agentId).not.toBe(first.agentId);
+        expect(window.store.get().spaces.has(first.space.id)).toBe(true);
+    } finally {
+        window.close();
+    }
+});
+
+it("answers Create again with the new work still being made", async () => {
     const daemon = fakeHappyAgentDaemonCreate();
     daemon.healthSet({ stemCellIdentities: true });
     const window = await windowOpen(daemon);
     try {
         const release = daemon.pause("createStemCell");
         const first = window.store.stemCellCreate(null, null);
-        expect(window.store.stemCellCreate(null, null)).toBe(first);
+        expect(window.store.stemCellCreate("elsewhere", null)).toBe(first);
         release();
         await first.created;
         expect(daemon.callCount("createStemCell")).toBe(1);
-    } finally {
-        window.close();
-    }
-});
-
-it("keeps new work once it was left holding something, even when it is next left unread", async () => {
-    const daemon = fakeHappyAgentDaemonCreate();
-    daemon.healthSet({ stemCellIdentities: true });
-    const window = await windowOpen(daemon);
-    try {
-        const cell = await window.store.stemCellCreate(null, null).created;
-        await vi.waitFor(() =>
-            expect(window.store.get().spaces.get(cell.space.id)?.version).toBe(1),
-        );
-        expect(window.store.stemCellLeave(cell.agentId, "started")).toBe(false);
-        // Back again and gone before its draft was read: what it holds is not known.
-        expect(window.store.stemCellLeave(cell.agentId, "unread")).toBe(false);
-        expect(window.store.get().spaces.has(cell.space.id)).toBe(true);
-        // Emptied and left once read, it goes.
-        expect(window.store.stemCellLeave(cell.agentId, "empty")).toBe(true);
-        await vi.waitFor(() => expect(daemon.callCount("removeSpace")).toBe(1));
-    } finally {
-        window.close();
-    }
-});
-
-it("leaves named work, and anything that is not new work, where it is", async () => {
-    const daemon = fakeHappyAgentDaemonCreate();
-    daemon.healthSet({ stemCellIdentities: true });
-    const window = await windowOpen(daemon);
-    try {
-        const before = window.store.get().spaces;
-        expect(window.store.stemCellLeave("agent-nobody-made", "empty")).toBe(false);
-        for (const space of before.values())
-            if (
-                space.target.kind === "task" &&
-                space.target.agentId !== null &&
-                space.title !== null
-            )
-                expect(window.store.stemCellLeave(space.target.agentId, "empty")).toBe(false);
-        expect(window.store.get().spaces).toBe(before);
     } finally {
         window.close();
     }

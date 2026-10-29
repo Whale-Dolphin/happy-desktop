@@ -26,7 +26,7 @@ export type GymWorkloadName =
     | "section-create"
     | "mobile-direct-experiment"
     | "jump-shimmer"
-    | "new-work-discard"
+    | "new-work-reuse"
     | "window-zoom"
     | "all";
 
