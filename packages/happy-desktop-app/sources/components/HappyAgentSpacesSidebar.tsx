@@ -34,6 +34,7 @@ import {
     type HappyAgentSpacesStore,
     type HappyAgentTask,
     type ConversationNote,
+    happyAgentSpaceNewWorkIs,
 } from "happy-desktop-state";
 import {
     clayIconMark,
@@ -235,15 +236,6 @@ export function happyAgentSpaceFocused(
         if (focus.chatId !== undefined && spaceAgentId(space) === focus.chatId) return space;
     }
     return undefined;
-}
-
-/**
- * Whether a row is new work nobody has named yet: its stem cell still stands
- * where an icon will grow. Only such a row may be closed rather than archived;
- * the daemon still refuses once its chat has any message.
- */
-export function happyAgentSpaceNewWorkIs(space: HappyAgentSpace): boolean {
-    return space.title === null && space.icon?.type === "stem_cell";
 }
 
 /** Whether a space is Happy's own row: the one whose target is Happy's bot. */

@@ -713,7 +713,10 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
         },
         async listSpaces(...args: unknown[]) {
             await record("listSpaces", args);
-            return { spaces: [...spaceRows], sections: [] };
+            return {
+                spaces: [...spaceRows, ...[...stemCells.values()].map((made) => made.space)],
+                sections: [],
+            };
         },
         async listSpaceBatches(...args: unknown[]) {
             await record("listSpaceBatches", args);
@@ -963,6 +966,17 @@ export function fakeHappyAgentDaemonCreate(): FakeHappyAgentDaemon {
             stemCells.set(id, answer);
             emit("space.created", { space });
             return answer;
+        },
+        /** Takes new work out, as the daemon does, and refuses once its chat holds a message. */
+        async removeSpace(spaceId: string, ...rest: unknown[]) {
+            await record("removeSpace", [spaceId, ...rest]);
+            const made = stemCells.get(spaceId);
+            if (made === undefined) return;
+            const history = historyOf(made.agent.id);
+            if (history.pending.length > 0 || history.runs.length > 0)
+                throw new HappyAgentApiError(409, "The new work has a message.", "conflict", null);
+            stemCells.delete(spaceId);
+            emit("space.removed", { spaceId });
         },
         async renameTask(
             taskId: string,

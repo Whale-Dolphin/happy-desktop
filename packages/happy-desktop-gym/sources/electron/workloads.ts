@@ -11,6 +11,7 @@ import { nestedRowMenusRun } from "./nestedRowMenus.js";
 import { sectionCreateRun } from "./sectionCreate.js";
 import { mobileDirectExperimentRun } from "./mobileDirectExperiment.js";
 import { jumpShimmerRun } from "./jumpShimmer.js";
+import { newWorkDiscardRun } from "./newWorkDiscard.js";
 import {
     stopShimmerRun,
     stopShimmerSpacesSubtaskStart,
@@ -876,6 +877,18 @@ async function workloadRun(
         return finish({
             projectsVisited: Math.min(options.projects.length, 4),
             ...(await performanceCapture(page, app, options.profilerActive())),
+        });
+    }
+    if (workload === "new-work-discard") {
+        await options.runtime.client.stemCellsEnable();
+        await page.reload();
+        await page
+            .locator('[data-happy-desktop-ui="sidebar-item"][data-item-id="create"]')
+            .first()
+            .waitFor({ timeout: 45_000 });
+        await mark("sidebar-ready");
+        return finish({
+            ...(await newWorkDiscardRun(page, options.runtime.client, options.paths.artifacts)),
         });
     }
     if (workload === "jump-shimmer") {

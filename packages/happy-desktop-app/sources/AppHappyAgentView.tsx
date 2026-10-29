@@ -337,6 +337,9 @@ import {
     happyAgentSpacesStoreNoop,
     happyAgentStemCellsChosen,
     type HappyAgentSidebarProposalsStore,
+    happyAgentSpaceNewWorkIs,
+    happyAgentConversationContent,
+    type HappyAgentConversationContent,
 } from "happy-desktop-state";
 import { HappyAgentSidebarProposal } from "./components/HappyAgentSidebarProposal";
 import {
@@ -347,7 +350,6 @@ import {
 import {
     happyAgentSpaceFocused,
     happyAgentSpaceHappyIs,
-    happyAgentSpaceNewWorkIs,
     happyAgentSpaceDestination,
     happyAgentSpaceLabel,
     happyAgentSpaceMark,
@@ -3858,6 +3860,29 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
         const happySpace = [...spaces.spaces.values()].find((space) =>
             happyAgentSpaceHappyIs(space, spacesPlaces),
         );
+        // New work open with nothing sent or drafted is what Create would
+        // make, so it stays the one rather than gaining a twin. Asked for in
+        // another section, it is left, which closes it, for new work there.
+        const workspace = active.session?.workspace;
+        const openWork =
+            props.chatId === undefined
+                ? undefined
+                : [...spaces.spaces.values()].find(
+                      (space) =>
+                          space.target.kind === "task" && space.target.agentId === props.chatId,
+                  );
+        if (
+            openWork !== undefined &&
+            props.chatId !== undefined &&
+            workspace !== undefined &&
+            happyAgentSpaceNewWorkIs(openWork) &&
+            (sectionId === null || openWork.sectionId === sectionId) &&
+            happyAgentConversationContent(
+                workspace.get().conversation,
+                props.chatId as HappyAgentSessionId,
+            ) !== "started"
+        )
+            return;
         const creation = spacesStore.stemCellCreate(sectionId, happySpace?.id ?? null);
         const open = (cell: HappyAgentStemCell): void => {
             spacesStore.happyFocusUpdate(false);
@@ -4073,10 +4098,13 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             happySpace.target.agentId === sessionId
                 ? happyAgentSpacesNotes(spaces.batches)
                 : undefined,
-        newWorkDiscard: (sessionId) => {
+        newWorkDiscard: (sessionId, content) => {
             const space = spaceOfChat(sessionId);
-            if (space === undefined || !happyAgentSpaceNewWorkIs(space)) return false;
-            spacesStore.stemCellDiscard(space.id);
+            if (space === undefined || !spacesStore.stemCellLeave(sessionId, content)) return false;
+            // Closing is leaving: the reader goes back to where they were
+            // before Create at once, not once the daemon has answered.
+            if (active && space.target.workspaceId !== null)
+                props.onGroupClose?.(active.id, space.target.workspaceId);
             return true;
         },
     };
@@ -6860,11 +6888,11 @@ interface HappyAgentWorkspaceSpaces {
     /** Bookkeeping a conversation reads as one-line summaries, such as Happy's sidebar batches. */
     chatNotes(sessionId: string): ReadonlyMap<string, ConversationNote> | undefined;
     /**
-     * Closes the chat when it is new work nobody has named yet, and says
-     * whether it was. The daemon refuses once the chat has a message, so the
-     * caller asks only of a chat it has seen nothing written in.
+     * Closes the chat when it is new work nobody has named yet that holds
+     * nothing, as `stemCellLeave` decides from `content`, and takes the reader
+     * back to where they were before it. Says whether it closed.
      */
-    newWorkDiscard(sessionId: string): boolean;
+    newWorkDiscard(sessionId: string, content: HappyAgentConversationContent): boolean;
 }
 
 /**
@@ -7410,19 +7438,31 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
      * about first, lightly, since an archived chat can be found and revived.
      */
     const tabCloseRequest = (tabId: string) => {
+        // Only the open conversation's transcript is read, so a background
+        // tab is never known to be empty and is asked about.
+        const content = happyAgentConversationContent(
+            props.workspace.get().conversation,
+            tabId as HappyAgentSessionId,
+        );
+        // New work holding nothing closes before the task behind it is even
+        // known to be archivable: there is nothing in it to ask about.
+        if (
+            content !== undefined &&
+            content !== "started" &&
+            happyAgentOnline() &&
+            props.spaces?.newWorkDiscard(tabId, content)
+        )
+            return;
         const archive = conversationArchiveTargetFind(tabId);
         if (!archive) {
             groupTabClose(tabId);
             return;
         }
         if (!happyAgentOnline()) return;
-        // Only the open conversation's transcript is read, so a background
-        // tab is never known to be empty and is asked about.
-        if (!conversationUnstarted(props.workspace.get().conversation, archive.conversationId)) {
+        if (content !== "empty") {
             props.workspace.conversationArchiveConfirmOpen(archive);
             return;
         }
-        if (props.spaces?.newWorkDiscard(archive.conversationId)) return;
         conversationArchiveRun(archive);
     };
     /**
@@ -10376,35 +10416,6 @@ function happyAgentTaskBrowseDialog(
                 : {})}
             {...(unavailable === undefined ? {} : { joinDisabledReason: unavailable })}
         />
-    );
-}
-
-/**
- * Whether the open conversation is known to hold nothing yet: its whole
- * transcript is read and empty, nothing runs or waits in it, and its composer
- * holds no draft. A transcript not read yet is not known to be empty.
- */
-function conversationUnstarted(
-    conversation: HappyAgentWorkspaceSnapshot["conversation"],
-    conversationId: HappyAgentSessionId,
-): boolean {
-    if (conversation.type !== "ready") return false;
-    const open = conversation.value;
-    if (
-        open.conversationId !== conversationId ||
-        open.standIn ||
-        !open.ready ||
-        !open.transcriptComplete
-    )
-        return false;
-    const composer = open.composer.get();
-    return (
-        open.entries.length === 0 &&
-        !open.running &&
-        open.queuedMessages.length === 0 &&
-        composer.submission.status !== "pending" &&
-        composer.text.trim() === "" &&
-        composer.attachments.length === 0
     );
 }
 

@@ -2258,6 +2258,40 @@ function botFaceSeedsRoll(): HappyAgentBotFaceSeeds {
     return [one(), one(), one(), one()];
 }
 
+/**
+ * What a conversation being left holds. `empty`: its whole transcript is
+ * read and empty, nothing runs or waits in it, and its composer holds no
+ * draft, neither text nor an attachment, and no send on its way. `unread`:
+ * nothing of that is here, but the transcript has not been read yet, so what
+ * the daemon holds for it is not known. `started`: something was sent or
+ * drafted.
+ */
+export type HappyAgentConversationContent = "empty" | "unread" | "started";
+
+/**
+ * What the open conversation holds, or `undefined` when `conversationId` is
+ * not the open one, whose composer and transcript are not here to look at.
+ */
+export function happyAgentConversationContent(
+    conversation: Loadable<HappyAgentConversationSnapshot>,
+    conversationId: HappyAgentSessionId,
+): HappyAgentConversationContent | undefined {
+    if (conversation.type !== "ready") return undefined;
+    const open = conversation.value;
+    if (open.conversationId !== conversationId) return undefined;
+    const composer = open.composer.get();
+    if (
+        open.entries.length > 0 ||
+        open.running ||
+        open.queuedMessages.length > 0 ||
+        composer.submission.status === "pending" ||
+        composer.text.trim() !== "" ||
+        composer.attachments.length > 0
+    )
+        return "started";
+    return open.standIn || !open.ready || !open.transcriptComplete ? "unread" : "empty";
+}
+
 export function happyAgentWorkspaceStoreCreate(
     client: HappyAgentWorkspaceClient,
     deps: HappyAgentWorkspaceDeps = {},

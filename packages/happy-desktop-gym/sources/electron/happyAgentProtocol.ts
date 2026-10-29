@@ -107,6 +107,7 @@ export class GymHappyAgentClient {
         readonly spaces: readonly {
             readonly id: string;
             readonly title: string | null;
+            readonly icon?: { readonly type: string } | null;
             readonly target: {
                 readonly kind: string;
                 readonly id: string;

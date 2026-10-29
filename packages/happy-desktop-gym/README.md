@@ -272,6 +272,13 @@ transcript up, and requires the jump-to-latest button to shimmer while the
 agent works and to show the plain arrow, on the same pixels, after Stop. It
 writes `jump-shimmer.json`, working/idle screenshots, and a video.
 
+`new-work-discard` turns on Stem Cells and presses Create twice, requiring the
+same new work to stay the only one, then leaves it for another row: its row
+must be gone within half a second and the daemon must archive it. New work
+with a draft must survive being left; emptied and left again, it goes. A reload
+stands in for closing the window, after which the daemon must have removed the
+new work open in it. It writes `new-work-discard.json`, screenshots, and a video.
+
 `window-zoom` sweeps the window's zoom over 80, 90, 100, 110, 125 and 150%,
 each reached as the View menu does it and again after a reload (which keeps the
 zoom but not the menu's report of it), with the sidebar open and folded, in a

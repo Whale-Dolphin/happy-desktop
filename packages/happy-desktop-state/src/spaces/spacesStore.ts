@@ -20,6 +20,7 @@ import type { HappyAgentSync } from "../happyAgentConnection/happyAgentSync.js";
 import { happyAgentSyncRead } from "../happyAgentConnection/happyAgentSyncRead.js";
 import { happyAgentUserError } from "../happyAgent/happyAgentSupport.js";
 import { UserError } from "../types.js";
+import type { HappyAgentConversationContent } from "../happyAgent/happyAgentWorkspaceStore.js";
 import {
     sidebarDocumentClassicApply,
     sidebarDocumentEdit,
@@ -97,6 +98,15 @@ function batchOf(batch: SpaceBatch): HappyAgentSpaceBatch {
             to: positionOf(change.to),
         })),
     };
+}
+
+/**
+ * Whether a row is new work nobody has named yet: its stem cell still stands
+ * where an icon will grow. Only such a row may be closed rather than archived;
+ * the daemon still refuses once its chat has any message.
+ */
+export function happyAgentSpaceNewWorkIs(space: HappyAgentSpace): boolean {
+    return space.title === null && space.icon?.type === "stem_cell";
 }
 
 /** New work: its row, and the conversation behind it. */
@@ -238,12 +248,21 @@ export interface HappyAgentSpacesStore {
     /** Asks the manager to tidy now; its batch applies as soon as it is done. */
     tidyRequest(): void;
     /**
-     * Closes new work nobody started, when the person asks to: the daemon
-     * removes the row and its empty chat, and refuses once the chat has any
-     * message, which leaves it alone. Nothing but an explicit close calls this;
-     * opening, leaving or selecting a row never does.
+     * Closes new work nobody started: the row leaves the sidebar at once, and
+     * the daemon removes it and archives its empty chat. The daemon refuses
+     * once the chat has any message, and only that refusal brings the row back.
+     * The caller asks only of new work it knows holds nothing, sent or drafted.
      */
     stemCellDiscard(spaceId: HappyAgentSpaceId): void;
+    /**
+     * The person left a conversation, holding what it was found to hold. New
+     * work nobody has named yet goes, as `stemCellDiscard` closes it, when it
+     * is `empty`; and when it is `unread`, nothing typed or sent here while
+     * its transcript was still on its way, only if this window made it and it
+     * was never left holding anything. Says whether it went. Anything else
+     * stays, and new work left `started` is never closed as `unread` again.
+     */
+    stemCellLeave(agentId: string, content: HappyAgentConversationContent): boolean;
     /**
      * Shows the name the person just gave a row's task or bot, whose rename is
      * on its way: the row and its tab wear it at once and keep it through any
@@ -417,8 +436,46 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         return { proposal: next, proposalSeen: proposalSeenOf(next) };
     };
 
+    /**
+     * New work taken out of the sidebar, by space, as it was last heard of. It
+     * stays out whatever a read or an event still says about it: while the
+     * daemon is asked, and after it has agreed. A refusal puts it back.
+     */
+    const discarded = new Map<HappyAgentSpaceId, HappyAgentSpace>();
+    /** New work being made, until the daemon has answered for it. */
+    const creations = new Map<
+        string,
+        {
+            readonly placement: {
+                readonly sectionId: string | null;
+                readonly happySpaceId: string | null;
+            };
+            readonly creation: HappyAgentStemCellCreation;
+        }
+    >();
+    /**
+     * New work this window made and nobody has left holding anything: what is
+     * in it is only what was typed or sent here, so leaving it before its
+     * transcript is read still leaves it empty.
+     */
+    const fresh = new Set<string>();
+    /** New work the daemon has taken out; a late refusal does not bring it back. */
+    const removed = new Set<string>();
+    const discardedOut = (next: SpacesPatch): SpacesPatch => {
+        if (next.spaces === undefined || discarded.size === 0) return next;
+        let spaces: Map<HappyAgentSpaceId, HappyAgentSpace> | undefined;
+        for (const spaceId of discarded.keys()) {
+            const space = next.spaces.get(spaceId);
+            if (space === undefined) continue;
+            discarded.set(spaceId, space);
+            spaces ??= new Map(next.spaces);
+            spaces.delete(spaceId);
+        }
+        return spaces === undefined ? next : { ...next, spaces };
+    };
+
     const publish = (next: Partial<HappyAgentSpacesSnapshot>): void => {
-        snapshot = { ...snapshot, ...next };
+        snapshot = { ...snapshot, ...discardedOut(next) };
         for (const listener of listeners) listener();
     };
 
@@ -685,7 +742,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     sections: sectionsOrdered(response.sections.map(sectionOf)),
                 };
                 const taken = sidebar !== undefined && sidebarAnswerTake(sidebar, next);
-                snapshot = { ...snapshot, ...next };
+                snapshot = { ...snapshot, ...discardedOut(next) };
                 for (const event of pending) eventApply(event, false);
                 publish({});
                 batchesLoad(active.signal);
@@ -753,6 +810,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                 break;
             case "space.removed": {
                 const spaceId = event.payload.spaceId as HappyAgentSpaceId;
+                removed.add(spaceId);
                 if (snapshot.spaces.has(spaceId)) {
                     const spaces = new Map(snapshot.spaces);
                     spaces.delete(spaceId);
@@ -849,7 +907,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             }
         }
         if (announce) publish(next);
-        else snapshot = { ...snapshot, ...next };
+        else snapshot = { ...snapshot, ...discardedOut(next) };
     };
 
     const start = (): void => {
@@ -1070,6 +1128,15 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             };
         },
         stemCellCreate(placeSectionId, happySpaceId) {
+            // Asked again for the same place while the daemon is still making
+            // it, the answer is the work already on its way, not a twin.
+            for (const [pendingId, pending] of creations)
+                if (
+                    !discarded.has(pendingId as HappyAgentSpaceId) &&
+                    pending.placement.sectionId === placeSectionId &&
+                    pending.placement.happySpaceId === happySpaceId
+                )
+                    return pending.creation;
             const id = idCreate() as HappyAgentSpaceId;
             const mutationId = idCreate();
             const sectionId = placeSectionId as HappyAgentSpaceSectionId | null;
@@ -1183,6 +1250,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     },
                     (error: unknown) => {
                         const failure = happyAgentUserError(error);
+                        fresh.delete(id);
                         if (!disposed && !life.signal.aborted) {
                             // The row this window showed goes, and the
                             // document is read back without it.
@@ -1202,13 +1270,20 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     },
                 )
                 .finally(() => {
+                    creations.delete(id);
                     creating.delete(id);
                     if (creating.size === 0 && sidebarStale) {
                         sidebarStale = false;
                         sidebarLoad();
                     }
                 });
-            return { ...(cell === undefined ? {} : { cell }), created };
+            const creation: HappyAgentStemCellCreation = {
+                ...(cell === undefined ? {} : { cell }),
+                created,
+            };
+            creations.set(id, { placement, creation });
+            fresh.add(id);
+            return creation;
         },
         stemCellErrorDismiss() {
             if (snapshot.stemCellError !== undefined) publish({ stemCellError: undefined });
@@ -1370,25 +1445,68 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             });
         },
         stemCellDiscard(spaceId) {
+            const space = snapshot.spaces.get(spaceId);
+            if (space === undefined || discarded.has(spaceId)) return;
+            // Gone from the sidebar at once; only the daemon's refusal brings it back.
+            discarded.set(spaceId, space);
+            fresh.delete(spaceId);
+            publish({ spaces: snapshot.spaces });
             const mutationId = idCreate();
-            void happyAgentSyncRead(
-                life.signal,
-                async () => {
-                    try {
-                        await deps.client.removeSpace(spaceId, {
-                            mutationId,
-                            signal: life.signal,
-                        });
-                        return undefined;
-                    } catch (error) {
-                        // A chat that has a message is real work and stays.
-                        if (error instanceof HappyAgentApiError && error.status < 500)
-                            return undefined;
-                        throw error;
-                    }
-                },
-                () => undefined,
-            ).catch(() => undefined);
+            const refused = (): void => {
+                const held = discarded.get(spaceId);
+                discarded.delete(spaceId);
+                if (disposed || held === undefined || removed.has(spaceId)) return;
+                if (!snapshot.spaces.has(spaceId))
+                    publish({ spaces: new Map(snapshot.spaces).set(spaceId, held) });
+                // What the daemon kept is read back rather than assumed.
+                void load();
+            };
+            // New work this window is still making is removed once it exists.
+            void (creations.get(spaceId)?.creation.created ?? Promise.resolve())
+                .then(
+                    () =>
+                        happyAgentSyncRead(
+                            life.signal,
+                            async () => {
+                                try {
+                                    await deps.client.removeSpace(spaceId, {
+                                        mutationId,
+                                        signal: life.signal,
+                                    });
+                                    return true;
+                                } catch (error) {
+                                    // Unknown to the daemon: already gone.
+                                    if (error instanceof HappyAgentApiError && error.status === 404)
+                                        return true;
+                                    // A chat that has a message is real work and stays.
+                                    if (error instanceof HappyAgentApiError && error.status < 500)
+                                        return false;
+                                    throw error;
+                                }
+                            },
+                            () => undefined,
+                        ),
+                    // Never made: the row went with the refusal to make it.
+                    () => true,
+                )
+                .then((gone) => {
+                    if (!gone) refused();
+                })
+                .catch(() => undefined);
+        },
+        stemCellLeave(agentId, content) {
+            for (const space of snapshot.spaces.values()) {
+                if (space.target.kind !== "task" || space.target.agentId !== agentId) continue;
+                if (!happyAgentSpaceNewWorkIs(space)) return false;
+                if (content === "started") {
+                    fresh.delete(space.id);
+                    return false;
+                }
+                if (content === "unread" && !fresh.has(space.id)) return false;
+                store.stemCellDiscard(space.id);
+                return true;
+            }
+            return false;
         },
         spaceTitleUpdate(spaceId, title) {
             const current = snapshot.spaces.get(spaceId);
@@ -1440,6 +1558,7 @@ export const happyAgentSpacesStoreNoop: HappyAgentSpacesStore = {
     proposalSeenRecord: () => undefined,
     tidyRequest: () => undefined,
     stemCellDiscard: () => undefined,
+    stemCellLeave: () => false,
     spaceTitleUpdate: () => undefined,
     spaceTitleWithdraw: () => undefined,
     sidebarWrite: () => undefined,

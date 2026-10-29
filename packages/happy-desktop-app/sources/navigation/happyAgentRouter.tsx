@@ -9,11 +9,14 @@ import {
     useParams,
     useRouteContext,
     useRouter,
+    type AnyRouteMatch,
+    type ParsedLocation,
 } from "@tanstack/react-router";
 import { happyAgentHistoryCreate, type HappyAgentRouterHistory } from "./happyAgentHistory";
 import { happyAgentRoutePathParse } from "./happyAgentRoute";
 import { useSyncExternalStore } from "react";
 import { HappyAgentOnboardingBoundary } from "../components/HappyAgentOnboardingBoundary";
+import { happyAgentConversationContent } from "happy-desktop-state";
 import type {
     AppearanceStore,
     CommandPaletteStore,
@@ -867,7 +870,7 @@ function HappyAgentSettingsRoute() {
  * store.
  */
 export function happyAgentRouterCreate(history: HappyAgentRouterHistory = defaultHistory()) {
-    return createRouter({
+    const router = createRouter({
         context: undefined as unknown as HappyAgentRouterContext,
         defaultPreload: false,
         history,
@@ -882,6 +885,95 @@ export function happyAgentRouterCreate(history: HappyAgentRouterHistory = defaul
         scrollRestoration: false,
         scrollToTopSelectors: [],
     });
+    // Every navigation that leaves a conversation passes here first, while the
+    // conversation being left is still the open one.
+    router.subscribe("onBeforeNavigate", (event) => {
+        if (event.fromLocation === undefined) return;
+        const left = conversationAddressed(router, event.fromLocation);
+        if (left === undefined) return;
+        const next = router.matchRoutes(event.toLocation);
+        // Settings is not a row: the conversation waits under it.
+        if (next.some((match) => SETTINGS_ROUTE_IDS.has(match.routeId))) return;
+        const staying = conversationAddressed(router, event.toLocation);
+        if (staying?.happyAgentId === left.happyAgentId && staying.chatId === left.chatId) return;
+        if (!newWorkLeave(router.options.context, left)) return;
+        // Closed work is no place to step back to; it leaves the stack once
+        // the reader has arrived where they were going.
+        const arrived = router.subscribe("onResolved", () => {
+            arrived();
+            happyAgentRouterGroupForget(router, left.happyAgentId, left.groupId);
+        });
+    });
+    return router;
+}
+
+const SETTINGS_ROUTE_IDS = new Set<string>([settingsIndexRoute.id, settingsSectionRoute.id]);
+
+/** A conversation one address shows: the machine, its group, and the chat. */
+interface ConversationAddress {
+    readonly happyAgentId: string;
+    readonly groupId: string;
+    readonly chatId: HappyAgentSessionId;
+}
+
+/** The conversation one address shows, by the router's own route identity. */
+function conversationAddressed(
+    router: { matchRoutes: (location: ParsedLocation) => readonly AnyRouteMatch[] },
+    location: ParsedLocation,
+): ConversationAddress | undefined {
+    for (const match of router.matchRoutes(location)) {
+        const params = match.params as Record<string, string | undefined>;
+        const chat =
+            match.routeId === chatRoute.id || match.routeId === chatFileRoute.id
+                ? { groupId: params.groupId, chatId: params.chatId }
+                : match.routeId === surfaceChatRoute.id
+                  ? { groupId: params.chatGroupId, chatId: params.chatAgentId }
+                  : undefined;
+        if (
+            chat?.groupId !== undefined &&
+            chat.chatId !== undefined &&
+            params.happyAgentId !== undefined
+        )
+            return {
+                happyAgentId: params.happyAgentId,
+                groupId: chat.groupId,
+                chatId: chat.chatId as HappyAgentSessionId,
+            };
+    }
+    return undefined;
+}
+
+/**
+ * The reader is leaving a conversation. New work they left with nothing sent
+ * or drafted in it goes: the sidebar drops its row at once and the daemon
+ * closes it. Only the open conversation's composer and transcript are here
+ * to look at, so this runs before navigation releases it. Says whether the
+ * work went.
+ */
+function newWorkLeave(
+    context: HappyAgentRouterContext | undefined,
+    left: ConversationAddress,
+): boolean {
+    const session = context?.happyAgents
+        ?.get()
+        .happyAgents.find((happyAgent) => happyAgent.id === left.happyAgentId)?.session;
+    if (session?.spaces === undefined) return false;
+    const content = happyAgentConversationContent(
+        session.workspace.get().conversation,
+        left.chatId,
+    );
+    return content !== undefined && session.spaces.stemCellLeave(left.chatId, content);
+}
+
+/**
+ * The window is going away: new work open in it with nothing sent or drafted
+ * goes, as it would if the reader had left it for another row, and the window
+ * opens next time where the reader was before it.
+ */
+export function happyAgentRouterNewWorkLeave(router: HappyAgentRouter): void {
+    const left = conversationAddressed(router, router.state.location);
+    if (left !== undefined && newWorkLeave(router.options.context, left))
+        happyAgentRouterGroupForget(router, left.happyAgentId, left.groupId);
 }
 
 /**
