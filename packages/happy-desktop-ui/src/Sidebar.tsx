@@ -251,6 +251,11 @@ export type SidebarItemStory = {
      * the dot's place. Absent says nothing.
      */
     signal?: "unread" | "working";
+    /**
+     * Where the agent says the work stands, set with its status. It colours
+     * the corner signal; absent leaves the signal neutral.
+     */
+    state?: "needsYou" | "done" | "blocked" | "working";
 };
 /**
  * What a proposed change does to one row. A move is drawn twice: `move` where
@@ -2878,6 +2883,7 @@ function SidebarRow({
                     className="happy-sidebar__item-corner"
                     data-happy-desktop-ui="sidebar-item-corner"
                     data-signal={story()?.signal}
+                    data-state={story()?.state}
                     role="img"
                 >
                     {story()?.signal === "working" ? (
