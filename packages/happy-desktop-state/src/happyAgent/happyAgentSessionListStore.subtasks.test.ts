@@ -73,38 +73,121 @@ it("keeps the host's reason for a refused subtask archive until it is asked agai
     const unsubscribe = list.subscribe(() => undefined);
     await vi.waitFor(() => expect(list.get().bots).toHaveLength(1));
 
-    await list.subtaskArchive("ses_task" as HappyAgentSessionId);
+    const archived = list.subtaskArchive("ses_task" as HappyAgentSessionId);
+    expect(list.get().bots[0]?.subtasks).toEqual([]);
     rejections.emit!({
         type: "mutation_rejected",
         action: "set_session_archived",
         message: "The host is busy.",
         mutationId: "mut_archive",
     });
+    // The refusal puts the row back in the same publication that reports it.
+    expect(await archived).toBe(false);
+    expect(list.get().bots[0]?.subtasks.map((task) => task.conversation.id)).toEqual(["ses_task"]);
     expect(list.get().subtaskFailures.get("ses_task" as HappyAgentSessionId)?.error.message).toBe(
         "The host is busy.",
     );
 
-    await list.subtaskArchive("ses_task" as HappyAgentSessionId);
+    void list.subtaskArchive("ses_task" as HappyAgentSessionId);
     expect(list.get().subtaskFailures.size).toBe(0);
 
     unsubscribe();
     list[Symbol.dispose]();
 });
 
-it("archives a bot subtask through the session archive mutation, leaving the tree to the host", async () => {
+it("archives a bot subtask at once, and a read that still lists it does not bring it back", async () => {
     const setSessionArchived = vi.fn(() => "mut_archive");
     const list = listCreate(setSessionArchived);
     const unsubscribe = list.subscribe(() => undefined);
     await vi.waitFor(() => expect(list.get().bots).toHaveLength(1));
 
-    await list.subtaskArchive("ses_task" as HappyAgentSessionId);
+    void list.subtaskArchive("ses_task" as HappyAgentSessionId);
     expect(setSessionArchived).toHaveBeenCalledWith("ses_task", true);
-    // Not optimistic: the task stays in its bot until the host says otherwise.
-    expect(list.get().bots[0]?.subtasks.map((task) => task.conversation.id)).toEqual(["ses_task"]);
+    expect(list.get().bots[0]?.subtasks).toEqual([]);
 
+    // The host confirmed but its catalog still lists the task for a while.
+    const revision = list.get().catalogRevision;
+    await list.sessionsRefresh();
+    expect(list.get().catalogRevision).toBeGreaterThanOrEqual(revision);
+    expect(list.get().bots[0]?.subtasks).toEqual([]);
+
+    // A second archive while the first is on its way asks nothing more, and
+    // is answered with it.
+    const again = list.subtaskArchive("ses_task" as HappyAgentSessionId);
     // A conversation that is not one of the bots' subtasks is not archived here.
-    await list.subtaskArchive("ses_builder" as HappyAgentSessionId);
+    expect(await list.subtaskArchive("ses_builder" as HappyAgentSessionId)).toBe(true);
     expect(setSessionArchived).toHaveBeenCalledTimes(1);
+    list[Symbol.dispose]();
+    expect(await again).toBe(false);
+
+    unsubscribe();
+    list[Symbol.dispose]();
+});
+
+it("archives a bot at once, keeps it out until the host drops it, and puts it back on refusal", async () => {
+    let hostBots: readonly HappyAgentBot[] = [BOT];
+    let catalogChanged = (): void => undefined;
+    let rejected = (_rejection: MutationRejectedDelta): void => undefined;
+    let mutation = 0;
+    const archiveBot = vi.fn(() => `mut_bot_${String(++mutation)}`);
+    const setSessionArchived = vi.fn(() => `mut_task_${String(++mutation)}`);
+    const list = happyAgentSessionListStoreCreate({
+        client: {},
+        catalogSource: {
+            read: () =>
+                Promise.resolve({
+                    catalog: { bots: hostBots, projects: [], tasks: [], worktrees: [] },
+                    sessions: [],
+                    archivedSessions: [],
+                }),
+            subscribe: (listener: () => void) => {
+                catalogChanged = listener;
+                return () => undefined;
+            },
+            [Symbol.dispose]: () => undefined,
+        },
+        connectActions: { archiveBot, setSessionArchived },
+        connectMutationSubscribe: (listener: (rejection: MutationRejectedDelta) => void) => {
+            rejected = listener;
+            return () => undefined;
+        },
+    } as unknown as HappyAgentSessionListDeps);
+    const unsubscribe = list.subscribe(() => undefined);
+    await vi.waitFor(() => expect(list.get().bots).toHaveLength(1));
+
+    const refused = list.botArchive(BOT.id);
+    expect(archiveBot).toHaveBeenCalledWith(BOT.id);
+    expect(list.get().bots).toEqual([]);
+    rejected({
+        type: "mutation_rejected",
+        action: "archive_bot",
+        message: "The bot changed.",
+        mutationId: "mut_bot_1",
+    });
+    expect(await refused).toBe(false);
+    expect(list.get().bots.map((bot) => bot.id)).toEqual([BOT.id]);
+
+    const archived = list.botArchive(BOT.id);
+    expect(list.get().bots).toEqual([]);
+    // A read still listing the bot does not bring it back.
+    catalogChanged();
+    await list.sessionsRefresh();
+    expect(list.get().bots).toEqual([]);
+    hostBots = [];
+    catalogChanged();
+    expect(await archived).toBe(true);
+    expect(list.get().bots).toEqual([]);
+
+    // A subtask's archive settles once the host's tree no longer lists it.
+    hostBots = [BOT];
+    await list.sessionsRefresh();
+    await vi.waitFor(() => expect(list.get().bots).toHaveLength(1));
+    const subtask = list.subtaskArchive("ses_task" as HappyAgentSessionId);
+    expect(list.get().bots[0]?.subtasks).toEqual([]);
+    hostBots = [{ ...BOT, subtasks: [] }];
+    catalogChanged();
+    expect(await subtask).toBe(true);
+    expect(list.get().bots[0]?.subtasks).toEqual([]);
 
     unsubscribe();
     list[Symbol.dispose]();

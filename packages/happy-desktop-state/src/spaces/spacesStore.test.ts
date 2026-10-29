@@ -431,6 +431,12 @@ async function renameWindowOpen() {
             sync.writer.updateReceived({ kind: "event", cursor: event.cursor, event });
             await new Promise((resolve) => setTimeout(resolve, 0));
         },
+        /** Delivers the daemon's `space.removed` for the row. */
+        async removed() {
+            const event = daemon.eventEmit("space.removed", { spaceId: "space-release" });
+            sync.writer.updateReceived({ kind: "event", cursor: event.cursor, event });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        },
         /** Has the next full read of the sidebar answer this row. */
         listedSet(row: ReturnType<typeof taskRow>) {
             listed = row;
@@ -623,6 +629,67 @@ function sidebarWithSections(daemon: FakeHappyAgentDaemon): void {
         ].join("\n"),
     });
 }
+
+it("takes an archived or left row out at once, through late echoes and reads, until the daemon removes it", async () => {
+    const window = await renameWindowOpen();
+    const has = () => window.store.get().spaces.has(window.spaceId);
+    try {
+        window.store.spaceRemove(window.spaceId);
+        expect(has()).toBe(false);
+        // The daemon took the archive, but its sidebar still lists the row.
+        await window.echo(taskRow(2, "Release notes", true));
+        window.listedSet(taskRow(2, "Release notes", true));
+        await window.reread();
+        expect(has()).toBe(false);
+
+        // A refusal puts the row back as the daemon last said it.
+        window.store.spaceRemoveWithdraw(window.spaceId);
+        expect(window.store.get().spaces.get(window.spaceId)).toMatchObject({
+            title: "Release notes",
+            version: 2,
+        });
+
+        // Removed by the daemon, the row stays gone and nothing is left to put back.
+        window.store.spaceRemove(window.spaceId);
+        await window.removed();
+        window.store.spaceRemoveWithdraw(window.spaceId);
+        expect(has()).toBe(false);
+    } finally {
+        window.close();
+    }
+});
+
+it("forgets a removal once a full read no longer lists the row", async () => {
+    const window = await renameWindowOpen();
+    try {
+        window.store.spaceRemove(window.spaceId);
+        window.listedSet({ ...taskRow(2, "Other"), id: "space-other" });
+        await window.reread();
+        window.store.spaceRemoveWithdraw(window.spaceId);
+        expect(window.store.get().spaces.has(window.spaceId)).toBe(false);
+    } finally {
+        window.close();
+    }
+});
+
+it("closes new work at once, and puts it back when the daemon refuses because it has a message", async () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    daemon.healthSet({ stemCellIdentities: true });
+    const window = await windowOpen(daemon);
+    try {
+        const cell = await window.store.stemCellCreate(null, null).created;
+        await vi.waitFor(() =>
+            expect(window.store.get().spaces.get(cell.space.id)?.version).toBe(1),
+        );
+        await window.connection.sendMessageConfirmed(cell.agentId, "Plan the trip.");
+        window.store.stemCellDiscard(cell.space.id);
+        expect(window.store.get().spaces.has(cell.space.id)).toBe(false);
+        await vi.waitFor(() => expect(window.store.get().spaces.has(cell.space.id)).toBe(true));
+        expect(daemon.callCount("removeSpace")).toBe(1);
+    } finally {
+        window.close();
+    }
+});
 
 it("goes to empty new work wherever it is on Create, and leaves it in place", async () => {
     const daemon = fakeHappyAgentDaemonCreate();

@@ -4107,17 +4107,20 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                     : {})}
                 actions={{
                     taskLeave: (taskId) =>
-                        void active?.session?.workspace
-                            .taskLeave(taskId as HappyAgentTaskId)
-                            .catch(() => undefined),
+                        (
+                            active?.session?.workspace.taskLeave(taskId as HappyAgentTaskId) ??
+                            Promise.resolve(false)
+                        ).catch(() => false),
                     taskArchive: (taskId) =>
-                        void active?.session?.workspace
-                            .taskArchive(taskId as HappyAgentTaskId)
-                            .catch(() => undefined),
+                        (
+                            active?.session?.workspace.taskArchive(taskId as HappyAgentTaskId) ??
+                            Promise.resolve(false)
+                        ).catch(() => false),
                     botArchive: (botId) =>
-                        void active?.session?.workspace
-                            .botArchive(botId as HappyAgentBotId)
-                            .catch(() => undefined),
+                        (
+                            active?.session?.workspace.botArchive(botId as HappyAgentBotId) ??
+                            Promise.resolve(false)
+                        ).catch(() => false),
                     surfaceLeave: (surfaceId) =>
                         surfaceCatalogStore.surfaceLeave(surfaceId as HappyAgentSurfaceId),
                     subtaskArchive: (agentId) =>

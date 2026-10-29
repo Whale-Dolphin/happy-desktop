@@ -280,6 +280,13 @@ makes Create make another, which Create then goes back to. A section heading's
 to it when pressed again. Two quick Creates make one new work, and a reload
 keeps all of it. It writes `new-work-reuse.json`, screenshots, and a video.
 
+`row-removal` turns on Stem Cells, makes work that hands its turn to a
+subtask and a second piece of work, then archives the subtask and the second
+work from their rows' menus. Each row must be gone within 100ms of the press,
+and a mutation observer must not see it drawn again until four seconds after
+the daemon has archived it, while its sidebar catches up. It writes
+`row-removal.json`, a screenshot, and a video.
+
 `window-zoom` sweeps the window's zoom over 80, 90, 100, 110, 125 and 150%,
 each reached as the View menu does it and again after a reload (which keeps the
 zoom but not the menu's report of it), with the sidebar open and folded, in a

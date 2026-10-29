@@ -12,6 +12,7 @@ import { sectionCreateRun } from "./sectionCreate.js";
 import { mobileDirectExperimentRun } from "./mobileDirectExperiment.js";
 import { jumpShimmerRun } from "./jumpShimmer.js";
 import { newWorkReuseRun } from "./newWorkReuse.js";
+import { rowRemovalRun } from "./rowRemoval.js";
 import {
     stopShimmerRun,
     stopShimmerSpacesSubtaskStart,
@@ -913,6 +914,18 @@ async function workloadRun(
         await mark("sidebar-ready");
         return finish({
             ...(await newWorkReuseRun(page, options.runtime.client, options.paths.artifacts)),
+        });
+    }
+    if (workload === "row-removal") {
+        await options.runtime.client.stemCellsEnable();
+        await page.reload();
+        await page
+            .locator('[data-happy-desktop-ui="sidebar-item"][data-item-id="create"]')
+            .first()
+            .waitFor({ timeout: 45_000 });
+        await mark("sidebar-ready");
+        return finish({
+            ...(await rowRemovalRun(page, options.runtime.client, options.paths.artifacts)),
         });
     }
     if (workload === "jump-shimmer") {

@@ -282,8 +282,13 @@ export interface HappyAgentSurfaceCatalogStore {
     subscribe(listener: () => void): () => void;
     /** Adds a Surface to the end of the reader's sidebar. */
     surfaceJoin(surfaceId: HappyAgentSurfaceId): void;
-    /** Takes a Surface out of the reader's sidebar; its content stays for everyone. */
-    surfaceLeave(surfaceId: HappyAgentSurfaceId): void;
+    /**
+     * Takes a Surface out of the reader's sidebar at once; its content stays for
+     * everyone. Resolves `true` once the daemon takes the leave, or at once
+     * when there is nothing to leave; `false` when the daemon refused and the
+     * Surface is back. A second call joins the leave already on its way.
+     */
+    surfaceLeave(surfaceId: HappyAgentSurfaceId): Promise<boolean>;
     /** Moves a joined Surface to just after `afterId` in the reader's sidebar, or first. */
     surfaceReorder(surfaceId: HappyAgentSurfaceId, afterId: HappyAgentSurfaceId | null): void;
     createOpen(kind: HappyAgentSurfaceCreateKind): void;
@@ -401,7 +406,7 @@ export const happyAgentSurfaceCatalogStoreNoop: HappyAgentSurfaceCatalogStore = 
     get: () => UNSUPPORTED,
     subscribe: () => () => undefined,
     surfaceJoin: () => undefined,
-    surfaceLeave: () => undefined,
+    surfaceLeave: () => Promise.resolve(false),
     surfaceReorder: () => undefined,
     createOpen: () => undefined,
     createClose: () => undefined,
@@ -444,6 +449,13 @@ interface MembershipOp {
     readonly mutationId: string;
     intent: MembershipIntent;
     sent: boolean;
+    /** Who waits on this act: `true` once the daemon takes it, `false` if it never does. */
+    readonly answers: ((taken: boolean) => void)[];
+}
+
+/** Tells everyone waiting on one membership act how it ended. */
+function membershipOpSettle(op: MembershipOp, taken: boolean): void {
+    for (const answer of op.answers.splice(0)) answer(taken);
 }
 
 /** Whether a failure is the daemon's refusal rather than a request that never arrived. */
@@ -1308,6 +1320,7 @@ export function happyAgentSurfaceCatalogStoreCreate(
                     const index = joined.findIndex((surface) => surface.id === op.surfaceId);
                     if (index === -1) {
                         ops = ops.filter((entry) => entry !== op);
+                        membershipOpSettle(op, false);
                         republish();
                         continue;
                     }
@@ -1329,11 +1342,13 @@ export function happyAgentSurfaceCatalogStoreCreate(
                     delay = 1_000;
                     surfaceAdopt(happyAgentSurfaceProject(endpoint, response.surface));
                     ops = ops.filter((entry) => entry !== op);
+                    membershipOpSettle(op, true);
                     republish();
                 } catch (error) {
                     if (disposed || life.signal.aborted) return;
                     if (refused(error)) {
                         ops = ops.filter((entry) => entry !== op);
+                        membershipOpSettle(op, false);
                         republish({
                             failure: {
                                 surfaceId: op.surfaceId,
@@ -1357,14 +1372,21 @@ export function happyAgentSurfaceCatalogStoreCreate(
     };
 
     /** Queues one act, replacing an earlier one on the same Surface that has not gone yet. */
-    const enqueue = (surfaceId: HappyAgentSurfaceId, intent: MembershipIntent): void => {
+    const enqueue = (surfaceId: HappyAgentSurfaceId, intent: MembershipIntent): MembershipOp => {
         const { failure: _failure, ...rest } = snapshot;
         snapshot = rest;
-        const waiting = ops.find((op) => op.surfaceId === surfaceId && !op.sent);
-        if (waiting) waiting.intent = intent;
-        else ops = [...ops, { surfaceId, mutationId: idCreate(), intent, sent: false }];
+        let op = ops.find((entry) => entry.surfaceId === surfaceId && !entry.sent);
+        if (op) {
+            // The act it replaces never goes.
+            membershipOpSettle(op, false);
+            op.intent = intent;
+        } else {
+            op = { surfaceId, mutationId: idCreate(), intent, sent: false, answers: [] };
+            ops = [...ops, op];
+        }
         republish();
         void queueRun();
+        return op;
     };
 
     /** The key after the last Surface in the reader's sidebar, as the daemon appends one. */
@@ -1403,10 +1425,20 @@ export function happyAgentSurfaceCatalogStoreCreate(
             enqueue(surfaceId, { kind: "join", orderKey: keyAppended(), joinedAt: now() });
         },
         surfaceLeave(surfaceId) {
-            if (disposed) return;
+            if (disposed) return Promise.resolve(false);
+            // A leave already on its way answers this one too; one already
+            // taken has nothing left to do.
+            const leaving = [...ops]
+                .reverse()
+                .find(
+                    (entry: MembershipOp) =>
+                        entry.surfaceId === surfaceId && entry.intent.kind === "leave",
+                );
             const surface = snapshot.surfaces.find((entry) => entry.id === surfaceId);
-            if (memberOf(surface) === undefined) return;
-            enqueue(surfaceId, { kind: "leave" });
+            if (leaving === undefined && memberOf(surface) === undefined)
+                return Promise.resolve(true);
+            const op = leaving ?? enqueue(surfaceId, { kind: "leave" });
+            return new Promise((resolve) => op.answers.push(resolve));
         },
         surfaceReorder(surfaceId, afterId) {
             if (disposed || afterId === surfaceId) return;
@@ -1643,6 +1675,7 @@ export function happyAgentSurfaceCatalogStoreCreate(
             stop();
             life.abort();
             listeners.clear();
+            for (const op of ops) membershipOpSettle(op, false);
             ops = [];
             creates = [];
             for (const running of chatOpenings.values()) running.abort.abort();

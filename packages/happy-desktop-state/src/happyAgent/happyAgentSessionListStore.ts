@@ -341,8 +341,14 @@ export interface HappyAgentSessionListStore {
     botCreate(input: HappyAgentBotCreateInput): Promise<HappyAgentBotCreation>;
     /** Renames a bot the way `taskRename` renames a task. */
     botRename(botId: string, name: string): Promise<boolean>;
-    /** Archives a bot, preserving its dedicated folder for a later restore. */
-    botArchive(botId: HappyAgentBotId): Promise<void>;
+    /**
+     * Archives a bot, preserving its dedicated folder for a later restore. It
+     * goes from `bots` at once and stays gone through any read that still
+     * lists it, unless the host refuses. Resolves `false` when the host refused,
+     * the row back; `true` once the catalog no longer lists the bot, or at
+     * once when it already does not. A second call joins the first.
+     */
+    botArchive(botId: HappyAgentBotId): Promise<boolean>;
     /** Moves one bot after `afterId`, or to the front of the bot list when null. */
     botReorder(botId: HappyAgentBotId, afterId: HappyAgentBotId | null): Promise<void>;
     /**
@@ -362,23 +368,26 @@ export interface HappyAgentSessionListStore {
     /**
      * Leaves a task: it goes from the reader's list at once and stays gone
      * unless the host refuses. It never archives the task for anyone else.
+     * Answers the way `botArchive` does.
      */
-    taskLeave(taskId: HappyAgentTaskId): Promise<void>;
+    taskLeave(taskId: HappyAgentTaskId): Promise<boolean>;
     /** Moves one joined task after `afterId` in the reader's list, or first when null. */
     taskReorder(taskId: HappyAgentTaskId, afterId: HappyAgentTaskId | null): Promise<void>;
     /**
-     * Archives a task for everyone. Deliberately not optimistic: the host decides
-     * who may, and the row goes when the host's own update says it is archived.
+     * Archives a task for everyone. It goes from the reader's list at once; the
+     * host decides who may, and its refusal brings the row back with the reason
+     * in `taskFailures`. Answers the way `botArchive` does.
      */
-    taskArchive(taskId: HappyAgentTaskId): Promise<void>;
+    taskArchive(taskId: HappyAgentTaskId): Promise<boolean>;
     taskUnarchive(taskId: HappyAgentTaskId): Promise<void>;
     /**
      * Archives one bot subtask by its conversation. The host stops the task and
      * its descendants but archives only the task, keeping its history and its
-     * workspace. Deliberately not optimistic: the row leaves the bot's tree when
-     * the host's own update says the task is archived.
+     * workspace. The row leaves its parent's tree at once, with everything
+     * under it, and comes back if the host refuses, the reason in
+     * `subtaskFailures`. Answers the way `botArchive` does.
      */
-    subtaskArchive(sessionId: HappyAgentSessionId): Promise<void>;
+    subtaskArchive(sessionId: HappyAgentSessionId): Promise<boolean>;
     /**
      * Moves one bot subtask after `afterId`, or to the front of its siblings
      * when null. A subtask only moves among the children of its own parent;
@@ -777,6 +786,36 @@ export function happyAgentSessionListStoreCreate(
      * membership, or the leave is refused.
      */
     const taskLeaves = new Map<HappyAgentTaskId, string>();
+    /**
+     * Tasks, bots and bot subtasks archived here, by the mutation archiving
+     * them. Like a leave, each stays out of the lists until the host's catalog
+     * no longer carries it as it was, or the archive is refused.
+     */
+    const taskArchives = new Map<HappyAgentTaskId, string>();
+    const botArchives = new Map<HappyAgentBotId, string>();
+    const subtaskArchives = new Map<HappyAgentSessionId, string>();
+    /** Who waits on each pending leave or archive: `true` once the catalog agrees, `false` if refused. */
+    const removalWaiters = new Map<string, ((taken: boolean) => void)[]>();
+    const removalSettle = (mutationId: string, taken: boolean): void => {
+        const waiting = removalWaiters.get(mutationId);
+        removalWaiters.delete(mutationId);
+        for (const waiter of waiting ?? []) waiter(taken);
+    };
+    /** A removal on its way, answered the way `removalWaiters` says. */
+    const removalWait = (mutationId: string): Promise<boolean> =>
+        new Promise((resolve) => {
+            const waiting = removalWaiters.get(mutationId);
+            if (waiting) waiting.push(resolve);
+            else removalWaiters.set(mutationId, [resolve]);
+        });
+    /** Forgets the pending leave or archive one mutation made, wherever it is held. */
+    const removalForget = (mutationId: string): void => {
+        for (const pending of [taskLeaves, taskArchives, botArchives, subtaskArchives] as Map<
+            string,
+            string
+        >[])
+            for (const [id, held] of pending) if (held === mutationId) pending.delete(id);
+    };
     /** Tasks the reader asked to join, by the mutation joining them. */
     const taskJoins = new Map<HappyAgentTaskId, string>();
     /**
@@ -1287,6 +1326,65 @@ export function happyAgentSessionListStoreCreate(
             });
     };
 
+    /** Each root with the bot subtasks archived here taken out of its tree, at any depth. */
+    const subtaskArchivesApply = <Root extends HappyAgentSubtaskRoot>(
+        roots: readonly Root[],
+    ): readonly Root[] => {
+        if (subtaskArchives.size === 0) return roots;
+        const prune = (tasks: readonly HappyAgentBotSubtask[]): readonly HappyAgentBotSubtask[] => {
+            let changed = false;
+            const kept = tasks.flatMap((task) => {
+                if (subtaskArchives.has(task.conversation.id as HappyAgentSessionId)) {
+                    changed = true;
+                    return [];
+                }
+                const subtasks = prune(task.subtasks);
+                if (subtasks === task.subtasks) return [task];
+                changed = true;
+                return [{ ...task, subtasks }];
+            });
+            return changed ? kept : tasks;
+        };
+        let changed = false;
+        const next = roots.map((root) => {
+            const subtasks = prune(root.subtasks);
+            if (subtasks === root.subtasks) return root;
+            changed = true;
+            return { ...root, subtasks };
+        });
+        return changed ? next : roots;
+    };
+
+    /**
+     * Bots and bot subtasks archived here, laid over the host's catalog. An
+     * archive is settled the moment the catalog no longer lists what it took.
+     */
+    const botsProject = (catalog: HappyAgentProjectCatalog): readonly HappyAgentBot[] => {
+        for (const [botId, mutationId] of botArchives)
+            if (!catalog.bots.some((bot) => bot.id === botId)) {
+                botArchives.delete(botId);
+                pendingMutationIds.delete(mutationId);
+                removalSettle(mutationId, true);
+            }
+        if (subtaskArchives.size > 0) {
+            const listed = new Set(
+                happyAgentBotSubtasks(subtaskRoots(catalog)).map((task) => task.conversation.id),
+            );
+            for (const [sessionId, mutationId] of subtaskArchives)
+                if (!listed.has(sessionId)) {
+                    subtaskArchives.delete(sessionId);
+                    subtaskMutations.delete(mutationId);
+                    pendingMutationIds.delete(mutationId);
+                    removalSettle(mutationId, true);
+                }
+        }
+        const bots =
+            botArchives.size === 0
+                ? catalog.bots
+                : catalog.bots.filter((bot) => !botArchives.has(bot.id));
+        return subtaskArchivesApply(bots);
+    };
+
     /**
      * The reader's list and the browsable directory, with this window's pending
      * leaves and moves laid over the host's catalog. Each pending act is settled
@@ -1306,6 +1404,16 @@ export function happyAgentSessionListStoreCreate(
                 taskLeaves.delete(taskId);
                 taskMutations.delete(mutationId);
                 pendingMutationIds.delete(mutationId);
+                removalSettle(mutationId, true);
+            }
+        }
+        for (const [taskId, mutationId] of taskArchives) {
+            const task = catalogTasks.find((candidate) => candidate.id === taskId);
+            if (task === undefined || task.archived) {
+                taskArchives.delete(taskId);
+                taskMutations.delete(mutationId);
+                pendingMutationIds.delete(mutationId);
+                removalSettle(mutationId, true);
             }
         }
         for (const [taskId, mutationId] of taskJoins) {
@@ -1316,8 +1424,10 @@ export function happyAgentSessionListStoreCreate(
                 pendingMutationIds.delete(mutationId);
             }
         }
-        let joined: readonly HappyAgentTask[] = happyAgentTasksJoined(catalogTasks).filter(
-            (task) => !taskLeaves.has(task.id),
+        let joined: readonly HappyAgentTask[] = subtaskArchivesApply(
+            happyAgentTasksJoined(catalogTasks).filter(
+                (task) => !taskLeaves.has(task.id) && !taskArchives.has(task.id),
+            ),
         );
         if (taskOrder !== undefined) {
             if (orderMatches(joined, taskOrder.order)) {
@@ -1332,11 +1442,11 @@ export function happyAgentSessionListStoreCreate(
         };
     };
 
-    /** Keeps each unchanged task's previous object, and the previous list when nothing moved. */
-    const tasksPreserve = (
-        previous: readonly HappyAgentTask[],
-        next: readonly HappyAgentTask[],
-    ): readonly HappyAgentTask[] => {
+    /** Keeps each unchanged row's previous object, and the previous list when nothing moved. */
+    const tasksPreserve = <Row extends { readonly id: string }>(
+        previous: readonly Row[],
+        next: readonly Row[],
+    ): readonly Row[] => {
         if (previous === next) return previous;
         const byId = new Map(previous.map((task) => [task.id, task]));
         let changed = previous.length !== next.length;
@@ -1385,11 +1495,12 @@ export function happyAgentSessionListStoreCreate(
     ): void => {
         const { catalogRevision } = internal.getState();
         const ordered = optimisticOrderApply(projected);
-        // Bots are taken straight from the catalog: the host owns their order,
-        // and nothing in this surface rearranges or nests them.
-        const bots = internal.getState().catalog.bots;
+        // Bots are taken from the catalog, less what was archived here: the
+        // host owns their order, and nothing in this surface rearranges them.
+        const projectedBots = botsProject(internal.getState().catalog);
         const taskLists = tasksProject(internal.getState().catalog.tasks);
         store.setState((previous) => {
+            const bots = tasksPreserve(previous.bots, projectedBots);
             // An unchanged project keeps its previous object — and with it the
             // identity of the worktrees and conversation rows nested inside it — so a
             // reconcile that changed one session does not replace every project row,
@@ -1799,6 +1910,8 @@ export function happyAgentSessionListStoreCreate(
         if (refusedTask !== undefined) {
             if (taskLeaves.get(refusedTask.taskId) === rejection.mutationId)
                 taskLeaves.delete(refusedTask.taskId);
+            if (taskArchives.get(refusedTask.taskId) === rejection.mutationId)
+                taskArchives.delete(refusedTask.taskId);
             if (taskJoins.get(refusedTask.taskId) === rejection.mutationId)
                 taskJoins.delete(refusedTask.taskId);
             if (taskOrder?.mutationId === rejection.mutationId) taskOrder = undefined;
@@ -1812,6 +1925,15 @@ export function happyAgentSessionListStoreCreate(
                   });
         const refusedSubtask = subtaskMutations.get(rejection.mutationId);
         subtaskMutations.delete(rejection.mutationId);
+        if (
+            refusedSubtask !== undefined &&
+            subtaskArchives.get(refusedSubtask.sessionId) === rejection.mutationId
+        )
+            subtaskArchives.delete(refusedSubtask.sessionId);
+        for (const [botId, mutationId] of botArchives)
+            if (mutationId === rejection.mutationId) botArchives.delete(botId);
+        // A refused leave or archive puts its row back in this same publication.
+        const refusedRemoval = removalWaiters.has(rejection.mutationId);
         const subtaskFailures =
             refusedSubtask === undefined
                 ? previous.subtaskFailures
@@ -1840,7 +1962,8 @@ export function happyAgentSessionListStoreCreate(
             taskFailures,
             worktreeCreateFailures,
         });
-        if (reordered !== undefined || refusedTask !== undefined) publish();
+        if (reordered !== undefined || refusedTask !== undefined || refusedRemoval) publish();
+        removalSettle(rejection.mutationId, false);
         if (rejection.action === "create_workspace") {
             worktreeWaiterReject(rejection.mutationId as HappyAgentWorktreeId, error.message);
         }
@@ -1894,6 +2017,21 @@ export function happyAgentSessionListStoreCreate(
     };
     const storeUnsub = store.subscribe(notify);
 
+    /**
+     * Whether a task in the reader's list is addressed through this workspace.
+     * One being left or archived here still answers until the host agrees, so
+     * its open conversation is not refused while its row is already gone.
+     */
+    const taskWorkspaceListed = (groupId: HappyAgentGroupId): boolean =>
+        store.getState().tasks.some((task) => task.workspaceId === groupId) ||
+        internal
+            .getState()
+            .catalog.tasks.some(
+                (task) =>
+                    task.workspaceId === groupId &&
+                    (taskLeaves.has(task.id) || taskArchives.has(task.id)),
+            );
+
     /** Whether a group id still names something this list would show a reader. */
     const groupListed = (groupId: HappyAgentGroupId): boolean => {
         const { catalog } = internal.getState();
@@ -1906,7 +2044,7 @@ export function happyAgentSessionListStoreCreate(
             catalog.bots.some((bot) => bot.workspaceId === groupId) ||
             // A task is addressed the same way, through a workspace of its own,
             // and is listed for as long as it is in the reader's list.
-            store.getState().tasks.some((task) => task.workspaceId === groupId) ||
+            taskWorkspaceListed(groupId) ||
             happyAgentBotSubtasks(subtaskRoots(catalog)).some(
                 (task) => task.workspaceId === groupId,
             )
@@ -1957,6 +2095,10 @@ export function happyAgentSessionListStoreCreate(
                     sessionArchiveIntents.delete(sessionId);
                 botAvatarIntentWithdraw(expired);
                 nameIntentWithdraw(expired);
+                // Too old for an answer to be heard: the row goes back to
+                // whatever the host lists, and its waiters are told so.
+                removalForget(expired);
+                removalSettle(expired, false);
             }
         }
         return mutationId;
@@ -1972,6 +2114,30 @@ export function happyAgentSessionListStoreCreate(
             }
             return undefined;
         }
+    };
+
+    /**
+     * A leave or archive that takes its row away under the hand that asked.
+     * `send` records the pending removal and answers its mutation, the one
+     * already on its way for the same row, `true` when the row is already gone
+     * or `false` when it cannot be removed. The row goes in the same call; the
+     * answer is `false` once the host refuses, and `true` once the catalog no
+     * longer carries the row as it was.
+     */
+    const removal = (send: () => string | boolean): Promise<boolean> => {
+        store.setState({ ...store.getState(), mutationError: undefined });
+        let mutationId: string | boolean;
+        try {
+            mutationId = send();
+        } catch (error) {
+            if (!disposed)
+                store.setState({ ...store.getState(), mutationError: happyAgentUserError(error) });
+            return Promise.resolve(false);
+        }
+        if (typeof mutationId === "boolean") return Promise.resolve(mutationId);
+        const answer = removalWait(mutationId);
+        publish();
+        return answer;
     };
 
     /**
@@ -2115,7 +2281,7 @@ export function happyAgentSessionListStoreCreate(
             if (project !== undefined) return happyAgentProjectWriteRefusal(project);
             if (
                 catalog.bots.some((bot) => bot.workspaceId === groupId) ||
-                store.getState().tasks.some((task) => task.workspaceId === groupId) ||
+                taskWorkspaceListed(groupId) ||
                 happyAgentBotSubtasks(subtaskRoots(catalog)).some(
                     (task) => task.workspaceId === groupId,
                 )
@@ -2148,7 +2314,7 @@ export function happyAgentSessionListStoreCreate(
             // way for the same reason a project does.
             if (
                 catalog.bots.some((bot) => bot.workspaceId === groupId) ||
-                store.getState().tasks.some((task) => task.workspaceId === groupId) ||
+                taskWorkspaceListed(groupId) ||
                 happyAgentBotSubtasks(subtaskRoots(catalog)).some(
                     (task) => task.workspaceId === groupId,
                 )
@@ -2580,23 +2746,31 @@ export function happyAgentSessionListStoreCreate(
                 deps.connectActions.renameGroup({ kind: "bot", botId }, name),
             ),
         botArchive: (botId) =>
-            mutate(async () => {
-                if (!internal.getState().catalog.bots.some((bot) => bot.id === botId)) return;
-                connectMutationTrack(deps.connectActions.archiveBot(botId));
+            removal(() => {
+                const pending = botArchives.get(botId);
+                if (pending !== undefined) return pending;
+                if (!internal.getState().catalog.bots.some((bot) => bot.id === botId)) return true;
+                const mutationId = connectMutationTrack(deps.connectActions.archiveBot(botId));
+                botArchives.set(botId, mutationId);
+                return mutationId;
             }),
         subtaskArchive: (sessionId) =>
-            mutate(async () => {
+            removal(() => {
+                const pending = subtaskArchives.get(sessionId);
+                if (pending !== undefined) return pending;
                 if (
                     !happyAgentBotSubtasks(subtaskRoots()).some(
                         (task) => task.conversation.id === sessionId,
                     )
                 )
-                    return;
+                    return true;
                 subtaskFailureWithdraw(sessionId);
                 const mutationId = connectMutationTrack(
                     deps.connectActions.setSessionArchived(sessionId, true),
                 );
                 subtaskMutations.set(mutationId, { sessionId, action: "archive" });
+                subtaskArchives.set(sessionId, mutationId);
+                return mutationId;
             }),
         subtaskReorder: (sessionId, afterId) =>
             mutate(async () => {
@@ -2740,16 +2914,18 @@ export function happyAgentSessionListStoreCreate(
                 publish();
             }),
         taskLeave: (taskId) =>
-            mutate(async () => {
+            removal(() => {
+                const pending = taskLeaves.get(taskId);
+                if (pending !== undefined) return pending;
                 const task = internal.getState().catalog.tasks.find((entry) => entry.id === taskId);
-                if (task?.membership === undefined || taskLeaves.has(taskId)) return;
+                if (task?.membership === undefined) return true;
                 taskFailureWithdraw(taskId);
                 // The row goes under the hand that closed it. The host's answer
                 // takes the membership away; a refusal brings the row back.
                 const mutationId = connectMutationTrack(deps.connectActions.leaveTask(taskId));
                 taskMutations.set(mutationId, { taskId, action: "leave" });
                 taskLeaves.set(taskId, mutationId);
-                publish();
+                return mutationId;
             }),
         taskReorder: (taskId, afterId) =>
             mutate(async () => {
@@ -2773,12 +2949,19 @@ export function happyAgentSessionListStoreCreate(
                 publish();
             }),
         taskArchive: (taskId) =>
-            mutate(async () => {
+            removal(() => {
+                const pending = taskArchives.get(taskId);
+                if (pending !== undefined) return pending;
                 const task = internal.getState().catalog.tasks.find((entry) => entry.id === taskId);
-                if (task === undefined || task.archived || !task.canArchive) return;
+                if (task === undefined || task.archived) return true;
+                if (!task.canArchive) return false;
                 taskFailureWithdraw(taskId);
+                // The row goes under the hand that archived it; a refusal,
+                // which names who may archive it, brings the row back.
                 const mutationId = connectMutationTrack(deps.connectActions.archiveTask(taskId));
                 taskMutations.set(mutationId, { taskId, action: "archive" });
+                taskArchives.set(taskId, mutationId);
+                return mutationId;
             }),
         taskUnarchive: (taskId) =>
             mutate(async () => {
@@ -2902,6 +3085,7 @@ export function happyAgentSessionListStoreCreate(
             const waiters = [...worktreeWaiters.values()].flat();
             worktreeWaiters.clear();
             for (const waiter of waiters) waiter.reject(cancelled);
+            for (const mutationId of removalWaiters.keys()) removalSettle(mutationId, false);
             const botWaiting = [...botWaiters.values(), ...taskWaiters.values()].flat();
             botWaiters.clear();
             taskWaiters.clear();

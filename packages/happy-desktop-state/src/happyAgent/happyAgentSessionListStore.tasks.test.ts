@@ -179,7 +179,7 @@ it("leaves at once, and brings the row back with the host's reason when it refus
     using harness = listCreate([task("a", { orderKey: "a1" }), task("b", { orderKey: "a2" })]);
     await vi.waitFor(() => expect(harness.list.get().tasks).toHaveLength(2));
 
-    await harness.list.taskLeave("a" as HappyAgentTaskId);
+    const left = harness.list.taskLeave("a" as HappyAgentTaskId);
     expect(harness.actions.leaveTask).toHaveBeenCalledWith("a");
     expect(ids(harness.list.get().tasks)).toEqual(["b"]);
     // Still in the catalog for browsing: leaving is the reader's list only.
@@ -191,6 +191,7 @@ it("leaves at once, and brings the row back with the host's reason when it refus
         message: "The host is busy.",
         mutationId: "mut_1",
     });
+    expect(await left).toBe(false);
     expect(ids(harness.list.get().tasks)).toEqual(["a", "b"]);
     expect(harness.list.get().taskFailures.get("a" as HappyAgentTaskId)).toMatchObject({
         action: "leave",
@@ -198,25 +199,33 @@ it("leaves at once, and brings the row back with the host's reason when it refus
     });
 
     // Asked again and answered: the host's catalog settles it.
-    await harness.list.taskLeave("a" as HappyAgentTaskId);
+    const again = harness.list.taskLeave("a" as HappyAgentTaskId);
     expect(harness.list.get().taskFailures.size).toBe(0);
     harness.hostAnswers([task("a"), task("b", { orderKey: "a2" })]);
-    await vi.waitFor(() => expect(ids(harness.list.get().tasks)).toEqual(["b"]));
+    expect(await again).toBe(true);
+    expect(ids(harness.list.get().tasks)).toEqual(["b"]);
 });
 
-it("archives only a task the host says the reader may archive, and never optimistically", async () => {
+it("archives only a task the host says the reader may archive, at once, until the host refuses", async () => {
     using harness = listCreate([
         task("mine", { orderKey: "a1", canArchive: true }),
         task("theirs", { orderKey: "a2" }),
     ]);
     await vi.waitFor(() => expect(harness.list.get().tasks).toHaveLength(2));
 
-    await harness.list.taskArchive("theirs" as HappyAgentTaskId);
+    expect(await harness.list.taskArchive("theirs" as HappyAgentTaskId)).toBe(false);
     expect(harness.actions.archiveTask).not.toHaveBeenCalled();
 
-    await harness.list.taskArchive("mine" as HappyAgentTaskId);
+    const refused = harness.list.taskArchive("mine" as HappyAgentTaskId);
     expect(harness.actions.archiveTask).toHaveBeenCalledWith("mine");
-    expect(ids(harness.list.get().tasks)).toEqual(["mine", "theirs"]);
+    expect(ids(harness.list.get().tasks)).toEqual(["theirs"]);
+    // A read from before the archive does not bring the row back.
+    harness.hostAnswers([
+        task("mine", { orderKey: "a1", canArchive: true }),
+        task("theirs", { orderKey: "a2" }),
+    ]);
+    await harness.list.sessionsRefresh();
+    expect(ids(harness.list.get().tasks)).toEqual(["theirs"]);
 
     harness.reject({
         type: "mutation_rejected",
@@ -224,7 +233,19 @@ it("archives only a task the host says the reader may archive, and never optimis
         message: "“mine” changed while you were looking at it. Try again.",
         mutationId: "mut_1",
     });
+    expect(await refused).toBe(false);
+    expect(ids(harness.list.get().tasks)).toEqual(["mine", "theirs"]);
     expect(harness.list.get().taskFailures.get("mine" as HappyAgentTaskId)?.action).toBe("archive");
+
+    const archived = harness.list.taskArchive("mine" as HappyAgentTaskId);
+    expect(ids(harness.list.get().tasks)).toEqual(["theirs"]);
+    harness.hostAnswers([
+        { ...task("mine", { orderKey: "a1", canArchive: true }), archived: true },
+        task("theirs", { orderKey: "a2" }),
+    ]);
+    expect(await archived).toBe(true);
+    expect(ids(harness.list.get().tasks)).toEqual(["theirs"]);
+    expect(ids(harness.list.get().tasksArchived)).toEqual(["mine"]);
 });
 
 it("moves a task in the reader's own list until the host's order agrees", async () => {

@@ -1659,23 +1659,26 @@ export interface HappyAgentWorkspaceStore {
         projectId: HappyAgentProjectId,
         afterId: HappyAgentProjectId | null,
     ): Promise<void>;
-    /** Archives a bot, preserving its dedicated folder for a later restore. */
-    botArchive(botId: HappyAgentBotId): Promise<void>;
+    /**
+     * Archives a bot, preserving its dedicated folder for a later restore. Its
+     * row goes at once; resolves `false` if the host refused and it is back.
+     */
+    botArchive(botId: HappyAgentBotId): Promise<boolean>;
     /** Moves one bot after `afterId`, or to the front of the bot list when null. */
     botReorder(botId: HappyAgentBotId, afterId: HappyAgentBotId | null): Promise<void>;
     /** Joins a task; the host puts it at the top of the reader's own list. */
     taskJoin(taskId: HappyAgentTaskId): Promise<void>;
     /** Leaves a task, taking it out of the reader's list. It never archives the task. */
-    taskLeave(taskId: HappyAgentTaskId): Promise<void>;
+    taskLeave(taskId: HappyAgentTaskId): Promise<boolean>;
     /** Moves one joined task after `afterId` in the reader's list, or first when null. */
     taskReorder(taskId: HappyAgentTaskId, afterId: HappyAgentTaskId | null): Promise<void>;
     /** Archives a task for everyone, when the host says the reader may. */
-    taskArchive(taskId: HappyAgentTaskId): Promise<void>;
+    taskArchive(taskId: HappyAgentTaskId): Promise<boolean>;
     /** Opens the list of every task this Happy Agent holds, to join one. */
     taskBrowseOpen(): void;
     taskBrowseClose(): void;
     /** Archives one bot subtask by its conversation, keeping its history and workspace. */
-    subtaskArchive(sessionId: HappyAgentSessionId): Promise<void>;
+    subtaskArchive(sessionId: HappyAgentSessionId): Promise<boolean>;
     /** Moves one bot subtask among its siblings, after `afterId` or first when null. */
     subtaskReorder(
         sessionId: HappyAgentSessionId,
@@ -6454,9 +6457,9 @@ export function happyAgentWorkspaceStoreCreate(
      * new name rather than left standing over a stale copy.
      */
     /**
-     * Reports the bot subtasks the host's tree stopped listing since the last
-     * read. Removal is never predicted locally — an archive waits for the
-     * host — so any task gone from the list is gone from the host. A reader
+     * Reports the bot subtasks the list stopped carrying since the last read:
+     * gone from the host's tree, or archived here, which takes the row at
+     * once as the reader asked, before the host answers. A reader
      * inside one is sent to the nearest conversation above it still listed:
      * its parent task, or its bot.
      */
@@ -7630,9 +7633,9 @@ export function happyAgentWorkspaceStoreCreate(
         taskReorder: (taskId, afterId) => list.taskReorder(taskId, afterId),
         taskArchive: (taskId) => {
             tasksArchivedHere.add(taskId);
-            return list.taskArchive(taskId).catch((error: unknown) => {
-                tasksArchivedHere.delete(taskId);
-                throw error;
+            return list.taskArchive(taskId).then((taken) => {
+                if (!taken) tasksArchivedHere.delete(taskId);
+                return taken;
             });
         },
         taskBrowseOpen() {

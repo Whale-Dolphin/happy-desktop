@@ -289,12 +289,21 @@ export interface HappyAgentSpacesStore {
     /** Asks the manager to tidy now; its batch applies as soon as it is done. */
     tidyRequest(): void;
     /**
-     * Closes new work nobody started, when the person asks to: the daemon
-     * removes the row and its empty chat, and refuses once the chat has any
-     * message, which leaves it alone. Nothing but an explicit close calls this;
-     * opening, leaving or selecting a row never does.
+     * Closes new work nobody started, when the person asks to: the row goes at
+     * once, the daemon removes it and its empty chat, and it comes back if the
+     * daemon refuses because the chat has a message. Nothing but an explicit
+     * close calls this; opening, leaving or selecting a row never does.
      */
     stemCellDiscard(spaceId: HappyAgentSpaceId): void;
+    /**
+     * Takes a row out at once because the person archived or left what it
+     * stands for, before the daemon answers. It stays out through any read or
+     * event that still carries it, until the daemon removes the row or
+     * `spaceRemoveWithdraw` puts it back.
+     */
+    spaceRemove(spaceId: HappyAgentSpaceId): void;
+    /** Puts back a row whose archive or leave the host refused, as last read. */
+    spaceRemoveWithdraw(spaceId: HappyAgentSpaceId): void;
     /**
      * Shows the name the person just gave a row's task or bot, whose rename is
      * on its way: the row and its tab wear it at once and keep it through any
@@ -438,6 +447,8 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
     const life = new AbortController();
     // Authored document sections need not have a legacy SpaceSection row.
     // Keep the requested placement until both the creation event and reply agree.
+    /** Each row's creation request while the daemon has not answered it, by space. */
+    const makings = new Map<string, Promise<unknown>>();
     const creating = new Map<
         string,
         { readonly sectionId: string | null; readonly happySpaceId: string | null }
@@ -505,10 +516,21 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         spaces.set(spaceId, { ...current, title });
         publish({ spaces });
     };
+    /**
+     * Rows the person archived or left here whose removal the daemon has not
+     * made yet, each as last read. A read or event still carrying one updates
+     * this copy instead of putting the row back.
+     */
+    const removals = new Map<HappyAgentSpaceId, HappyAgentSpace>();
     const spaceAdopt = (
         spaces: Map<HappyAgentSpaceId, HappyAgentSpace>,
         space: HappyAgentSpace,
     ): boolean => {
+        const removing = removals.get(space.id);
+        if (removing !== undefined) {
+            if (removing.version <= space.version) removals.set(space.id, titled(space));
+            return false;
+        }
         const current = spaces.get(space.id);
         if (current !== undefined && current.version > space.version) return false;
         spaces.set(space.id, titled(space));
@@ -727,8 +749,11 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                     attempts,
                 });
                 const spaces = new Map<HappyAgentSpaceId, HappyAgentSpace>();
-                for (const space of response.spaces.map(spaceRead))
-                    spaces.set(space.id, titled(space));
+                const listed = response.spaces.map(spaceRead);
+                // A row being removed that the daemon no longer lists is gone.
+                for (const spaceId of removals.keys())
+                    if (!listed.some((space) => space.id === spaceId)) removals.delete(spaceId);
+                for (const space of listed) spaceAdopt(spaces, space);
                 const pending = held ?? [];
                 held = undefined;
                 const next: SpacesPatch = {
@@ -806,6 +831,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                 break;
             case "space.removed": {
                 const spaceId = event.payload.spaceId as HappyAgentSpaceId;
+                removals.delete(spaceId);
                 if (snapshot.spaces.has(spaceId)) {
                     const spaces = new Map(snapshot.spaces);
                     spaces.delete(spaceId);
@@ -1229,6 +1255,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             if ("refused" in response) throw response.refused;
             return response;
         });
+        makings.set(id, request);
         let cell: HappyAgentStemCell | undefined;
         if (identity !== undefined) {
             // The task is listed before the row, so the row never points
@@ -1334,6 +1361,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             )
             .finally(() => {
                 creating.delete(id);
+                makings.delete(id);
                 if (creating.size === 0 && sidebarStale) {
                     sidebarStale = false;
                     sidebarLoad();
@@ -1559,24 +1587,54 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
         },
         stemCellDiscard(spaceId) {
             const mutationId = idCreate();
-            void happyAgentSyncRead(
-                life.signal,
-                async () => {
-                    try {
-                        await deps.client.removeSpace(spaceId, {
-                            mutationId,
-                            signal: life.signal,
-                        });
-                        return undefined;
-                    } catch (error) {
-                        // A chat that has a message is real work and stays.
-                        if (error instanceof HappyAgentApiError && error.status < 500)
-                            return undefined;
-                        throw error;
-                    }
-                },
-                () => undefined,
-            ).catch(() => undefined);
+            store.spaceRemove(spaceId);
+            // New work still being made is removed once the daemon has it.
+            const made = makings.get(spaceId)?.catch(() => undefined) ?? Promise.resolve();
+            void made
+                .then(() =>
+                    happyAgentSyncRead(
+                        life.signal,
+                        async () => {
+                            try {
+                                await deps.client.removeSpace(spaceId, {
+                                    mutationId,
+                                    signal: life.signal,
+                                });
+                                return undefined;
+                            } catch (error) {
+                                // Already gone: nothing comes back.
+                                if (error instanceof HappyAgentApiError && error.status === 404)
+                                    return undefined;
+                                // A chat that has a message is real work and
+                                // stays, as the daemon now holds it.
+                                if (error instanceof HappyAgentApiError && error.status < 500) {
+                                    store.spaceRemoveWithdraw(spaceId);
+                                    void load();
+                                    return undefined;
+                                }
+                                throw error;
+                            }
+                        },
+                        () => undefined,
+                    ),
+                )
+                .catch(() => undefined);
+        },
+        spaceRemove(spaceId) {
+            const current = snapshot.spaces.get(spaceId);
+            if (disposed || current === undefined) return;
+            removals.set(spaceId, current);
+            const spaces = new Map(snapshot.spaces);
+            spaces.delete(spaceId);
+            publish({ spaces });
+        },
+        spaceRemoveWithdraw(spaceId) {
+            const held = removals.get(spaceId);
+            if (disposed || held === undefined) return;
+            removals.delete(spaceId);
+            const spaces = new Map(snapshot.spaces);
+            spaces.set(spaceId, held);
+            publish({ spaces });
         },
         spaceTitleUpdate(spaceId, title) {
             const current = snapshot.spaces.get(spaceId);
@@ -1630,6 +1688,8 @@ export const happyAgentSpacesStoreNoop: HappyAgentSpacesStore = {
     proposalSeenRecord: () => undefined,
     tidyRequest: () => undefined,
     stemCellDiscard: () => undefined,
+    spaceRemove: () => undefined,
+    spaceRemoveWithdraw: () => undefined,
     spaceTitleUpdate: () => undefined,
     spaceTitleWithdraw: () => undefined,
     sidebarWrite: () => undefined,

@@ -75,10 +75,10 @@ function fixture() {
         focus: {},
         navigation: { onChatSelect: vi.fn() },
         actions: {
-            taskLeave: vi.fn(),
-            taskArchive: vi.fn(),
-            botArchive: vi.fn(),
-            surfaceLeave: vi.fn(),
+            taskLeave: vi.fn(() => Promise.resolve(true)),
+            taskArchive: vi.fn(() => Promise.resolve(true)),
+            botArchive: vi.fn(() => Promise.resolve(true)),
+            surfaceLeave: vi.fn(() => Promise.resolve(true)),
             taskRename,
             botRename,
         },
@@ -215,10 +215,10 @@ it("shows the new name from the Enter that saves it, through a late reply and an
                 focus={{}}
                 navigation={{ onChatSelect: () => {} }}
                 actions={{
-                    taskLeave: () => {},
-                    taskArchive: () => {},
-                    botArchive: () => {},
-                    surfaceLeave: () => {},
+                    taskLeave: () => Promise.resolve(true),
+                    taskArchive: () => Promise.resolve(true),
+                    botArchive: () => Promise.resolve(true),
+                    surfaceLeave: () => Promise.resolve(true),
                     taskRename,
                 }}
                 now={1}

@@ -94,7 +94,7 @@ function store(bots: readonly HappyAgentBot[]) {
                             listeners.add(listener);
                             return () => listeners.delete(listener);
                         },
-                        subtaskArchive: () => Promise.resolve(),
+                        subtaskArchive: () => Promise.resolve(true),
                     },
                     {
                         get: (target, property) =>

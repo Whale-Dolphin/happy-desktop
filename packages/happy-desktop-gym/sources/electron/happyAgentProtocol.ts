@@ -133,6 +133,11 @@ export class GymHappyAgentClient {
         return (await this.#client.getTask(cuid(taskId))).task.name;
     }
 
+    /** Whether the task is archived. */
+    async taskArchived(taskId: string): Promise<boolean> {
+        return (await this.#client.getTask(cuid(taskId))).task.archivedAt !== null;
+    }
+
     /** Whether the agent is archived. */
     async agentArchived(agentId: string): Promise<boolean> {
         return (await this.#client.getAgent(cuid(agentId))).agent.archivedAt !== null;

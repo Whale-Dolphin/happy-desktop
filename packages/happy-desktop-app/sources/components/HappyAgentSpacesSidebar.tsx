@@ -567,13 +567,17 @@ function sessionTreeOf(
     }));
 }
 
-/** The acts a row's menu reaches beyond opening it. */
+/**
+ * The acts a row's menu reaches beyond opening it. A leave or archive takes
+ * its row away at once and resolves `false` when the host refused it, which
+ * puts the row back.
+ */
 export interface HappyAgentSpacesActions {
-    taskLeave(taskId: string): void;
-    taskArchive(taskId: string): void;
-    botArchive(botId: string): void;
-    surfaceLeave(surfaceId: string): void;
-    /** Archives a subtask by its conversation; its row goes when the host says it is archived. */
+    taskLeave(taskId: string): Promise<boolean>;
+    taskArchive(taskId: string): Promise<boolean>;
+    botArchive(botId: string): Promise<boolean>;
+    surfaceLeave(surfaceId: string): Promise<boolean>;
+    /** Archives a subtask by its conversation; its row goes at once, with everything under it. */
     subtaskArchive?(agentId: string): void;
     /** Archives a worktree drawn under a node; absent where the window cannot. */
     worktreeArchive?(worktreeId: string): void;
@@ -1441,6 +1445,18 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         const html = sidebarDocumentEdit(sidebarDoc.html, change);
         if (html !== undefined) props.store.sidebarWrite(html);
     };
+    /**
+     * Leaves or archives what a space's row stands for. The row goes in the
+     * click, before the host answers, and comes back if the host refuses.
+     */
+    const spaceRemove = (space: HappyAgentSpace, remove: () => Promise<boolean>): void => {
+        const store = props.store;
+        store.spaceRemove(space.id);
+        const restore = () => store.spaceRemoveWithdraw(space.id);
+        void remove().then((taken) => {
+            if (!taken) restore();
+        }, restore);
+    };
     // Prioritizing's open proposal, drawn on the sidebar it would change.
     const proposalsStore = props.proposals ?? happyAgentSidebarProposalsStoreNoop;
     const proposals = useSyncExternalStore(
@@ -1552,9 +1568,12 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                     places,
                 );
                 if (subject?.kind !== "space") continue;
-                const target = subject.space.target;
-                if (target.kind === "task") props.actions.taskArchive(target.id);
-                else if (target.kind === "bot") props.actions.botArchive(target.id);
+                const { space } = subject;
+                const target = space.target;
+                if (target.kind === "task")
+                    spaceRemove(space, () => props.actions.taskArchive(target.id));
+                else if (target.kind === "bot")
+                    spaceRemove(space, () => props.actions.botArchive(target.id));
             }
         }
         documentEdit((current) => sidebarProposalChangeAccept(current, proposedView, change));
@@ -2011,9 +2030,9 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                     else if (actionId === MENU_SIDEBAR && sidebarDoc)
                         props.onSidebarOpen?.(sidebarDoc.artifactId);
                     else if (actionId === MENU_LEAVE && target.kind === "task")
-                        props.actions.taskLeave(target.id);
+                        spaceRemove(space, () => props.actions.taskLeave(target.id));
                     else if (actionId === MENU_LEAVE && target.kind === "surface")
-                        props.actions.surfaceLeave(target.id);
+                        spaceRemove(space, () => props.actions.surfaceLeave(target.id));
                     else if (actionId === MENU_DISCARD) {
                         // Closing is leaving: a reader in the new work goes back
                         // to where they were before Create, at once rather than
@@ -2022,9 +2041,9 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                             props.navigation.onGroupClose?.(target.workspaceId);
                         props.store.stemCellDiscard(space.id);
                     } else if (actionId === MENU_ARCHIVE && target.kind === "task")
-                        props.actions.taskArchive(target.id);
+                        spaceRemove(space, () => props.actions.taskArchive(target.id));
                     else if (actionId === MENU_ARCHIVE && target.kind === "bot")
-                        props.actions.botArchive(target.id);
+                        spaceRemove(space, () => props.actions.botArchive(target.id));
                 }
             }}
             // A move is an edit of the document: a node after one of its own

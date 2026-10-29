@@ -121,10 +121,10 @@ function fixture(options: { readonly canArchive: boolean }) {
         "</nav>",
     ].join("\n");
     const actions = {
-        taskLeave: vi.fn(),
-        taskArchive: vi.fn(),
-        botArchive: vi.fn(),
-        surfaceLeave: vi.fn(),
+        taskLeave: vi.fn(() => Promise.resolve(true)),
+        taskArchive: vi.fn(() => Promise.resolve(true)),
+        botArchive: vi.fn(() => Promise.resolve(true)),
+        surfaceLeave: vi.fn(() => Promise.resolve(true)),
         subtaskArchive: vi.fn(),
         worktreeArchive: vi.fn(),
         worktreeRename: vi.fn(),
@@ -314,10 +314,10 @@ it("takes a deleted heading off at once, keeps every row still, and puts it back
                 focus={{}}
                 navigation={{ onChatSelect: () => {} }}
                 actions={{
-                    taskLeave: () => {},
-                    taskArchive: () => {},
-                    botArchive: () => {},
-                    surfaceLeave: () => {},
+                    taskLeave: () => Promise.resolve(true),
+                    taskArchive: () => Promise.resolve(true),
+                    botArchive: () => Promise.resolve(true),
+                    surfaceLeave: () => Promise.resolve(true),
                 }}
                 now={1}
                 titleShimmerEnabled={false}
@@ -398,10 +398,10 @@ it("makes new work right under an open heading from its +, in the click, moving 
                 focus={{}}
                 navigation={{ onChatSelect: () => {} }}
                 actions={{
-                    taskLeave: () => {},
-                    taskArchive: () => {},
-                    botArchive: () => {},
-                    surfaceLeave: () => {},
+                    taskLeave: () => Promise.resolve(true),
+                    taskArchive: () => Promise.resolve(true),
+                    botArchive: () => Promise.resolve(true),
+                    surfaceLeave: () => Promise.resolve(true),
                 }}
                 now={1}
                 titleShimmerEnabled={false}
