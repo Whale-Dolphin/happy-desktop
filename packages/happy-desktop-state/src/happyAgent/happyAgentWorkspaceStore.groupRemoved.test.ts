@@ -106,6 +106,7 @@ function store(bots: readonly HappyAgentBot[]) {
                 new Proxy(
                     {
                         get: () => list,
+                        taskArchive: () => Promise.resolve(),
                         subscribe: (listener: () => void) => {
                             listeners.add(listener);
                             return () => listeners.delete(listener);

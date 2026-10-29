@@ -5608,13 +5608,6 @@ export function happyAgentWorkspaceStoreCreate(
 
     /**
      * This group's worktree id, or `undefined` when it is a project. It decides
-     * which route a session start takes, and a project has n.path);
-        }
-        return best === undefined ? undefined : { groupId: best.groupId, path: best.path };
-    };
-
-    /**
-     * This group's worktree id, or `undefined` when it is a project. It decides
      * which route a session start takes, and a project has no directory to wait
      * for: Happy was pointed at it.
      */
@@ -7553,7 +7546,10 @@ export function happyAgentWorkspaceStoreCreate(
         taskReorder: (taskId, afterId) => list.taskReorder(taskId, afterId),
         taskArchive: (taskId) => {
             tasksArchivedHere.add(taskId);
-            return list.taskArchive(taskId);
+            return list.taskArchive(taskId).catch((error: unknown) => {
+                tasksArchivedHere.delete(taskId);
+                throw error;
+            });
         },
         taskBrowseOpen() {
             if (taskBrowseOpen) return;
