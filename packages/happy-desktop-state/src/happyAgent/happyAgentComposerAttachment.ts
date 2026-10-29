@@ -15,6 +15,9 @@ const CHUNK = 0x6000;
  */
 const INLINE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+/** Inline images share the turn's JSON body, whose limit is lower than file uploads. */
+const INLINE_IMAGES_MAX_BYTES = 29 * 1024 * 1024;
+
 function base64Encode(bytes: Uint8Array): string {
     const encoded: string[] = [];
     for (let offset = 0; offset < bytes.length; offset += CHUNK) {
@@ -25,11 +28,11 @@ function base64Encode(bytes: Uint8Array): string {
 }
 
 /**
- * The shared local/remote attachment ceiling. A Remote Happy Agent carries the daemon's
- * JSON request through a 40 MiB P2P envelope; 29 MiB of source bytes expands to
- * about 38.7 MiB in base64, leaving room for JSON keys and the destination path.
+ * The shared local/remote file upload ceiling. The desktop upload proxy and
+ * daemon file-write route allow 72 MiB JSON bodies, enough for 50 MiB of source
+ * bytes expanded to base64 plus the destination path and request metadata.
  */
-export const HAPPY_AGENT_COMPOSER_FILE_MAX_BYTES = 29 * 1024 * 1024;
+export const HAPPY_AGENT_COMPOSER_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
 function mediaPreviewUrl(file: File): string | undefined {
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return undefined;
@@ -80,7 +83,7 @@ export function happyAgentComposerAttachmentCreate(
 function attachmentSizeAssert(name: string, size: number): void {
     if (size > HAPPY_AGENT_COMPOSER_FILE_MAX_BYTES)
         throw new Error(
-            `${name} is too large to attach. Happy Agent currently accepts files up to 29 MB.`,
+            `${name} is too large to attach. Happy Agent currently accepts files up to 50 MiB.`,
         );
 }
 
@@ -101,9 +104,9 @@ export function happyAgentComposerAttachmentsValidate(
     const inlineBytes = attachments
         .filter((attachment) => attachment.kind === "inlineImage")
         .reduce((total, attachment) => total + attachment.size, 0);
-    if (inlineBytes > HAPPY_AGENT_COMPOSER_FILE_MAX_BYTES)
+    if (inlineBytes > INLINE_IMAGES_MAX_BYTES)
         throw new Error(
-            "These images are too large to attach together. Happy Agent currently accepts up to 29 MB per message.",
+            "These images are too large to attach together. Happy Agent currently accepts up to 29 MiB of inline images per message.",
         );
 }
 

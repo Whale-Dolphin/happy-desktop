@@ -132,7 +132,7 @@ export async function happyAgentProxyHandle(
             return true;
         }
         if (method === "POST" && path === "/attachment") {
-            const body = await bodyReadJson(request);
+            const body = await bodyReadJson(request, ATTACHMENT_BODY_MAX_BYTES);
             writeJson(
                 response,
                 200,
@@ -585,7 +585,9 @@ const PREVIEW_CONTENT_TYPE: Readonly<Record<string, string>> = {
 };
 
 const PREVIEW_MAX_BYTES = 64 * 1024 * 1024;
-const RAW_BODY_MAX_BYTES = 64 * 1024 * 1024;
+// A 50 MiB file expands to about 66.7 MiB of base64 before JSON metadata.
+const ATTACHMENT_BODY_MAX_BYTES = 72 * 1024 * 1024;
+const RAW_BODY_MAX_BYTES = ATTACHMENT_BODY_MAX_BYTES;
 const JSON_BODY_MAX_BYTES = 40 * 1024 * 1024;
 
 const previewHeld = new WeakMap<
@@ -679,8 +681,11 @@ async function requestWithAbort<T>(
     }
 }
 
-async function bodyReadJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-    const body = (await bodyReadBuffer(request, JSON_BODY_MAX_BYTES)).toString("utf8");
+async function bodyReadJson(
+    request: IncomingMessage,
+    maximumBytes = JSON_BODY_MAX_BYTES,
+): Promise<Record<string, unknown>> {
+    const body = (await bodyReadBuffer(request, maximumBytes)).toString("utf8");
     if (body.trim().length === 0) return {};
     return JSON.parse(body) as Record<string, unknown>;
 }
