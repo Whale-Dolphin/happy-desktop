@@ -1,9 +1,8 @@
 /*
  * A small standing dinosaur on a short stretch of ground between two cacti:
  * what a story row shows on its last line while its agent has said nothing yet.
- * Drawn on a 49 × 22 cell grid, the ground on the last row, so the dinosaur
- * stands as tall as a status line's capitals and the ground sits on its
- * baseline.
+ * Drawn on a 49 × 22 cell grid, the ground on the last row; the dinosaur
+ * fills the 21 rows above it.
  */
 const SCENE = [
     "..........########...............................",
@@ -32,8 +31,9 @@ const SCENE = [
 
 const ROWS = SCENE.length;
 const COLUMNS = SCENE[0].length;
-/** The scene's height in CSS pixels: 22 cells, one device pixel each at 2x. */
-const HEIGHT = 11;
+/** The dinosaur's height in CSS pixels: "Ag" in 14px Figtree, cap 9.8 plus descender 3. */
+const DINOSAUR_HEIGHT = 12.8;
+const HEIGHT = (DINOSAUR_HEIGHT * ROWS) / (ROWS - 1);
 const WIDTH = (HEIGHT * COLUMNS) / ROWS;
 
 /**

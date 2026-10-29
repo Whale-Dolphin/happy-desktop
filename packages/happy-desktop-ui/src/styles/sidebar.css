@@ -2534,13 +2534,14 @@
     font-weight: 500;
 }
 
-/* The empty mark stands on the last line's baseline, at the text column. */
+/* The empty mark's dinosaur spans the last line's cap top to its descender,
+   the height of "Ag" in the status text, at the text column. */
 .happy-sidebar__item-empty {
     display: flex;
     flex: none;
-    align-items: flex-end;
+    align-items: flex-start;
     height: 16px;
-    padding-bottom: 3px;
+    padding-top: 3px;
     color: color-mix(in srgb, var(--text-secondary) 55%, transparent);
 }
 
@@ -2553,8 +2554,10 @@
    flows after them and wraps around them like any word. */
 .happy-sidebar__item-subtitle-stats {
     display: inline-flex;
-    margin-right: 6px;
-    font-size: 12.5px;
+    gap: 4px;
+    margin-right: 4px;
+    font-family: inherit;
+    font-size: inherit;
     line-height: 16px;
     vertical-align: top;
 }
