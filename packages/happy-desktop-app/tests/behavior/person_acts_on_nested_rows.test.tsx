@@ -425,10 +425,10 @@ it("makes new work right under an open heading from its +, in the click, moving 
             .filter((id) => id !== "search" && id !== "create");
     try {
         await waitFor(() => expect(row("section:desktop")).not.toBeNull());
-        // Only the open heading offers it; a folded one would make work out of sight.
+        // Every heading offers it on hover, a folded one too.
         expect(plus("section:desktop")?.getAttribute("aria-label")).toBe("New in Desktop");
         expect(plus("section:desktop")?.dataset.reveal).toBe("hover");
-        expect(plus("section:later")).toBeFalsy();
+        expect(plus("section:later")?.getAttribute("aria-label")).toBe("New in Later");
         const before = { release: row("space:release"), voice: row("space:voice") };
         fireEvent.click(plus("section:desktop")!);
         expect(onSectionCreate).toHaveBeenCalledWith("desktop");
