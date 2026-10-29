@@ -337,7 +337,9 @@ it("takes feedback for the agent, pauses, scrubs, shows a live page, and offers 
     // Writing to the agent holds the story; Enter sends it, quoting the frame.
     const input = view.$('[data-testid="story-viewer-feedback-input"]').element as HTMLInputElement;
     await userEvent.click(input);
-    expect(playState()).toBe("paused");
+    // Focus can land a moment after the click under a loaded Firefox.
+    await expect.poll(() => document.activeElement).toBe(input);
+    await expect.poll(playState).toBe("paused");
     await userEvent.keyboard("Make the chart bigger");
     // The field keeps its keys: Space typed there never resumed the story.
     expect(playState()).toBe("paused");

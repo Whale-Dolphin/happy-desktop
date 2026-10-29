@@ -701,7 +701,7 @@ function storyRow(
     const statusLine = conversationOf(agentId, places)?.statusLine;
     const ring = stories.rings.get(agentId);
     const signal =
-        item.status === "awaitingInput" || item.unread
+        item.status === "awaitingInput"
             ? ("waiting" as const)
             : item.status === "working"
               ? ("working" as const)

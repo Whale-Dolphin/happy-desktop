@@ -2410,6 +2410,12 @@
     font-weight: 600;
 }
 
+/* Unread is said by the name alone, heavier still; the corner dot is only for
+   an agent waiting on the person. */
+.happy-sidebar__item[data-story][data-unread] .happy-sidebar__item-label {
+    font-weight: 750;
+}
+
 .happy-sidebar__item-time {
     flex: none;
     color: var(--text-secondary);

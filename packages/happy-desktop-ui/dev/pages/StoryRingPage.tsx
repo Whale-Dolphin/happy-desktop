@@ -95,6 +95,8 @@ const DAY: readonly SidebarItem[] = [
             time: "Mon",
             ring: { total: 2, unseen: 0 },
         },
+        // Unread, not waiting: a heavier name and no dot.
+        unread: true,
     }),
     story("launch-list", "Launch checklist", "kanban", { story: {} }),
     heading("chores", "Chores"),
