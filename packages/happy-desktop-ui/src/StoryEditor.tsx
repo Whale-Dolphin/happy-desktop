@@ -182,7 +182,7 @@ export function StoryEditor(props: StoryEditorProps) {
                         phase: "failed",
                         message:
                             error instanceof Error && error.name === "NotAllowedError"
-                                ? "Happy needs the camera. Allow it in System Settings."
+                                ? "Happy was not allowed to use the camera."
                                 : "The camera could not be started.",
                     }),
             );

@@ -597,7 +597,11 @@ export function StoryCanvas(props: StoryCanvasProps) {
                 />
             ) : null}
             {props.caption ? (
-                <div className="happy-story-canvas__caption">
+                <div
+                    className="happy-story-canvas__caption"
+                    // The repost chip keeps the lower edge; the caption sits above it.
+                    data-above-chip={props.repost ? "" : undefined}
+                >
                     <span className="happy-story-canvas__caption-text">{props.caption}</span>
                 </div>
             ) : null}
