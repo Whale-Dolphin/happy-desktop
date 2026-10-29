@@ -606,6 +606,50 @@ export function SetupPagePage() {
             </Specimen>
 
             <Specimen
+                detail="every check settled as failed · no spinner, because nothing is waiting on the person · a failed CLI offers its sign-in again, the main way in · a custom endpoint or proxy is the custom column's, through its agent prompts, custom setup first · Happy keeps checking in the background"
+                label="Authentication couldn't be verified"
+                number="14c"
+                stage="surface"
+            >
+                <div style={frame}>
+                    <ThemeScope mode="dark">
+                        <LocalOnboardingScreen
+                            happyMobilePairingOptions={setupPairingOptions()}
+                            appearance="dark"
+                            onAssistantsContinue={noop}
+                            onConnectRetry={noop}
+                            onHappyMobileConnect={noop}
+                            onHappyMobileSkip={noop}
+                            view={{
+                                assistants: [
+                                    {
+                                        authentication: "error",
+                                        command: "/opt/homebrew/bin/claude",
+                                        id: "claude",
+                                        status: "found",
+                                    },
+                                    {
+                                        authentication: "error",
+                                        command: "/opt/homebrew/bin/codex",
+                                        id: "codex",
+                                        status: "found",
+                                    },
+                                    {
+                                        authentication: "unavailable",
+                                        id: "grok",
+                                        status: "missing",
+                                    },
+                                ],
+                                custom: { authentication: "error", providers: ["Claude"] },
+                                kind: "provider-authentication",
+                                installShell: "posix",
+                            }}
+                        />
+                    </ThemeScope>
+                </div>
+            </Specimen>
+
+            <Specimen
                 detail="optional final onboarding decision · one clear connection action and a permanent Skip"
                 label="Happy Mobile offer"
                 number="15"

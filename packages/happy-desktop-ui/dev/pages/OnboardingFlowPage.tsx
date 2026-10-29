@@ -71,6 +71,26 @@ const mixedSubscriptions: LocalOnboardingView = {
     installShell: "posix",
 };
 
+/**
+ * Checks that settled as failed: Claude Code behind a custom base URL that did
+ * not answer, and a Claude-type provider in `happy.toml` that failed the same way.
+ */
+const unverifiedSubscriptions: LocalOnboardingView = {
+    assistants: [
+        {
+            authentication: "error",
+            command: "/opt/homebrew/bin/claude",
+            id: "claude",
+            status: "found",
+        },
+        { authentication: "unavailable", id: "codex", status: "missing" },
+        { authentication: "unavailable", id: "grok", status: "missing" },
+    ],
+    custom: { authentication: "error", providers: ["Claude"] },
+    kind: "provider-authentication",
+    installShell: "posix",
+};
+
 const screens: readonly {
     appearance?: "dark" | "light";
     id: string;
@@ -165,6 +185,16 @@ const screens: readonly {
                 undefined,
                 true,
             ),
+    },
+    {
+        id: "subscriptions-unverified",
+        label: "Subscriptions · couldn't verify",
+        render: () => onboarding(unverifiedSubscriptions),
+    },
+    {
+        id: "subscriptions-unverified-prompts",
+        label: "Subscriptions · couldn't verify, custom endpoint with your agent",
+        render: () => onboarding(unverifiedSubscriptions, undefined, true),
     },
     {
         id: "subscriptions-custom-ready",

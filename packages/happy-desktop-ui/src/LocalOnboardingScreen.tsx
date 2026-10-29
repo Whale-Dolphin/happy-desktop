@@ -302,13 +302,16 @@ function assistantAuthenticationEntry(
             case "invalid":
                 return "Sign in by running:";
             case "error":
-                return "Couldn't check — retrying";
+                return "Couldn't verify. Sign in:";
             case "unavailable":
                 return "Install by running:";
         }
     })();
     // What to do about it: get the thing, or sign in to the thing that is
-    // already here. A working assistant is asked for nothing.
+    // already here. A credential that failed its check gets the same sign-in,
+    // the main way into Happy, so a settled failure always has a way forward;
+    // a custom endpoint or proxy is the custom column's to offer. A working
+    // assistant is asked for nothing.
     const action: SetupAssistantAction | undefined = (() => {
         switch (assistant.authentication) {
             case "unavailable":
@@ -324,6 +327,7 @@ function assistantAuthenticationEntry(
                         : {}),
                 };
             case "invalid":
+            case "error":
                 return {
                     command: vendor.signIn,
                     kind: "command",
@@ -335,7 +339,6 @@ function assistantAuthenticationEntry(
                           }
                         : {}),
                 };
-            case "error":
             case "checking":
             case "valid":
                 return undefined;
@@ -350,7 +353,7 @@ function assistantAuthenticationEntry(
         status:
             assistant.authentication === "valid"
                 ? "found"
-                : assistant.authentication === "invalid"
+                : assistant.authentication === "invalid" || assistant.authentication === "error"
                   ? "signed-out"
                   : assistant.authentication === "unavailable"
                     ? "missing"
@@ -360,17 +363,20 @@ function assistantAuthenticationEntry(
 
 const HAPPY_DOCS = "~/.happy/docs";
 
-/** What the custom column hands to the coding agent somebody already uses. */
+/**
+ * What the custom column hands to the coding agent somebody already uses. The
+ * custom setup comes first: this column is the only place that route lives.
+ */
 const AGENT_PROMPTS = [
+    {
+        id: "custom",
+        label: "My setup is custom",
+        text: `Set up Happy Agent on this computer with my custom model access: an API key, Bedrock, a gateway, or a custom base URL or proxy for Claude Code or Codex. Read the env block in ~/.claude/settings.json and ~/.codex/config.toml, then add the matching provider to Happy's happy.toml. Guide: ${HAPPY_DOCS}/configuration.md (Providers).`,
+    },
     {
         id: "sign-in",
         label: "Sign me in",
         text: `Sign me in to Claude Code, Codex, or Grok on this computer so Happy can use it. Guide: ${HAPPY_DOCS}/configuration.md (Providers).`,
-    },
-    {
-        id: "custom",
-        label: "My setup is custom",
-        text: `Set up Happy Agent on this computer with my custom model access (enterprise, Bedrock, API key, or a gateway). Guide: ${HAPPY_DOCS}/recipe/accounts-and-models.md`,
     },
 ] as const;
 
@@ -379,13 +385,25 @@ const CUSTOM_NAME = "Custom configuration";
 /**
  * The fourth card: model access set up some other way. It reads like the three
  * beside it — a mark, a name, one line of state — and its remedy is the prompts
- * for the coding agent already on the machine rather than a command.
+ * for the coding agent already on the machine rather than a command. Access
+ * that is configured but failed its check gets the same prompts: a base URL or
+ * proxy the daemon could not reach is fixed the same way it is set up.
  */
 function customAuthenticationEntry(
     custom: LocalOnboardingCustom,
     promptsOpen = false,
     onCommandCopy?: (copy: LocalOnboardingCommandCopy) => void,
 ): SetupAssistantEntry {
+    const prompts: SetupAssistantAction = {
+        ...(promptsOpen ? { defaultOpen: true } : {}),
+        kind: "prompts",
+        label: "Set up with your agent",
+        ...(onCommandCopy
+            ? { onCopy: () => onCommandCopy({ assistant: "custom", kind: "agent-prompt" }) }
+            : {}),
+        prompts: AGENT_PROMPTS,
+        title: "Paste one into the coding agent you already use",
+    };
     switch (custom.authentication) {
         case "valid":
             return {
@@ -405,27 +423,19 @@ function customAuthenticationEntry(
             };
         case "error":
             return {
-                detail: "Couldn't check — retrying",
+                action: prompts,
+                detail:
+                    custom.providers.length > 0
+                        ? `Couldn't verify ${custom.providers.join(", ")}`
+                        : "Couldn't verify",
                 id: "custom",
                 mark: "custom",
                 name: CUSTOM_NAME,
-                status: "checking",
+                status: "signed-out",
             };
         case "invalid":
             return {
-                action: {
-                    ...(promptsOpen ? { defaultOpen: true } : {}),
-                    kind: "prompts",
-                    label: "Set up with your agent",
-                    ...(onCommandCopy
-                        ? {
-                              onCopy: () =>
-                                  onCommandCopy({ assistant: "custom", kind: "agent-prompt" }),
-                          }
-                        : {}),
-                    prompts: AGENT_PROMPTS,
-                    title: "Paste one into the coding agent you already use",
-                },
+                action: prompts,
                 detail: "API key, Bedrock, other",
                 id: "custom",
                 mark: "custom",
@@ -506,14 +516,24 @@ function machineSetupProject(
                 status: { label: "" },
                 title: "You're set",
             };
-        const failed = states.includes("error");
-        if (states.includes("checking") || failed)
+        if (states.includes("checking"))
             return {
                 assistants,
                 copy: SUBSCRIPTIONS_COPY,
                 hasValidAuthentication: false,
-                status: { busy: true, label: failed ? "Couldn't check · retrying…" : "Checking…" },
+                status: { busy: true, label: "Checking…" },
                 title: "Checking subscriptions",
+            };
+        // A failed check is a settled answer, not one still coming: each failed
+        // card carries its remedy, and Happy keeps checking in the background
+        // without presenting the screen as busy.
+        if (states.includes("error"))
+            return {
+                assistants,
+                copy: "Sign in again, or set up a custom endpoint with your agent.",
+                hasValidAuthentication: false,
+                status: { label: "Happy notices as soon as one works." },
+                title: "Couldn't verify a subscription",
             };
         return {
             assistants,

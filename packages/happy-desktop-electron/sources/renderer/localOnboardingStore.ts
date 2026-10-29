@@ -127,6 +127,14 @@ export interface LocalOnboardingStoreOptions {
 const providerRecheckMs = 2_000;
 /** A failed network check must not turn the local discovery poll into paid traffic. */
 const providerVerificationRetryMs = 30_000;
+/**
+ * How long one inference check may take before it counts as failed. A base URL
+ * or proxy that never answers would otherwise hold the pass open, and with it
+ * every card, on "Checking…" for good.
+ */
+const providerVerificationTimeoutMs = 60_000;
+/** The same bound for the daemon's own local answers: its scan and its config. */
+const providerDiscoveryTimeoutMs = 15_000;
 const HAPPY_MOBILE_SKIPPED: HappyMobileOnboardingSnapshot = { status: "skipped" };
 const downloadRetryMinimumMs = 3_000;
 const downloadRetryMaximumMs = 30_000;
@@ -172,6 +180,8 @@ export function localOnboardingStoreCreate(
     let verificationConnectionId: number | undefined;
     const verificationRetryAt = new Map<LocalAssistantState["id"], number>();
     let customVerificationRetryAt = 0;
+    /** The configured custom providers the last inference check was made against. */
+    let customVerificationConfig: string | undefined;
     let providerRecheck: ReturnType<typeof setInterval> | undefined;
     let happyMobileStore: HappyMobileOnboardingStore | undefined;
     let happyMobileUnsubscribe: (() => void) | undefined;
@@ -559,6 +569,7 @@ export function localOnboardingStoreCreate(
             verificationConnectionId = runtime.connectionId;
             verificationRetryAt.clear();
             customVerificationRetryAt = 0;
+            customVerificationConfig = undefined;
         }
         const previous = connectionChanged ? { complete: false } : snapshot.providerAuthentication;
         const generation = ++verificationGeneration;
@@ -629,8 +640,13 @@ export function localOnboardingStoreCreate(
         };
         // The same proof the three CLIs get, for whatever else is configured:
         // one real inference through it, backed off after a failure.
+        // Every request is bounded, so a pass always ends and a check that cannot
+        // be made settles as one that failed instead of staying "Checking…".
+        const within = (ms: number) => AbortSignal.any([abort.signal, AbortSignal.timeout(ms)]);
         const customCheck = async () => {
-            const config = await client.getConfig({ signal: abort.signal }).catch(() => undefined);
+            const config = await client
+                .getConfig({ signal: within(providerDiscoveryTimeoutMs) })
+                .catch(() => undefined);
             if (!current()) return;
             if (!config) {
                 customPublish("error", snapshot.providerAuthentication.custom?.providers ?? []);
@@ -640,6 +656,7 @@ export function localOnboardingStoreCreate(
             const providers = [...new Set(configured.map(({ type }) => providerKindLabel(type)))];
             if (configured.length === 0) {
                 customVerificationRetryAt = 0;
+                customVerificationConfig = undefined;
                 customPublish("invalid", []);
                 return;
             }
@@ -647,15 +664,26 @@ export function localOnboardingStoreCreate(
                 customPublish("valid", providers);
                 return;
             }
+            // A changed configuration is a new answer to wait for, not the
+            // failed one backing off: fixing a base URL is noticed on the next poll.
+            const configuredNow = JSON.stringify(
+                configured.map(({ id }) => [id, config.config.providers[id]]),
+            );
+            if (configuredNow !== customVerificationConfig) customVerificationRetryAt = 0;
             if (Date.now() < customVerificationRetryAt) {
                 customPublish("error", providers);
                 return;
             }
+            customVerificationConfig = configuredNow;
             customVerificationRetryAt = Date.now() + providerVerificationRetryMs;
             const passed = await Promise.all(
                 configured.map(({ id }) =>
                     client
-                        .verifyProvider(id, { level: "inference" }, { signal: abort.signal })
+                        .verifyProvider(
+                            id,
+                            { level: "inference" },
+                            { signal: within(providerVerificationTimeoutMs) },
+                        )
                         .then(
                             (result) =>
                                 result.status === "passed" && result.performedLevel === "inference",
@@ -667,7 +695,7 @@ export function localOnboardingStoreCreate(
             customPublish(passed.includes(true) ? "valid" : "error", providers);
         };
         void client
-            .scanProviders({ signal: abort.signal })
+            .scanProviders({ signal: within(providerDiscoveryTimeoutMs) })
             // A failed local scan says nothing about an earlier successful check.
             .catch(() => undefined)
             .then((scan) =>
@@ -710,7 +738,7 @@ export function localOnboardingStoreCreate(
                             const result = await client.verifyProvider(
                                 assistant.id,
                                 { level: "inference" },
-                                { signal: abort.signal },
+                                { signal: within(providerVerificationTimeoutMs) },
                             );
                             if (!current()) return;
                             if (
