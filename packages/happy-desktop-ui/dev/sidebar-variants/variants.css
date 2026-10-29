@@ -104,8 +104,30 @@ body,
     border-radius: var(--sv-radius);
 }
 
+/* Hover is always quieter than selection. `theme.css` resolves
+   --happy-hover-fill once at :root from the light ripple, so dark themes
+   inherit a black wash (darker than the column); state it per theme here. */
+.happy-theme-light .sv-sidebar {
+    --happy-hover-fill: rgb(0 0 0 / 0.03);
+}
+
+.happy-theme-dark .sv-sidebar {
+    --happy-hover-fill: rgb(255 255 255 / 0.04);
+}
+
 .sv-sidebar[data-sv-hover="none"] .happy-sidebar__item[data-story]:hover:not([data-active]) {
     background: transparent;
+}
+
+/* Headings start on the avatars' left edge (10 from the column) and part
+   groups by 41 rather than 49. */
+.sv-sidebar .happy-sidebar__section-item {
+    height: 22px;
+    padding-left: calc(var(--sv-inset) + var(--sv-pad) - var(--happy-panel-inset));
+}
+
+.sv-sidebar .happy-sidebar__item[data-story] + .happy-sidebar__section-item {
+    margin-top: 6px;
 }
 
 /* ---- The avatar, and its ring drawn outside it ---------------------- */
