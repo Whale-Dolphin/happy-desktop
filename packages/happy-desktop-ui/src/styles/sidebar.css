@@ -2367,19 +2367,19 @@
 
 /*
  * A row while Stories are on reads as a messenger's chat list: the mark grown
- * into a 48px story ring, centred; the name on a first line with the time and
- * the row's controls at its end; and the agent's status under them in two
- * lines. The row is 64px and every box in it is fixed, so a ring, a status of
+ * into a 40px story ring, centred; the name on a first line with the time and
+ * the row's controls at its end; and one status line underneath.
+ * The row is 52px and every box in it is fixed, so a ring, a status of
  * any length, a time or a signal arriving never moves the name or the row.
  */
 .happy-sidebar__item[data-story] {
-    height: 64px;
-    gap: 10px;
+    height: 52px;
+    gap: 8px;
 }
 
 .happy-sidebar__item-leading[data-story] {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
 }
 
 /* Everything right of the ring: one line laid out as a plain row lays its
@@ -2393,7 +2393,7 @@
     align-self: stretch;
     gap: 2px;
     min-width: 0;
-    padding-top: 6px;
+    padding-top: 8px;
 }
 
 .happy-sidebar__item-line {
@@ -2439,30 +2439,30 @@
     opacity: 1;
 }
 
-/* Two lines, kept whether the status fills none, one or both, then cut with
+/* One line, kept whether the status is empty or full, then cut with
    an ellipsis. Its right edge stays clear of the corner signal, so the text
    never reflows when a signal comes or goes. */
 .happy-sidebar__item-subtitle {
-    display: -webkit-box;
+    display: block;
     flex: none;
-    height: 32px;
+    height: 16px;
     padding-right: 22px;
     overflow: hidden;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 400;
     line-height: 16px;
-    overflow-wrap: anywhere;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     transform: translateY(var(--happy-sidebar-label-optical-y, 0px));
 }
 
 /* A hairline between two story rows, from the text column to the row's edge.
    None after a list's last row, and none against the selected row, whose own
    fill already parts it from its neighbours. */
-.happy-sidebar__item[data-story]:has(+ .happy-sidebar__item[data-story])
+.happy-sidebar__item[data-story]:not([data-depth]):has(
+        + .happy-sidebar__item[data-story]:not([data-depth])
+    )
     > .happy-sidebar__item-body::after {
     position: absolute;
     right: calc(-1 * var(--happy-panel-row-padding));
@@ -2487,10 +2487,10 @@
 .happy-sidebar__item-corner {
     /* Out of the row's flow on purpose: the corner is a badge on the row, so
        a signal coming and going never takes width from the name. Centred on
-       the status's second line, which ends 6px above the row's bottom. */
+       the status line, without changing its width. */
     position: absolute;
     right: var(--happy-panel-row-padding);
-    bottom: 14px;
+    bottom: 16px;
     transform: translateY(50%);
     pointer-events: none;
 }
@@ -2502,39 +2502,58 @@
     background: var(--text-link);
 }
 
-/* Work is a quiet track with a short fill sliding through it. It only moves;
-   it never shimmers and never changes the row around it. */
 .happy-sidebar__item-corner[data-signal="working"] {
     width: 18px;
-    height: 3px;
-    overflow: hidden;
-    border-radius: var(--happy-radius-pill);
-    background: color-mix(in srgb, var(--text) 14%, transparent);
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
 }
 
-.happy-sidebar__item-corner[data-signal="working"]::after {
-    content: "";
-    display: block;
-    width: 40%;
-    height: 100%;
-    border-radius: var(--happy-radius-pill);
-    background: var(--text-secondary);
-    animation: happy-sidebar-corner-slide 1.4s ease-in-out infinite;
+.happy-sidebar__item[data-story][data-depth] {
+    height: 44px;
 }
 
-@keyframes happy-sidebar-corner-slide {
-    from {
-        transform: translateX(-100%);
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-leading {
+    width: 28px;
+    height: 28px;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-body {
+    padding-top: 4px;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-corner {
+    bottom: 12px;
+}
+
+/* Indentation and scale describe these children; a stem hanging from a story
+   picture competes with the ring. Keep the layer's drag geometry ownership. */
+.happy-sidebar__tree-connector[data-story] {
+    visibility: hidden;
+}
+
+/* Desktop headings reveal their controls without moving any lane. Coarse
+   pointer clients retain their existing controls. */
+@media (hover: hover) and (pointer: fine) {
+    .happy-sidebar__section-item:not([data-collapsed]):not(:hover):not(:focus-visible):not(
+            :has(:focus-visible)
+        )
+        .happy-sidebar__section-item-fold,
+    .happy-sidebar__section-item:not(:hover):not(:focus-visible):not(:has(:focus-visible))
+        .happy-sidebar__section-item-action,
+    .happy-sidebar__section-head:not([data-collapsed]):not(:hover):not(:has(:focus-visible))
+        [data-happy-desktop-ui="sidebar-section-fold"],
+    .happy-sidebar__section-head:not([data-collapsed]):not(:hover):not(:has(:focus-visible))
+        .happy-sidebar__section-fold,
+    .happy-sidebar__section-head:not(:hover):not(:has(:focus-visible)) [data-slot="heading"] {
+        opacity: 0;
     }
-    to {
-        transform: translateX(250%);
-    }
-}
 
-@media (prefers-reduced-motion: reduce) {
-    .happy-sidebar__item-corner[data-signal="working"]::after {
-        width: 100%;
-        animation: none;
-        opacity: 0.5;
+    .happy-sidebar__section-item:is(:hover, :focus-visible, :has(:focus-visible))
+        .happy-sidebar__section-item-action
+        .happy-sidebar__item-action {
+        opacity: 1;
     }
 }

@@ -225,7 +225,7 @@ export type SidebarItem = {
     /**
      * Draws the row as a messenger's chat row: one fixed height, the row's mark
      * enlarged inside the ring of its stories, the name on a first line that
-     * never moves, the agent's own status in up to two lines under it, and at
+     * never moves, one status line under it, and at
      * most one signal in the row's bottom-right corner. Such a row reports only
      * through these: it has no title shimmer, no activity glyph and no unread
      * dot. A row with no agent behind it states this empty, to stand in the
@@ -235,7 +235,7 @@ export type SidebarItem = {
 };
 /** What a story row shows besides its name. See `SidebarItem.story`. */
 export type SidebarItemStory = {
-    /** The agent's own status, as it last set it; absent leaves both lines empty. */
+    /** The agent's status; absent leaves the second line empty. */
     subtitle?: string;
     /** When the status was set, as the list tells it ("14:05", "Tue"); shown at the first line's end. */
     time?: string;
@@ -243,7 +243,7 @@ export type SidebarItemStory = {
     ring?: StoryRingSegments;
     /**
      * The one thing the corner says: `waiting` is a dot, the agent is waiting
-     * on the reader; `working` is a quiet bar while a run is going. Absent
+     * on the reader; `working` is the chat's braille spinner. Absent
      * says nothing — the agent is idle, or inside a wait it chose.
      */
     signal?: "waiting" | "working";
@@ -1436,6 +1436,7 @@ function SidebarTreeConnectors(props: SidebarTreeConnectorsProps) {
                                 : undefined
                         }
                         data-parent-id={group.parentId}
+                        data-story={props.items[group.parentIndex]?.story ? "" : undefined}
                         data-pin-area={props.pinAreaOf?.(group.parentId)}
                         data-happy-desktop-ui="sidebar-tree-connector"
                         key={group.parentId}
@@ -2402,7 +2403,11 @@ function SidebarRow({
             }}
             style={{
                 ...(depth() > 0
-                    ? { paddingLeft: SIDEBAR_ROW_PADDING_X + depth() * SIDEBAR_ROW_INDENT }
+                    ? {
+                          paddingLeft: story()
+                              ? SIDEBAR_ROW_PADDING_X + 48 + (depth() - 1) * 36
+                              : SIDEBAR_ROW_PADDING_X + depth() * SIDEBAR_ROW_INDENT,
+                      }
                     : {}),
                 ...(props.shift ? { top: props.shift } : {}),
             }}
@@ -2411,7 +2416,7 @@ function SidebarRow({
             }
             type={props.rename ? undefined : "button"}
         >
-            {depth() > 0 && props.treeConnectors !== false ? (
+            {depth() > 0 && props.treeConnectors !== false && !story() ? (
                 <span
                     aria-hidden="true"
                     className="happy-sidebar__item-branch"
@@ -2456,6 +2461,7 @@ function SidebarRow({
                                 label={`Watch ${item().label}'s stories`}
                                 onOpen={props.onStoryOpen}
                                 segments={story()?.ring}
+                                size={depth() > 0 ? 28 : 40}
                             >
                                 {mark}
                             </StoryRing>
@@ -2545,8 +2551,8 @@ function SidebarRow({
             {((line: ReactNode) =>
                 /* A story row is a messenger's chat row: everything a plain row
                    lays out in one line is its first line, and the agent's status
-                   runs under all of it, two lines tall whether it has none, one
-                   or two, so the name never moves when the status comes, changes
+                   runs under all of it in one reserved line,
+                   so the name never moves when the status comes, changes
                    or goes. */
                 story() ? (
                     <span
@@ -2832,7 +2838,7 @@ function SidebarRow({
             )}
             {/* One signal, always in the row's bottom-right corner, where a
                 messenger puts its unread dot: a dot while the agent waits on
-                the reader, a quiet bar while it works, nothing otherwise. */}
+                the reader, the chat's spinner while it works, nothing otherwise. */}
             {story()?.signal ? (
                 <span
                     aria-label={
@@ -2844,7 +2850,11 @@ function SidebarRow({
                     data-happy-desktop-ui="sidebar-item-corner"
                     data-signal={story()?.signal}
                     role="img"
-                />
+                >
+                    {story()?.signal === "working" ? (
+                        <Spinner variant="braille-2" size={14} />
+                    ) : null}
+                </span>
             ) : null}
         </Row>
     );
@@ -5080,6 +5090,7 @@ export function Sidebar(props: SidebarProps) {
                                         className="happy-sidebar__section-head"
                                         data-happy-desktop-ui="sidebar-section-head"
                                         data-lanes=""
+                                        data-collapsed={section.collapsed ? "" : undefined}
                                     >
                                         <button
                                             className="happy-sidebar__section-disclosure"
@@ -5162,6 +5173,7 @@ export function Sidebar(props: SidebarProps) {
                                     <div
                                         className="happy-sidebar__section-head"
                                         data-happy-desktop-ui="sidebar-section-head"
+                                        data-collapsed={section.collapsed ? "" : undefined}
                                     >
                                         {section.headingDisclosure ? (
                                             <button

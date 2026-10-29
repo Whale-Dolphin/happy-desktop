@@ -7,6 +7,8 @@ export interface StoryRingSegments {
 }
 
 export interface StoryRingProps {
+    /** Sidebar rows use 40px; their nested rows use 28px. */
+    readonly size?: 28 | 40 | 48;
     /** One segment per story; absent draws no ring and keeps the box. */
     readonly segments?: StoryRingSegments;
     /** What the ring goes around, centred in it. */
@@ -100,6 +102,7 @@ export function StoryRing(props: StoryRingProps) {
         </span>
     );
     const className = ["happy-story-ring", props.className].filter(Boolean).join(" ");
+    const size = props.size ?? 48;
     // Only a ring with stories behind it opens anything.
     if (props.onOpen && total > 0) {
         const open = props.onOpen;
@@ -112,6 +115,7 @@ export function StoryRing(props: StoryRingProps) {
                 className={className}
                 data-happy-desktop-ui="story-ring"
                 data-opens=""
+                data-size={size}
                 data-unseen={unseen > 0 ? "" : undefined}
                 onClick={(event) => {
                     event.stopPropagation();
@@ -136,6 +140,7 @@ export function StoryRing(props: StoryRingProps) {
         <span
             className={className}
             data-happy-desktop-ui="story-ring"
+            data-size={size}
             data-unseen={unseen > 0 ? "" : undefined}
         >
             {ring}

@@ -682,7 +682,7 @@ export function happyAgentSpacesAgentIdentity(
 /**
  * A conversation's row as Stories draw it: the agent's status line under the
  * title with when it was set at the title's end, its ring, and one corner
- * signal: a dot while it waits on the person, a bar while it works.
+ * signal: a dot while it waits on the person, the chat's spinner while it works.
  */
 function storyRow(
     item: SidebarItem,
@@ -690,7 +690,9 @@ function storyRow(
     places: HappyAgentSpacesPlaces,
     stories: HappyAgentSpacesStories,
 ): SidebarItem {
-    const statusLine = conversationOf(agentId, places)?.statusLine;
+    const conversation = conversationOf(agentId, places);
+    const statusLine = conversation?.statusLine;
+    const updatedAt = statusLine?.updatedAt ?? conversation?.updatedAt;
     const ring = stories.rings.get(agentId);
     const signal =
         item.status === "awaitingInput"
@@ -704,9 +706,9 @@ function storyRow(
             ...(statusLine
                 ? {
                       subtitle: statusLine.text,
-                      time: localListTime(statusLine.updatedAt, Date.now()),
                   }
                 : {}),
+            ...(updatedAt === undefined ? {} : { time: localListTime(updatedAt, Date.now()) }),
             ...(ring ? { ring } : {}),
             ...(signal ? { signal } : {}),
         },
@@ -918,9 +920,9 @@ export function happyAgentSpacesItems(input: HappyAgentSpacesItemsInput): {
                         kind: "section",
                         label: item.label,
                         collapsed: item.collapsed,
-                        // An open heading offers new work right under it; a folded
-                        // one would make it out of sight.
-                        ...(editable && input.sectionCreate && !item.collapsed
+                        // A heading offers new work in its section. Desktop
+                        // reveals the control on hover, including when folded.
+                        ...(editable && input.sectionCreate
                             ? {
                                   action: {
                                       icon: "plus" as const,
@@ -1300,6 +1302,9 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
             : { items: standing.items, changeOf: new Map<string, SidebarProposalChange>() };
     /** The conversation a drawn row opens, when it opens one. */
     const rowAgentId = (id: string): string | undefined => {
+        // A task listed as a session can have no separate space of its own.
+        // It still reports its conversation's status and work signal.
+        if (id.startsWith("session:")) return id.slice("session:".length);
         const subject = happyAgentSpacesRowSubject(id, snapshot, places);
         return subject?.kind === "space"
             ? spaceAgentId(subject.space)
@@ -1313,9 +1318,11 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
               if (item.kind === "separator") return item;
               const agentId = rowAgentId(item.id);
               if (agentId !== undefined) return storyRow(item, agentId, places, stories);
-              // A Surface has no agent to report, but stands in the same
-              // column as the agents around it, at their height.
-              return item.id.startsWith("space:") ? { ...item, story: {} } : item;
+              // Sessions without a status and worktree attachments still keep
+              // the same two-line geometry as their siblings.
+              return item.kind === "section" || item.kind === "action"
+                  ? item
+                  : { ...item, story: {} };
           })
         : drawn.items;
     const pending = changes.some((change) => !proposal?.declined.has(change.id));

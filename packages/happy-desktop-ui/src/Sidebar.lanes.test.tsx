@@ -128,8 +128,13 @@ it("keeps the fold on one column and the status right after the name, through ho
         }),
     );
     expect([...edges]).toHaveLength(1);
-    // The fold is foundational: shown at rest as well as on hover.
-    for (const fold of folds) expect(getComputedStyle(fold!).opacity).toBe("1");
+    // Row folds stay discoverable. Expanded headings reveal theirs on hover;
+    // folded headings keep the arrow visible so hidden work can be found.
+    for (const element of foldable) expect(getComputedStyle(foldOf(element)!).opacity).toBe("1");
+    for (const head of heads)
+        expect(getComputedStyle(ui(head, "sidebar-section-fold")!).opacity).toBe(
+            head.hasAttribute("data-collapsed") ? "1" : "0",
+        );
 
     // The status starts STATUS_GAP after the name, and a long name ellipsizes
     // before it rather than pushing it off the row.

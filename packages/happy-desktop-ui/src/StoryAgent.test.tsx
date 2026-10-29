@@ -112,7 +112,7 @@ it("draws a conversation's row with its ring and one corner signal; the ring ope
         )!;
 
     // The title, then the agent's status under it.
-    expect(row("waiting").getBoundingClientRect().height).toBe(64);
+    expect(row("waiting").getBoundingClientRect().height).toBe(52);
     expect(row("waiting").textContent).toContain("Ready for a test build. Send it?");
 
     // One corner signal per row, never a second dot.
@@ -227,16 +227,17 @@ it("keeps every story row one height with its name on one line, whatever the sta
 
     // Every combination, and a Surface with no agent, has one geometry.
     const reference = geometry("none-idle");
-    expect(reference.height).toBe(64);
-    expect(reference.leading.y + reference.leading.height / 2).toBe(32);
+    expect(reference.height).toBe(52);
+    expect(reference.leading.y + reference.leading.height / 2).toBe(26);
     for (const id of [...grid.map((item) => item.id), "surface", "live"])
         expect({ id, ...geometry(id) }).toEqual({ id, ...reference });
 
-    // A long status stops at two lines and ends in an ellipsis; one line leaves the second empty.
+    // A long status stays on the reserved second line and ends in an ellipsis.
     const long = part("two-idle", "sidebar-item-subtitle");
-    expect(px(long.getBoundingClientRect().height)).toBe(32);
-    expect(long.scrollHeight).toBeGreaterThan(long.clientHeight);
-    expect(getComputedStyle(long).webkitLineClamp).toBe("2");
+    expect(px(long.getBoundingClientRect().height)).toBe(16);
+    expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
+    expect(getComputedStyle(long).textOverflow).toBe("ellipsis");
+    expect(getComputedStyle(long).whiteSpace).toBe("nowrap");
     expect(part("two-idle", "sidebar-item-time").textContent).toBe("14:05");
     expect(
         row("none-idle").querySelector('[data-happy-desktop-ui="sidebar-item-time"]'),
