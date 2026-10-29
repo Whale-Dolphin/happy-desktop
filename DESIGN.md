@@ -483,7 +483,9 @@ corner when radii or insets differ by corner.
 Normalize pills, circles, percentage radii, and oversized radii to the curve
 the browser actually renders before applying the formula. A descendant whose
 corner is outside the ancestor's corner field is an independent rounded shape
-and does not inherit this relationship.
+and does not inherit this relationship. A fully circular mark (border-radius at least half
+its smaller side) is exempt from the nested-radius rule wherever it sits,
+because its curve never runs parallel to the container's corner.
 
 The shared `happy-desktop-ui` renderer audits this contract after every test render in
 Chromium, Firefox, and WebKit. Component fixtures must expose rounded visual

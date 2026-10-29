@@ -90,6 +90,15 @@ export function defaultMode(config: DaemonConfig): MessageMode {
     };
 }
 
+/** How much of a draft a row shows: the start of it, on one line. */
+const DRAFT_PREVIEW_LENGTH = 120;
+
+/** The start of a draft's text on one line, or undefined while it holds nothing to show. */
+export function draftPreviewOf(draft?: AgentDraftSnapshot): string | undefined {
+    const text = draft?.value?.text.replace(/\s+/gu, " ").trim().slice(0, DRAFT_PREVIEW_LENGTH);
+    return text ? text : undefined;
+}
+
 export function modeOf(
     config: DaemonConfig,
     draft?: AgentDraftSnapshot,
@@ -783,6 +792,7 @@ const groupSessionCache = new WeakMap<
     {
         config: DaemonConfig;
         mode: MessageMode;
+        draftPreview: string | undefined;
         endpoint: string;
         cwd: string;
         workspaceKind: Workspace["kind"] | undefined;
@@ -862,14 +872,17 @@ function projectAgent(
     const botId = workspace?.kind === "bot" ? (workspace.botId ?? undefined) : undefined;
     const projectId = workspace?.projectId ?? agent.workspaceId;
     const cwd = workspacePath(workspace);
-    // The draft reaches a row only through the mode it picks. Its text is the
-    // composer's alone, so a keystroke must not replace the row or the list.
+    // The draft reaches a row through the mode it picks and the start of its
+    // text; the connection publishes that text after a pause in typing, so a
+    // keystroke does not replace the row or the list.
     const mode = modeOf(config, draft, storedMode);
+    const draftPreview = draftPreviewOf(draft);
     const cached = groupSessionCache.get(agent);
     if (
         cached &&
         cached.config === config &&
         deepEqual(cached.mode, mode) &&
+        cached.draftPreview === draftPreview &&
         cached.endpoint === endpoint &&
         cached.cwd === cwd &&
         cached.workspaceKind === workspace?.kind &&
@@ -921,6 +934,7 @@ function projectAgent(
                   },
               }
             : {}),
+        ...(draftPreview === undefined ? {} : { draftPreview }),
         trackUnread: true,
         ...(agent.unread === null
             ? {}
@@ -937,6 +951,7 @@ function projectAgent(
     groupSessionCache.set(agent, {
         config,
         mode,
+        draftPreview,
         endpoint,
         cwd,
         workspaceKind: workspace?.kind,

@@ -64,6 +64,15 @@ function cornerGeometry(element: Element): ElementCornerGeometry | undefined {
     }
     return { bounds, radii };
 }
+/** Every corner's rendered radius reaches half the box's smaller side: a circle. */
+function circular(geometry: ElementCornerGeometry): boolean {
+    const half = Math.min(geometry.bounds.width, geometry.bounds.height) / 2;
+    return CORNERS.every(
+        (corner) =>
+            geometry.radii[corner].x >= half - PARALLEL_CORNER_TOLERANCE &&
+            geometry.radii[corner].y >= half - PARALLEL_CORNER_TOLERANCE,
+    );
+}
 function edgeInsets(outer: DOMRect, inner: DOMRect, corner: CornerName): CornerRadius {
     return {
         x: corner.endsWith("left") ? inner.left - outer.left : outer.right - inner.right,
@@ -99,6 +108,9 @@ export function assertParallelRoundedCorners(root: ParentNode) {
     for (const inner of elements) {
         const innerGeometry = geometries.get(inner);
         if (!innerGeometry) continue;
+        // A full circle never runs parallel to a container's corner, so it is
+        // an independent shape wherever it sits (see DESIGN.md).
+        if (circular(innerGeometry)) continue;
         for (const corner of CORNERS) {
             const innerRadius = innerGeometry.radii[corner];
             if (innerRadius.x <= 0 && innerRadius.y <= 0) continue;

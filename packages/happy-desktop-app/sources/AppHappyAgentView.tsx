@@ -3780,6 +3780,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                       { total: ring.storyIds.length, unseen: ring.unseenCount },
                   ]),
               ),
+              worktrees: spacesProjects.flatMap((entry) => entry.worktrees),
               onRingOpen: (agentId) => stories.screen().viewerOpen({ kind: "ring", agentId }),
           }
         : undefined;

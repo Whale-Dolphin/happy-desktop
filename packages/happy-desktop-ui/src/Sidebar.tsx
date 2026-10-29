@@ -33,6 +33,7 @@ import { ShimmerText } from "./ShimmerText";
 import { Spinner } from "./Spinner";
 import { type StemCellMark } from "./StemCell";
 import { StemCellGrowth, type ImageMark } from "./StemCellGrowth";
+import { StoryEmptyMark } from "./StoryEmptyMark";
 import { StoryRing, type StoryRingSegments } from "./StoryRing";
 import { ScrollArea } from "./Scrollbar";
 import { SidebarSectionContext, SidebarSectionTail } from "./SidebarSectionDetails";
@@ -239,8 +240,19 @@ export type SidebarItem = {
 };
 /** What a story row shows besides its name. See `SidebarItem.story`. */
 export type SidebarItemStory = {
-    /** The agent's status; absent leaves the second line empty. */
+    /** The agent's status; absent leaves the status lines empty. */
     subtitle?: string;
+    /**
+     * The lines the work behind the row has added and deleted, summed over
+     * every workspace it owns. Drawn at the start of the status, which flows
+     * after it; zero or absent draws nothing.
+     */
+    changeStats?: { added: number; deleted: number };
+    /**
+     * The start of what the person typed and has not sent. It takes the last
+     * status line, after "Draft:", and the status keeps the line above.
+     */
+    draft?: string;
     /** How long since the agent's last activity ("now", "5m", "Tue"); shown at the first line's end. */
     time?: string;
     /** The agent's stories, one segment each; absent draws no ring. */
@@ -2492,7 +2504,7 @@ function SidebarRow({
                                 label={`Watch ${item().label}'s stories`}
                                 onOpen={props.onStoryOpen}
                                 segments={story()?.ring}
-                                size={44}
+                                size={58}
                             >
                                 {mark}
                             </StoryRing>
@@ -2596,14 +2608,58 @@ function SidebarRow({
                         >
                             {line}
                         </span>
-                        {compact() ? null : (
-                            <span
-                                className="happy-sidebar__item-subtitle"
-                                data-happy-desktop-ui="sidebar-item-subtitle"
-                            >
-                                {story()?.subtitle ?? ""}
-                            </span>
-                        )}
+                        {compact()
+                            ? null
+                            : ((stats: boolean, draft: string | undefined) => {
+                                  /* The last line is the draft's when there is
+                                     one, and the empty mark's when the row has
+                                     nothing at all to say; the status keeps the
+                                     line above either. */
+                                  const empty = !stats && !story()?.subtitle && draft === undefined;
+                                  return (
+                                      <>
+                                          <span
+                                              className="happy-sidebar__item-subtitle"
+                                              data-happy-desktop-ui="sidebar-item-subtitle"
+                                              data-lines={
+                                                  draft !== undefined || empty ? "1" : undefined
+                                              }
+                                          >
+                                              {stats ? (
+                                                  <ChangeStats
+                                                      added={story()?.changeStats?.added ?? 0}
+                                                      className="happy-sidebar__item-subtitle-stats"
+                                                      data-happy-desktop-ui="sidebar-item-subtitle-stats"
+                                                      deleted={story()?.changeStats?.deleted ?? 0}
+                                                  />
+                                              ) : null}
+                                              {story()?.subtitle ?? ""}
+                                          </span>
+                                          {draft !== undefined ? (
+                                              <span
+                                                  className="happy-sidebar__item-draft"
+                                                  data-happy-desktop-ui="sidebar-item-draft"
+                                              >
+                                                  <span className="happy-sidebar__item-draft-label">
+                                                      Draft:{" "}
+                                                  </span>
+                                                  {draft}
+                                              </span>
+                                          ) : empty ? (
+                                              <span
+                                                  className="happy-sidebar__item-empty"
+                                                  data-happy-desktop-ui="sidebar-item-empty"
+                                              >
+                                                  <StoryEmptyMark />
+                                              </span>
+                                          ) : null}
+                                      </>
+                                  );
+                              })(
+                                  (story()?.changeStats?.added ?? 0) > 0 ||
+                                      (story()?.changeStats?.deleted ?? 0) > 0,
+                                  story()?.draft || undefined,
+                              )}
                     </span>
                 ) : (
                     line

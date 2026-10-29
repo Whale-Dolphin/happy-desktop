@@ -30,6 +30,11 @@ type Status = {
     working?: boolean;
     unread?: boolean;
     ring?: SidebarItemStory["ring"];
+    /** 3-line rows only: the task's rolled-up line counts and unsent draft. */
+    changeStats?: SidebarItemStory["changeStats"];
+    draft?: string;
+    /** 3-line rows only: the agent has said nothing yet. */
+    empty?: boolean;
 };
 
 const STATUS: Record<string, Status> = {
@@ -49,12 +54,14 @@ const STATUS: Record<string, Status> = {
         long: "Renderer and agent previews shipped; now prototyping the stem-cell row variants",
         state: "working",
         working: true,
+        changeStats: { added: 1284, deleted: 312 },
     },
     vi8iaq01vr4yrba1qp3ceq3p: {
         short: "Profiling and fixing, nothing pushed",
         long: "Still profiling and fixing in one long stretch, with the edits not pushed yet",
         state: "working",
         working: true,
+        changeStats: { added: 86, deleted: 0 },
     },
     hmvrs8d5a00tf7mw5qii7eus: {
         short: "Final video ready for your OK",
@@ -84,6 +91,7 @@ const STATUS: Record<string, Status> = {
         long: "Direct uploads for large files work; the push waits on your approval",
         state: "needsYou",
         unread: true,
+        draft: "ok push it, but keep the old upload path behind the flag for a week",
     },
     dmvt1wzuz023lbxixlj82aro: {
         short: "Suggests regenerating the icons",
@@ -198,6 +206,7 @@ const STATUS: Record<string, Status> = {
     dmvpnnbux008i7mev0v9dxy9: {
         short: "Worth a short intro call",
         long: "He looks relevant: keep the first call short, with room to go longer",
+        empty: true,
     },
     nmvotjnbq001l1b972ksxvc5: {
         short: "On main, not in a preview yet",
@@ -231,21 +240,20 @@ export function variantItems(options: RowOptions): SidebarItem[] {
             return { id: row.id, kind: "section", label: row.label, collapsed: false };
         const status = STATUS[row.id];
         if (status === undefined) throw new Error(`No status written for ${row.id}`);
+        const three = options.lines === 3;
         const signal = status.working ? "working" : status.unread ? "unread" : undefined;
         // With state dots the agent's state is the signal: any state shows.
         const stateSignal =
-            status.state === undefined
-                ? signal
-                : status.state === "working"
-                  ? "working"
-                  : "unread";
+            status.state === undefined ? signal : status.state === "working" ? "working" : "unread";
         return {
             id: row.id,
             kind: "project",
             label: row.title,
             ...mark(row),
             story: {
-                subtitle: options.lines === 3 ? status.long : status.short,
+                ...(three && status.empty ? {} : { subtitle: three ? status.long : status.short }),
+                ...(three && status.changeStats ? { changeStats: status.changeStats } : {}),
+                ...(three && status.draft !== undefined ? { draft: status.draft } : {}),
                 time: localAgoTime(row.lastActivityAt, NOW, ZONE),
                 ...(status.ring ? { ring: status.ring } : {}),
                 ...(options.dot === "state"

@@ -337,6 +337,8 @@
        a strip's +, a row's own control) wears exactly this. */
     --happy-hover-radius: var(--happy-radius-sm);
     --happy-hover-fill: var(--surface-ripple);
+    /* A stem-cell sidebar row's hover: quieter than its selection. */
+    --happy-sidebar-story-hover: rgb(0 0 0 / 0.03);
     --happy-chat-measure: 880px;
     /* How far a frame in a transcript — a card's border, a code block's
        background — stands out from the text column on the left and on the
@@ -596,6 +598,7 @@
         --story-ring-unseen: var(--text-link);
         --story-ring-seen: #48484a;
         --story-avatar-fill: #5a5a5f;
+        --happy-sidebar-story-hover: rgb(255 255 255 / 0.04);
     }
 }
 
@@ -604,6 +607,10 @@
 .happy-theme-dark,
 .happy-theme-midnight {
     color-scheme: dark;
+    /* Declared again so it resolves against this scope's own ripple: inherited
+       from a light :root it would stay the light theme's black wash. */
+    --happy-hover-fill: var(--surface-ripple);
+    --happy-sidebar-story-hover: rgb(255 255 255 / 0.04);
     --happy-brand-logo-source: url("./assets/brand/logo-white.png");
     --happy-wordmark-source: url("./assets/brand/happy-engineering-stacked-dark.svg");
     --happy-todo-backdrop-source: url("./assets/backdrops/todo-ginkgo-dark.jpg");

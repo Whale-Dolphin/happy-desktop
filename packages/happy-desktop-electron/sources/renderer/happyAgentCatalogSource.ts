@@ -371,6 +371,7 @@ function conversationProject(session: GroupSession): HappyAgentConversationSumma
         ...(session.unread === undefined ? {} : { unreadReason: session.unread.reason }),
         ...(session.title === undefined ? {} : { title: session.title }),
         ...(session.statusLine === undefined ? {} : { statusLine: session.statusLine }),
+        ...(session.draftPreview === undefined ? {} : { draftPreview: session.draftPreview }),
         ...(session.recap === undefined ? {} : { recap: session.recap }),
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,

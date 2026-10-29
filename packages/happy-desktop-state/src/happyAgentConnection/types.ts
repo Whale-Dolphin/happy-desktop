@@ -642,6 +642,8 @@ export interface GroupSession {
     title?: string;
     /** The line the agent last wrote about where its work stands; absent while it has none. */
     statusLine?: { text: string; updatedAt: number };
+    /** The start of an unsent composer draft, on one line; absent while there is none. */
+    draftPreview?: string;
     trackUnread: boolean;
     unread?: { reason: "attention_needed" | "turn_finished"; since: number };
     wait?: { startedAt: number; dueAt: number };

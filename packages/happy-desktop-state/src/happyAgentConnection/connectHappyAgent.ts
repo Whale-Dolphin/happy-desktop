@@ -48,6 +48,7 @@ import {
     archivedAgentsMerge,
     defaultMode,
     elementsReuse,
+    draftPreviewOf,
     modeOf,
     ownerResourceReplace,
     projectElements,
@@ -133,6 +134,8 @@ const INITIAL_SEND_RETRY_MS = 250;
  * but message delivery never waits for draft persistence.
  */
 const DRAFT_SAVE_DEBOUNCE_MS = 300;
+/** How long typing pauses before a row's draft preview follows the composer. */
+const DRAFT_PREVIEW_PUBLISH_MS = 1_000;
 
 function debugDetail(value: unknown): string {
     try {
@@ -1024,18 +1027,36 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
             entry.draft = draft;
             publishSession(entry);
         }
-        // A row shows only the mode a draft picks, never its text, so typing
-        // leaves every list as it was.
+        // A row shows the mode a draft picks at once. The start of its text
+        // follows a second after typing pauses, or at once when it empties,
+        // so typing does not redraw every list on each keystroke.
         if (
             config !== undefined &&
             deepEqual(
                 modeOf(config, previous, agentModes.get(agentId)),
                 modeOf(config, draft, agentModes.get(agentId)),
             )
-        )
+        ) {
+            const preview = draftPreviewOf(draft);
+            if (preview === draftPreviewOf(previous)) return;
+            if (preview === undefined) draftPreviewPublish();
+            else draftPreviewSchedule();
             return;
+        }
         publishGroups();
     };
+
+    let draftPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+    const draftPreviewPublish = (): void => {
+        clearTimeout(draftPreviewTimer);
+        draftPreviewTimer = undefined;
+        if (!rootController.signal.aborted) publishGroups();
+    };
+    const draftPreviewSchedule = (): void => {
+        clearTimeout(draftPreviewTimer);
+        draftPreviewTimer = setTimeout(draftPreviewPublish, DRAFT_PREVIEW_PUBLISH_MS);
+    };
+    rootController.signal.addEventListener("abort", () => clearTimeout(draftPreviewTimer));
 
     const adoptDraft = (agentId: string, draft: AgentDraftSnapshot): boolean => {
         const current = agentDrafts.get(agentId);

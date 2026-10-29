@@ -55,40 +55,28 @@
 }
 
 /*
- * The sidebar's 44px mark is a disc: a picture fills it, and any other mark
- * sits in its middle on a quiet fill. Inside a ring the disc is 36px, so the
- * ring keeps clear of it and every row's mark still starts on one edge.
+ * The sidebar's mark is a 50px disc: a picture fills it, and any other mark
+ * sits in its middle at 32px on a quiet fill. The 58px box holds the ring
+ * outside the disc, so the disc never shrinks when a story arrives and every
+ * row's disc starts on one edge.
  */
-.happy-story-ring[data-size="44"] {
-    width: 44px;
-    height: 44px;
+.happy-story-ring[data-size="58"] {
+    width: 58px;
+    height: 58px;
 }
 
-.happy-story-ring[data-size="44"] .happy-story-ring__mark {
-    width: 44px;
-    height: 44px;
+.happy-story-ring[data-size="58"] .happy-story-ring__mark {
+    width: 50px;
+    height: 50px;
     overflow: hidden;
     border-radius: var(--happy-radius-pill);
     background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
-.happy-story-ring[data-size="44"][data-ring] .happy-story-ring__mark {
-    width: 36px;
-    height: 36px;
+.happy-story-ring[data-size="58"] .happy-story-ring__mark > * {
+    zoom: 1.6;
 }
 
-.happy-story-ring[data-size="44"] .happy-story-ring__mark > * {
-    zoom: 1.4;
-}
-
-.happy-story-ring[data-size="44"][data-ring] .happy-story-ring__mark > * {
-    zoom: 1.2;
-}
-
-.happy-story-ring[data-size="44"] .happy-story-ring__mark > .happy-avatar {
-    zoom: 2.2;
-}
-
-.happy-story-ring[data-size="44"][data-ring] .happy-story-ring__mark > .happy-avatar {
-    zoom: 1.8;
+.happy-story-ring[data-size="58"] .happy-story-ring__mark > .happy-avatar {
+    zoom: 2.5;
 }

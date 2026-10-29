@@ -112,7 +112,7 @@ it("draws a conversation's row with its ring and one corner signal; the ring ope
         )!;
 
     // The title, then the agent's status under it.
-    expect(row("waiting").getBoundingClientRect().height).toBe(60);
+    expect(row("waiting").getBoundingClientRect().height).toBe(64);
     expect(row("waiting").textContent).toContain("Ready for a test build. Send it?");
 
     // One corner signal per row, never a second dot.
@@ -220,24 +220,25 @@ it("keeps every story row one height with its name on one line, whatever the sta
         return {
             height: px(box.height),
             label: of("sidebar-item-label"),
-            subtitle: of("sidebar-item-subtitle"),
+            // Where the status starts; how many lines it holds depends on
+            // whether the last line is the empty mark's.
+            subtitle: (({ x, y }) => ({ x, y }))(of("sidebar-item-subtitle")),
             leading: of("sidebar-item-leading"),
         };
     };
 
     // Every combination, and a Surface with no agent, has one geometry.
     const reference = geometry("none-idle");
-    expect(reference.height).toBe(60);
-    expect(reference.leading.y + reference.leading.height / 2).toBe(30);
+    expect(reference.height).toBe(64);
+    expect(reference.leading.y + reference.leading.height / 2).toBe(32);
     for (const id of [...grid.map((item) => item.id), "surface", "live"])
         expect({ id, ...geometry(id) }).toEqual({ id, ...reference });
 
-    // A long status stays on the reserved second line and ends in an ellipsis.
+    // A long status fills the two reserved lines and ends in an ellipsis.
     const long = part("two-idle", "sidebar-item-subtitle");
-    expect(px(long.getBoundingClientRect().height)).toBe(18);
-    expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
-    expect(getComputedStyle(long).textOverflow).toBe("ellipsis");
-    expect(getComputedStyle(long).whiteSpace).toBe("nowrap");
+    expect(px(long.getBoundingClientRect().height)).toBe(32);
+    expect(long.scrollHeight).toBeGreaterThan(long.clientHeight);
+    expect(getComputedStyle(long).getPropertyValue("-webkit-line-clamp")).toBe("2");
     expect(part("two-idle", "sidebar-item-time").textContent).toBe("14:05");
     expect(
         row("none-idle").querySelector('[data-happy-desktop-ui="sidebar-item-time"]'),
@@ -266,10 +267,10 @@ it("keeps every story row one height with its name on one line, whatever the sta
         expect(row("none-idle").getBoundingClientRect().top).toBe(settled.next);
     }
 
-    // A hairline parts two story rows, drawn over the second, and none heads the list.
+    // Cards are parted by space alone: no row draws a hairline.
     const hairline = (id: string) =>
         getComputedStyle(part(id, "sidebar-item-body"), "::before").content;
-    expect(hairline("none-idle")).not.toBe("none");
+    expect(hairline("none-idle")).toBe("none");
     expect(hairline("live")).toBe("none");
 });
 

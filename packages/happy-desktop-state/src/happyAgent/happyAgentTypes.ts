@@ -792,6 +792,8 @@ export interface HappyAgentSessionSummary {
     readonly unreadReason?: "attention_needed" | "turn_finished";
     /** The line the agent last wrote about where its work stands, with `set_status`. */
     readonly statusLine?: HappyAgentStatusLine;
+    /** The start of an unsent composer draft, on one line; absent while there is none. */
+    readonly draftPreview?: string;
     readonly title?: string;
     readonly recap?: string;
     /** Chronological sort key: when the session was first created. */

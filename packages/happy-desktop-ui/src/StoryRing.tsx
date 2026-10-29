@@ -8,10 +8,10 @@ export interface StoryRingSegments {
 
 export interface StoryRingProps {
     /**
-     * Sidebar rows use 44px: the mark is a 44px disc, or 36px inside a ring,
-     * so every row's mark starts on one edge.
+     * Sidebar rows use 58px: a 50px disc with its ring drawn outside it, so
+     * the disc is the same size, in the same place, with a ring or without.
      */
-    readonly size?: 44 | 48;
+    readonly size?: 48 | 58;
     /** One segment per story; absent draws no ring and keeps the box. */
     readonly segments?: StoryRingSegments;
     /** What the ring goes around, centred in it. */
@@ -24,14 +24,14 @@ export interface StoryRingProps {
 }
 
 /*
- * The geometry is the stories row's, scaled to a 48px box: the ring's centre
- * line 22.75px from the middle, 2px wide while unseen and 1.5px once seen,
- * one segment per story with 3px between them, and the mark 38px across
- * inside it, so a row with no ring keeps the same box and its name never
- * moves when a story arrives.
+ * The geometry is the stories row's, in a 48px box: the ring's centre line
+ * 22.75px from the middle, 2px wide while unseen and 1.5px once seen, one
+ * segment per story with 3px between them, and the mark 38px across inside
+ * it, so a row with no ring keeps the same box and its name never moves when
+ * a story arrives. The sidebar's 58px box keeps 1.5px clear of its 50px disc:
+ * the centre line 27.5px out, the same strokes and gaps.
  */
-const STORY_RING_BOX = 48;
-const STORY_RING_RADIUS = 22.75;
+const STORY_RING_RADII = { 48: 22.75, 58: 27.5 } as const;
 const STORY_RING_UNSEEN = 2;
 const STORY_RING_SEEN = 1.5;
 const STORY_RING_GAP = 3;
@@ -44,21 +44,24 @@ const STORY_RING_MAX_SEGMENTS = 30;
  */
 export function StoryRing(props: StoryRingProps) {
     const gradientId = `${useId().replace(/[^a-zA-Z0-9_-]/gu, "")}-story-ring`;
+    const size = props.size ?? 48;
+    const box = size;
+    const radius = STORY_RING_RADII[size];
     const segments = props.segments;
     const total = segments ? Math.max(1, Math.min(STORY_RING_MAX_SEGMENTS, segments.total)) : 0;
     const unseen = segments ? Math.max(0, Math.min(total, segments.unseen)) : 0;
-    const circumference = 2 * Math.PI * STORY_RING_RADIUS;
+    const circumference = 2 * Math.PI * radius;
     const length = total <= 1 ? circumference : circumference / total - STORY_RING_GAP;
-    const center = STORY_RING_BOX / 2;
+    const center = box / 2;
     const ring =
         total > 0 ? (
             <svg
                 aria-hidden="true"
                 className="happy-story-ring__ring"
                 data-happy-desktop-ui="story-ring-ring"
-                height={STORY_RING_BOX}
-                viewBox={`0 0 ${String(STORY_RING_BOX)} ${String(STORY_RING_BOX)}`}
-                width={STORY_RING_BOX}
+                height={box}
+                viewBox={`0 0 ${String(box)} ${String(box)}`}
+                width={box}
             >
                 <defs>
                     {/* The segments are turned a quarter left so they start at the
@@ -78,7 +81,7 @@ export function StoryRing(props: StoryRingProps) {
                             data-seen={isUnseen ? undefined : ""}
                             fill="none"
                             key={index}
-                            r={STORY_RING_RADIUS}
+                            r={radius}
                             stroke={isUnseen ? `url(#${gradientId})` : "var(--story-ring-seen)"}
                             strokeDasharray={
                                 total === 1
@@ -105,7 +108,6 @@ export function StoryRing(props: StoryRingProps) {
         </span>
     );
     const className = ["happy-story-ring", props.className].filter(Boolean).join(" ");
-    const size = props.size ?? 48;
     // Only a ring with stories behind it opens anything.
     if (props.onOpen && total > 0) {
         const open = props.onOpen;

@@ -1,3 +1,4 @@
+import { useState, type ComponentProps } from "react";
 import { Sidebar, type SidebarItem } from "../../src/Sidebar";
 import { clayIconMark, happyIconMark, type ClayIconSlug } from "../../src/clayIcons";
 import { ThemeScope } from "../../src/ThemeScope";
@@ -51,10 +52,15 @@ const list: SidebarItem[] = [
         kind: "project",
         label: "Happy",
         imageMark: happyIconMark(),
-        story: { subtitle: "Keeping your work organized", time: "now" },
+        story: {
+            subtitle: "Both Pool previews are out, and the onboarding helpers only look around",
+            time: "now",
+            ring: { total: 3, unseen: 0 },
+        },
     },
     top("polish", "Sidebar polish", "wip", {
-        subtitle: "Checking the rows at every window width",
+        changeStats: { added: 1284, deleted: 312 },
+        subtitle: "Porting the chosen row into the stem-cell sidebar, then the shift check",
         time: "now",
         signal: "working",
         ring: { total: 3, unseen: 2 },
@@ -63,22 +69,18 @@ const list: SidebarItem[] = [
         subtitle: "Ready for your review: the installer is signed and notarized",
         time: "5m",
         signal: "unread",
-        ring: { total: 2, unseen: 0 },
     }),
     top("release", "Desktop release 0.42", "project-kickoff", {
-        subtitle: "Shipped to preview; production waits on the crash report triage",
+        subtitle: "Shipped to preview; production waits on the crash triage",
+        draft: "Let's hold production until Steve has tried the preview on Windows and the crash",
         time: "2h",
     }),
     top("cleanup", "Composer cleanup", "cleanup", {
-        subtitle: "On main",
+        changeStats: { added: 42, deleted: 9 },
         time: "Tue",
-        signal: "unread",
+        signal: "working",
     }),
-    top("review", "Code review queue", "code-review", { subtitle: "Two left", time: "10/12" }),
-    top("long", "Investigate why the Windows installer loses its signature", "git", {
-        subtitle: "Comparing the two manifests line by line",
-        time: "Mon",
-    }),
+    top("new", "Topic icon expansion", "design-system", { time: "10/12" }),
 ];
 
 const tree: SidebarItem[] = [
@@ -178,12 +180,20 @@ const narrow: SidebarItem[] = [
 
 const scenes = { list, tree, headers } as const;
 
+/** The sidebar as a window holds it: a click selects the row. */
+function SelectingSidebar(
+    props: Omit<ComponentProps<typeof Sidebar>, "activeItemId" | "onItemSelect">,
+) {
+    const [active, setActive] = useState("signing");
+    return <Sidebar {...props} activeItemId={active} onItemSelect={setActive} />;
+}
+
 export function SidebarStoryRowsPage() {
     return (
         <ComponentPage
             number={componentNumber}
             title="Sidebar story rows"
-            summary="Two-line chat rows with relative times, one corner signal and Telegram separators; compact nested rows with deltas; section headings."
+            summary="Telegram-measured 64px chat cards: title and time, then the lines the work changed and up to two status lines, a draft on the last line, a resting dinosaur when there is nothing to say, and one corner signal; compact nested rows with deltas; section headings."
         >
             {[
                 { width: 1100, height: 760 },
@@ -201,13 +211,11 @@ export function SidebarStoryRowsPage() {
                         <div style={{ display: "flex", height: "100%", gap: 24, padding: 24 }}>
                             {(["light", "dark"] as const).map((mode) => (
                                 <ThemeScope key={mode} mode={mode}>
-                                    <Sidebar
-                                        style={{ width: 300 }}
-                                        activeItemId=""
+                                    <SelectingSidebar
+                                        style={{ width: 320 }}
                                         foldControlPlacement="trailing"
                                         foldControlReveal="hover"
                                         itemFoldControls={false}
-                                        onItemSelect={() => {}}
                                         onItemAction={() => {}}
                                         onItemCollapseToggle={() => {}}
                                         onSectionAction={() => {}}

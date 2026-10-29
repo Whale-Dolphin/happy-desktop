@@ -56,13 +56,13 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
     const next = row(root, "next");
     const labels = [parent, child].map((element) => part(element, "sidebar-item-label"));
     const initial = [...[parent, child, next].map(bounds), ...labels.map(titlePosition)];
-    expect(parent.getBoundingClientRect().height).toBe(60);
+    expect(parent.getBoundingClientRect().height).toBe(64);
     expect(child.getBoundingClientRect().height).toBe(28);
     for (const story of [
         { subtitle: "On main", time: "9/3" },
         {
             subtitle:
-                "A long status that must ellipsize rather than wrapping into a third line or making the title move",
+                "A long status that must wrap onto a second line and then ellipsize rather than running into a third line or making the title move",
             time: "Wed",
             signal: "working",
             ring: { total: 3, unseen: 2 },
@@ -77,9 +77,13 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
             initial,
         );
         const subtitle = part(parent, "sidebar-item-subtitle");
-        expect(subtitle.getBoundingClientRect().height).toBe(18);
-        expect(getComputedStyle(subtitle).whiteSpace).toBe("nowrap");
-        expect(getComputedStyle(subtitle).textOverflow).toBe("ellipsis");
+        // Two 16px lines are reserved, and a longer status ends in an ellipsis;
+        // with nothing to say, the last line is the empty mark's.
+        expect(subtitle.getBoundingClientRect().height).toBe("subtitle" in story ? 32 : 16);
+        expect(part(parent, "sidebar-item-empty") !== null).toBe(!("subtitle" in story));
+        expect(getComputedStyle(subtitle).getPropertyValue("-webkit-line-clamp")).toBe(
+            "subtitle" in story ? "2" : "1",
+        );
         // A nested row is one compact line: no status, no time.
         expect(part(child, "sidebar-item-subtitle")).toBeNull();
         expect(part(child, "sidebar-item-time")).toBeNull();
@@ -91,19 +95,19 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
                 expect(part(signal, "spinner-braille-canvas")).toBeTruthy();
             } else if (story.signal === "unread") {
                 expect(signal.dataset.signal).toBe("unread");
-                // The dot is 10px beside a status, 8px on a nested line, centred
-                // in the same 18px slot.
+                // The dot is 10px in a 14px slot beside a status, 8px in an 18px
+                // slot on a nested line.
                 expect(getComputedStyle(signal, "::before").width).toBe(
                     element === parent ? "10px" : "8px",
                 );
-                expect(signal.getBoundingClientRect().width).toBe(18);
+                expect(signal.getBoundingClientRect().width).toBe(element === parent ? 14 : 18);
                 expect(signal.querySelector(".happy-spinner")).toBeNull();
             } else expect(signal).toBeNull();
         }
     }
 });
 
-it("aligns each nested mark with its parent's text without connectors, and parts top-level rows with a hairline from the text to the edge", async () => {
+it("aligns each nested mark with its parent's text without connectors, and parts top-level cards by space alone", async () => {
     const items: SidebarItem[] = [
         { id: "parent", kind: "agent", label: "Happy", story: {}, collapsed: false },
         {
@@ -151,33 +155,30 @@ it("aligns each nested mark with its parent's text without connectors, and parts
     for (const [index, item] of items.entries()) {
         const element = row(root, item.id);
         expect(element.querySelector(".happy-sidebar__item-branch")).toBeNull();
-        // Rows stand 2px apart; the last child of an open tree keeps 6px more
-        // clear of the hairline over the next top-level row.
+        // Nested rows stand 2px apart; a top-level card stands 6.5px under
+        // whatever is above it.
         if (index > 0)
             expect(
                 element.getBoundingClientRect().top -
                     row(root, items[index - 1]!.id).getBoundingClientRect().bottom,
-            ).toBe(item.id === "next" ? 8 : 2);
+            ).toBe(item.depth === undefined ? 6.5 : 2);
     }
     for (const connector of root.querySelectorAll<HTMLElement>(".happy-sidebar__tree-connector"))
         expect(getComputedStyle(connector).visibility).toBe("hidden");
     // Without fold controls, the rows that hold others show no chevron.
     expect(root.querySelector('[data-happy-desktop-ui="sidebar-item-fold"]')).toBeNull();
-    // A hairline stands over every top-level row but the first, after an open
-    // tree too, from the text column to the sidebar's right edge; nested rows
-    // are never parted.
-    const hairline = (id: string) =>
-        getComputedStyle(part(row(root, id), "sidebar-item-body"), "::before");
-    for (const id of ["parent", "child", "grandchild", "sibling"])
-        expect(hairline(id).content).toBe("none");
-    for (const id of ["next", "last"]) expect(hairline(id).content).not.toBe("none");
-    // An open tree keeps the children's 10px rhythm under its status.
-    expect(row(root, "parent").getBoundingClientRect().height).toBe(54);
-    const body = part(row(root, "last"), "sidebar-item-body").getBoundingClientRect();
+    // No row draws a hairline; an open tree keeps its card's full height.
+    for (const item of items)
+        expect(
+            getComputedStyle(part(row(root, item.id), "sidebar-item-body"), "::before").content,
+        ).toBe("none");
+    expect(row(root, "parent").getBoundingClientRect().height).toBe(64);
+    // The card stands 3px in from the column, and its text 67px into the card.
+    const card = row(root, "last").getBoundingClientRect();
     const label = part(row(root, "last"), "sidebar-item-label").getBoundingClientRect();
-    expect(label.left - row(root, "last").getBoundingClientRect().left).toBe(64);
-    expect(body.left + parseFloat(hairline("last").left)).toBe(label.left);
-    expect(body.left + parseFloat(hairline("last").width)).toBe(root.getBoundingClientRect().right);
+    expect(label.left - card.left).toBe(67);
+    expect(card.left - root.getBoundingClientRect().left).toBe(3);
+    expect(root.getBoundingClientRect().right - card.right).toBe(3);
     // Rows that hold others say whether they are open, though they draw no fold.
     expect(row(root, "parent").getAttribute("aria-expanded")).toBe("true");
     expect(row(root, "child").getAttribute("aria-expanded")).toBe("true");

@@ -209,7 +209,15 @@ body,
     -webkit-line-clamp: var(--sv-status-lines);
 }
 
-.sv-sidebar .happy-sidebar__item:has(> .happy-sidebar__item-corner) .happy-sidebar__item-subtitle {
+/* With a draft or nothing to say, the status keeps one line; line 2 is the draft or the empty mark. */
+.sv-sidebar .happy-sidebar__item[data-story] .happy-sidebar__item-subtitle[data-lines="1"] {
+    height: var(--sv-status-line);
+    -webkit-line-clamp: 1;
+}
+
+/* The signal lane is always reserved, so every status ends at the same x. */
+.sv-sidebar .happy-sidebar__item[data-story] .happy-sidebar__item-subtitle,
+.sv-sidebar .happy-sidebar__item[data-story] .happy-sidebar__item-draft {
     padding-right: var(--sv-corner-lane);
 }
 

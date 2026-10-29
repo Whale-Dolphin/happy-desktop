@@ -15,6 +15,8 @@ export interface ConversationSummary {
     readonly subtitle?: string;
     /** The line the agent last wrote about where its work stands; absent while it has none. */
     readonly statusLine?: HappyAgentStatusLine;
+    /** The start of an unsent composer draft, on one line; absent while there is none. */
+    readonly draftPreview?: string;
     readonly activity: "running" | "awaitingInput" | "waiting" | "idle";
     /** Epoch milliseconds of the newest content, for relative timestamps. */
     readonly updatedAt: number;

@@ -13,7 +13,9 @@ import {
     sidebarProposalChangeAccept,
     sidebarProposalChangeDecline,
     sidebarProposalDiff,
+    type HappyAgentBotSubtask,
     type HappyAgentSidebarProposalsStore,
+    type HappyAgentWorktreeGroup,
     type SidebarDocumentClassic,
     type SidebarDocumentItem,
     type SidebarDocumentNode,
@@ -646,7 +648,53 @@ export interface HappyAgentSpacesSidebarProps {
 export interface HappyAgentSpacesStories {
     /** Each agent's ring, by its agent ID; an agent with no stories up has none. */
     readonly rings: ReadonlyMap<string, StoryRingSegments>;
+    /**
+     * Every worktree the window knows, with its live Git line totals and the
+     * agent that made it, so a row can sum the lines its work changed.
+     */
+    readonly worktrees: readonly Pick<
+        HappyAgentWorktreeGroup,
+        "id" | "creatorAgentId" | "addedLines" | "deletedLines"
+    >[];
     onRingOpen(agentId: string): void;
+}
+
+/**
+ * The lines a task's or bot's work has added and deleted: summed over its own
+ * workspace, every subtask's at any depth, and every worktree it or a subtask
+ * made, each counted once. Absent for a conversation that is neither, or whose
+ * workspaces changed nothing.
+ */
+function ownedLines(
+    agentId: string,
+    places: HappyAgentSpacesPlaces,
+    worktrees: HappyAgentSpacesStories["worktrees"],
+): { added: number; deleted: number } | undefined {
+    const owner = [...places.tasks, ...places.bots].find(
+        (candidate) => candidate.conversation.id === agentId,
+    );
+    if (owner === undefined) return undefined;
+    const workspaces = new Set<string>([owner.workspaceId]);
+    const agents = new Set<string>([agentId]);
+    const walk = (subtasks: readonly HappyAgentBotSubtask[]) => {
+        for (const subtask of subtasks) {
+            workspaces.add(subtask.workspaceId);
+            agents.add(subtask.conversation.id);
+            walk(subtask.subtasks);
+        }
+    };
+    walk(owner.subtasks);
+    let added = 0;
+    let deleted = 0;
+    for (const worktree of worktrees)
+        if (
+            workspaces.has(worktree.id) ||
+            (worktree.creatorAgentId !== null && agents.has(worktree.creatorAgentId))
+        ) {
+            added += worktree.addedLines ?? 0;
+            deleted += worktree.deletedLines ?? 0;
+        }
+    return added > 0 || deleted > 0 ? { added, deleted } : undefined;
 }
 
 /** The conversation an agent's row stands for, from the window's lists. */
@@ -710,9 +758,10 @@ function storySignal(item: SidebarItem): SidebarItemStory["signal"] {
 }
 
 /**
- * A conversation's top-level row as Stories draw it: the agent's status line
- * under the title, how long since its last activity at the title's end, its
- * ring, and its one corner signal.
+ * A conversation's top-level row as Stories draw it: the lines its work
+ * changed and the agent's status line under the title, then the person's
+ * unsent draft; how long since its last activity at the title's end; its ring;
+ * and its one corner signal.
  */
 function storyRow(
     item: SidebarItem,
@@ -724,46 +773,17 @@ function storyRow(
     const conversation = conversationOf(agentId, places);
     const ring = stories.rings.get(agentId);
     const signal = storySignal(item);
+    const lines = ownedLines(agentId, places, stories.worktrees);
     return {
         ...item,
         story: {
+            ...(lines ? { changeStats: lines } : {}),
             ...(conversation?.statusLine ? { subtitle: conversation.statusLine.text } : {}),
+            ...(conversation?.draftPreview ? { draft: conversation.draftPreview } : {}),
             ...(time === undefined ? {} : { time }),
             ...(ring ? { ring } : {}),
             ...(signal ? { signal } : {}),
         },
-    };
-}
-
-/**
- * A row nested under another, as Stories draw it: one compact line with its
- * project's picture, initials or home glyph when it works in a project's
- * checkout, else the agent glyph, then its name, its delta and its one
- * corner signal.
- */
-function storyNestedRow(item: SidebarItem): SidebarItem {
-    const {
-        contextAvatars,
-        imageMark: _imageMark,
-        imageUrl: _imageUrl,
-        initials: _initials,
-        stemCell: _stemCell,
-        icon: _icon,
-        ...rest
-    } = item;
-    const project = contextAvatars?.[0];
-    const signal = storySignal(item);
-    return {
-        ...rest,
-        kind: "agent",
-        ...(project === undefined
-            ? { icon: "agents" as const }
-            : project.imageUrl !== undefined
-              ? { imageUrl: project.imageUrl }
-              : project.icon !== undefined
-                ? { icon: project.icon }
-                : { initials: project.initials ?? project.label.slice(0, 1).toUpperCase() }),
-        story: signal ? { signal } : {},
     };
 }
 
@@ -1445,25 +1465,29 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         clockRead,
         clockRead,
     );
+    // Stories draw the stem-cell sidebar, which does not nest: only top-level
+    // rows are drawn, and none of them folds. Nesting stays the classic sidebar's.
     const items = stories
-        ? openItems.map((item) => {
-              if (item.kind === "separator" || item.kind === "section" || item.kind === "action")
-                  return item;
-              if ((item.depth ?? 0) > 0) return storyNestedRow(item);
-              const agentId = rowAgentId(item.id);
-              const at = activityAt.get(item.id);
-              if (agentId !== undefined)
-                  return storyRow(
-                      item,
-                      agentId,
-                      places,
-                      stories,
-                      at === undefined ? undefined : localAgoTime(at, clockNow),
-                  );
-              // A row with no conversation behind it keeps the same geometry
-              // as its siblings, and says nothing.
-              return { ...item, story: {} };
-          })
+        ? openItems
+              .filter((item) => (item.depth ?? 0) === 0)
+              .map((row) => {
+                  if (row.kind === "separator" || row.kind === "section" || row.kind === "action")
+                      return row;
+                  const { collapsed: _collapsed, ...item } = row;
+                  const agentId = rowAgentId(item.id);
+                  const at = activityAt.get(item.id);
+                  if (agentId !== undefined)
+                      return storyRow(
+                          item,
+                          agentId,
+                          places,
+                          stories,
+                          at === undefined ? undefined : localAgoTime(at, clockNow),
+                      );
+                  // A row with no conversation behind it keeps the same geometry
+                  // as its siblings, and says nothing.
+                  return { ...item, story: {} };
+              })
         : openItems;
     const pending = changes.some((change) => !proposal?.declined.has(change.id));
     /** Takes one change, as the person's own edit; an archive archives what it names. */
