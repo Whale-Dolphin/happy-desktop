@@ -2367,19 +2367,25 @@
 
 /*
  * A row while Stories are on reads as a messenger's chat list: the mark grown
- * into a 40px story ring, centred; the name on a first line with the time and
- * the row's controls at its end; and one status line underneath.
- * The row is 52px and every box in it is fixed, so a ring, a status of
- * any length, a time or a signal arriving never moves the name or the row.
+ * into a 44px story ring, centred; the name on a first line with the time on
+ * its baseline at the end; and one status line underneath. The row is 60px
+ * and every box in it is fixed, so a ring, a status of any length, a time or
+ * a signal arriving never moves the name or the row. The 8px inset, the ring
+ * and the 10px gap put the text column 62px in (`SIDEBAR_STORY_TEXT_INSET`).
  */
 .happy-sidebar__item[data-story] {
-    height: 52px;
-    gap: 8px;
+    height: 60px;
+    gap: 10px;
+    padding-left: 8px;
 }
 
 .happy-sidebar__item-leading[data-story] {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
+}
+
+.happy-sidebar__item[data-story] .happy-avatar {
+    border-radius: var(--happy-radius-pill);
 }
 
 /* Everything right of the ring: one line laid out as a plain row lays its
@@ -2393,38 +2399,38 @@
     align-self: stretch;
     gap: 2px;
     min-width: 0;
-    padding-top: 8px;
+    padding-top: 10px;
 }
 
 .happy-sidebar__item-line {
     display: flex;
     flex: none;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
     min-width: 0;
-    height: 18px;
+    height: 20px;
 }
 
 .happy-sidebar__item[data-story] .happy-sidebar__item-label {
     color: var(--text);
+    font-size: 14px;
     font-weight: 600;
+    line-height: 20px;
 }
 
-/* Unread is said by the name alone, heavier still; the corner dot is only for
-   an agent waiting on the person. */
+/* Unread is the corner dot's to say: the name keeps its weight. */
 .happy-sidebar__item[data-story][data-unread] .happy-sidebar__item-label {
-    font-weight: 750;
+    font-weight: 600;
 }
 
 .happy-sidebar__item-time {
     flex: none;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    line-height: 16px;
+    font-weight: 400;
+    line-height: 20px;
     white-space: nowrap;
-    transform: translateY(var(--happy-sidebar-meta-optical-y, 0px));
 }
 
 /* The same fold column as a plain row's, from inside the first line. */
@@ -2433,6 +2439,7 @@
     > .happy-sidebar__item-fold {
     position: static;
     flex: none;
+    align-self: center;
     width: 18px;
     height: 18px;
     margin-right: calc(var(--happy-sidebar-fold-inset) - var(--happy-panel-row-padding));
@@ -2445,28 +2452,27 @@
 .happy-sidebar__item-subtitle {
     display: block;
     flex: none;
-    height: 16px;
-    padding-right: 22px;
+    height: 18px;
+    padding-right: 24px;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 400;
-    line-height: 16px;
+    line-height: 18px;
     text-overflow: ellipsis;
     white-space: nowrap;
-    transform: translateY(var(--happy-sidebar-label-optical-y, 0px));
 }
 
-/* A hairline between two story rows, from the text column to the row's edge.
-   None after a list's last row, and none against the selected row, whose own
-   fill already parts it from its neighbours. */
-.happy-sidebar__item[data-story]:not([data-depth]):has(
-        + .happy-sidebar__item[data-story]:not([data-depth])
-    )
-    > .happy-sidebar__item-body::after {
+/* A hairline above each top-level story row that follows another story row,
+   whatever that one's depth: from the text column to the sidebar's right
+   edge. None against the selected or carried row, whose own fill already
+   parts it from its neighbours. */
+.happy-sidebar__item[data-story]
+    + .happy-sidebar__item[data-story]:not([data-depth])
+    > .happy-sidebar__item-body::before {
     position: absolute;
-    right: calc(-1 * var(--happy-panel-row-padding));
-    bottom: -1px;
+    top: -1px;
+    right: calc(-1 * (var(--happy-panel-row-padding) + var(--happy-panel-inset)));
     left: 0;
     height: 1px;
     background: var(--divider);
@@ -2474,58 +2480,73 @@
     pointer-events: none;
 }
 
-.happy-sidebar__item[data-story]:is(
-        [data-active],
-        [data-dragging],
-        :has(+ .happy-sidebar__item[data-active]),
-        :has(+ .happy-sidebar__item[data-dragging])
-    )
-    > .happy-sidebar__item-body::after {
+.happy-sidebar__item[data-story]:is([data-active], [data-dragging])
+    + .happy-sidebar__item[data-story]
+    > .happy-sidebar__item-body::before,
+.happy-sidebar__item[data-story]:is([data-active], [data-dragging])
+    > .happy-sidebar__item-body::before {
     display: none;
 }
 
 .happy-sidebar__item-corner {
     /* Out of the row's flow on purpose: the corner is a badge on the row, so
        a signal coming and going never takes width from the name. Centred on
-       the status line, without changing its width. */
+       the status line, 19px above the row's bottom. */
     position: absolute;
     right: var(--happy-panel-row-padding);
-    bottom: 16px;
+    bottom: 19px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
     transform: translateY(50%);
     pointer-events: none;
 }
 
-.happy-sidebar__item-corner[data-signal="waiting"] {
-    width: 8px;
-    height: 8px;
+.happy-sidebar__item-corner[data-signal="unread"]::before {
+    width: 10px;
+    height: 10px;
     border-radius: var(--happy-radius-pill);
     background: var(--text-link);
+    content: "";
 }
 
 .happy-sidebar__item-corner[data-signal="working"] {
-    width: 18px;
-    height: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     color: var(--text-secondary);
 }
 
+/* Nested under another row, a story row is one compact line: its 20px mark,
+   its name, its delta, and the corner signal centred at its end, in a lane
+   the delta never enters. */
 .happy-sidebar__item[data-story][data-depth] {
-    height: 44px;
+    height: 28px;
+    gap: 8px;
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-leading {
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-body {
-    padding-top: 4px;
+    justify-content: center;
+    padding-top: 0;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-line {
+    align-items: center;
+    padding-right: 24px;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-label {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-corner {
-    bottom: 12px;
+    bottom: 14px;
 }
 
 /* Indentation and scale describe these children; a stem hanging from a story

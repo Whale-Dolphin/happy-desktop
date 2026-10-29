@@ -61,6 +61,21 @@ export function localListTime(at: number, now: number, zone: LocalTimeZone = {})
 }
 
 /**
+ * How long ago something happened, as a chat list tells it beside a name:
+ * "now" within the minute, minutes and then hours for the past day, the short
+ * weekday within the past week, and the short numeric date before that.
+ */
+export function localAgoTime(at: number, now: number, zone: LocalTimeZone = {}): string {
+    const minutes = Math.floor(Math.max(0, now - at) / 60_000);
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m`;
+    if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
+    const days = localDaysFrom(now, at, zone);
+    if (days > -7) return localWeekdayShort(at, zone);
+    return format(zone, { day: "numeric", month: "numeric" }).format(at);
+}
+
+/**
  * When something happens, as it reads after "until": the exact local time,
  * with a day whenever it is not today. Tomorrow says so, the rest of the coming
  * week names its weekday, and anything else, including a day already past,

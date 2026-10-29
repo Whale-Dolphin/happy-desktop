@@ -200,6 +200,11 @@ export interface HappyAgentSpacesSnapshot {
     readonly agentWorkspaces: ReadonlyMap<string, string>;
     /** Whether the reader opened the Older fold. A window's own choice. */
     readonly olderExpanded: boolean;
+    /**
+     * The tree the person last opened rows in by selecting them. A window's
+     * own choice, never written to the sidebar document.
+     */
+    readonly rowsOpened: HappyAgentSpacesRowsOpened | null;
     /** When the sidebar was last read, which picks the day's Make Stuff phrase. */
     readonly readAt: number;
     /** The sidebar document, which arranges the rows when present. */
@@ -215,6 +220,12 @@ export interface HappyAgentSpacesSnapshot {
     readonly error?: UserError;
     /** Why the last new work could not be made, until the reader dismisses it or makes more. */
     readonly stemCellError?: UserError;
+}
+
+/** One tree of sidebar rows, by their drawn IDs: its top-level row and every row in it whose children show. */
+export interface HappyAgentSpacesRowsOpened {
+    readonly top: string;
+    readonly rows: ReadonlySet<string>;
 }
 
 export interface HappyAgentSpacesStore {
@@ -257,6 +268,12 @@ export interface HappyAgentSpacesStore {
     sectionCollapsedUpdate(sectionId: HappyAgentSpaceSectionId, collapsed: boolean): void;
     sectionTailExpandedUpdate(sectionId: HappyAgentSpaceSectionId, expanded: boolean): void;
     olderExpandedUpdate(expanded: boolean): void;
+    /**
+     * The person selected a row. `path` runs from its top-level row's ID down
+     * to its own, and every row on it shows its children. Within the tree
+     * already open this adds to what is open; another top-level row closes it.
+     */
+    rowsOpen(path: readonly string[]): void;
     /** Whether Happy's chat is on screen; opening it reads its note. */
     happyFocusUpdate(focused: boolean): void;
     /** Prioritizing's chat is on screen: the open proposal, as it is now, has been seen. */
@@ -346,6 +363,7 @@ const EMPTY: HappyAgentSpacesSnapshot = {
     proposalSeen: false,
     agentWorkspaces: new Map(),
     olderExpanded: false,
+    rowsOpened: null,
     readAt: 0,
 };
 
@@ -1401,6 +1419,13 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             if (snapshot.olderExpanded === expanded) return;
             publish({ olderExpanded: expanded });
         },
+        rowsOpen(path) {
+            const top = path[0];
+            if (top === undefined) return;
+            const opened = snapshot.rowsOpened?.top === top ? snapshot.rowsOpened : undefined;
+            if (opened && path.every((row) => opened.rows.has(row))) return;
+            publish({ rowsOpened: { top, rows: new Set([...(opened?.rows ?? []), ...path]) } });
+        },
         proposalSeenRecord() {
             const proposal = snapshot.proposal;
             if (proposal === null || snapshot.proposalSeen) return;
@@ -1578,6 +1603,7 @@ export const happyAgentSpacesStoreNoop: HappyAgentSpacesStore = {
     sectionCollapsedUpdate: () => undefined,
     sectionTailExpandedUpdate: () => undefined,
     olderExpandedUpdate: () => undefined,
+    rowsOpen: () => undefined,
     happyFocusUpdate: () => undefined,
     proposalSeenRecord: () => undefined,
     tidyRequest: () => undefined,

@@ -4038,6 +4038,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 footer={sidebarFooter}
                 navigation={spacesNavigation}
                 now={spaces.readAt}
+                {...(active?.session ? { clock: active.session.clock } : {})}
                 titleShimmerEnabled={titleShimmerEnabled}
                 stemCellAnimation={stemCellAnimation}
                 sessionRow={spacesSessionRow}

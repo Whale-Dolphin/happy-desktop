@@ -34,6 +34,8 @@ import {
     type HappyAgentSpacesStore,
     type HappyAgentTask,
     type ConversationNote,
+    type ConversationSummary,
+    type HappyAgentClockStore,
     happyAgentSpaceNewWorkIs,
 } from "happy-desktop-state";
 import {
@@ -41,7 +43,7 @@ import {
     clayIconMarkLarge,
     clayIconSlugIs,
     happyIconMark,
-    localListTime,
+    localAgoTime,
     makeStuffIntroHeader,
     Sidebar,
     SidebarChanges,
@@ -52,6 +54,7 @@ import {
     type MenuItem,
     type SidebarItem,
     type SidebarItemChange,
+    type SidebarItemStory,
     type StoryRingSegments,
     type TabItem,
 } from "happy-desktop-ui";
@@ -596,6 +599,8 @@ export interface HappyAgentSpacesSidebarProps {
     /** Makes new work right under a section heading, from the heading's `+`; takes the section's document ID. */
     readonly onSectionCreate?: (sectionId: string) => void;
     readonly now: number;
+    /** The window's clock, which each row's time counts against; without it, `now`. */
+    readonly clock?: HappyAgentClockStore;
     /** Whether a working row shimmers its title, as the reader set it. */
     readonly titleShimmerEnabled: boolean;
     /** Whether a row that sees its stem cell get an icon grows it, as the reader set it. */
@@ -680,38 +685,75 @@ export function happyAgentSpacesAgentIdentity(
 }
 
 /**
- * A conversation's row as Stories draw it: the agent's status line under the
- * title with when it was set at the title's end, its ring, and one corner
- * signal: a dot while it waits on the person, the chat's spinner while it works.
+ * When a conversation last did something the person would want to know about,
+ * which its row's time counts from. Until the client carries the daemon's own
+ * last activity, the agent's last status says it, then the conversation's
+ * newest content.
+ */
+function conversationActivityAt(conversation: ConversationSummary): number {
+    return conversation.statusLine?.updatedAt ?? conversation.updatedAt;
+}
+
+/**
+ * The one signal a story row's corner shows: the chat's spinner while its
+ * agent works, else a dot while something in it waits on the person.
+ */
+function storySignal(item: SidebarItem): SidebarItemStory["signal"] {
+    if (item.status === "working") return "working";
+    if (item.unread || item.status === "awaitingInput") return "unread";
+    return undefined;
+}
+
+/**
+ * A conversation's top-level row as Stories draw it: the agent's status line
+ * under the title, how long since its last activity at the title's end, its
+ * ring, and its one corner signal.
  */
 function storyRow(
     item: SidebarItem,
     agentId: string,
     places: HappyAgentSpacesPlaces,
     stories: HappyAgentSpacesStories,
+    now: number,
 ): SidebarItem {
     const conversation = conversationOf(agentId, places);
-    const statusLine = conversation?.statusLine;
-    const updatedAt = statusLine?.updatedAt ?? conversation?.updatedAt;
     const ring = stories.rings.get(agentId);
-    const signal =
-        item.status === "awaitingInput"
-            ? ("waiting" as const)
-            : item.status === "working"
-              ? ("working" as const)
-              : undefined;
+    const signal = storySignal(item);
     return {
         ...item,
         story: {
-            ...(statusLine
-                ? {
-                      subtitle: statusLine.text,
-                  }
+            ...(conversation?.statusLine ? { subtitle: conversation.statusLine.text } : {}),
+            ...(conversation
+                ? { time: localAgoTime(conversationActivityAt(conversation), now) }
                 : {}),
-            ...(updatedAt === undefined ? {} : { time: localListTime(updatedAt, Date.now()) }),
             ...(ring ? { ring } : {}),
             ...(signal ? { signal } : {}),
         },
+    };
+}
+
+/**
+ * A row nested under another, as Stories draw it: one compact line with its
+ * project's picture when it works in a project's checkout, else the agent
+ * glyph, then its name, its delta and its one corner signal.
+ */
+function storyNestedRow(item: SidebarItem): SidebarItem {
+    const {
+        contextAvatars,
+        imageMark: _imageMark,
+        imageUrl: _imageUrl,
+        initials: _initials,
+        stemCell: _stemCell,
+        icon: _icon,
+        ...rest
+    } = item;
+    const projectImage = contextAvatars?.find((avatar) => avatar.imageUrl !== undefined)?.imageUrl;
+    const signal = storySignal(item);
+    return {
+        ...rest,
+        kind: "agent",
+        ...(projectImage === undefined ? { icon: "agents" as const } : { imageUrl: projectImage }),
+        story: signal ? { signal } : {},
     };
 }
 
@@ -1237,6 +1279,28 @@ export function happyAgentSpacesProposalItems(
     return { items, changeOf };
 }
 
+/** The minute a clock is in, so the rows' times redraw once a minute rather than every tick. */
+function clockMinuteOf(clock: HappyAgentClockStore): number {
+    return Math.floor(clock.get() / 60_000) * 60_000;
+}
+
+const clockSubscribeNone = () => () => undefined;
+
+/** A drawn row's ID and those of the rows it stands under, from its top-level row down. */
+function rowPath(items: readonly SidebarItem[], id: string): string[] {
+    let index = items.findIndex((item) => item.id === id);
+    if (index < 0) return [];
+    const path = [id];
+    let depth = items[index]!.depth ?? 0;
+    while (depth > 0 && --index >= 0) {
+        const above = items[index]!.depth ?? 0;
+        if (above >= depth) continue;
+        path.unshift(items[index]!.id);
+        depth = above;
+    }
+    return path;
+}
+
 /**
  * The spaces sidebar: the person's document drawn as it stands. Search,
  * Create, sections, separators and spaces are items of one list, and any of them can be
@@ -1312,19 +1376,49 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
               ? subject.agentId
               : undefined;
     };
+    // The row for what is on screen, most specific first: the session itself
+    // at whatever depth it is drawn, then the worktree it runs in, then the
+    // space it opens from.
+    const activeItemId =
+        props.focus.chatId !== undefined && anchorOf.has(`session:${props.focus.chatId}`)
+            ? `session:${props.focus.chatId}`
+            : focused
+              ? `space:${focused.id}`
+              : props.focus.groupId !== undefined &&
+                  anchorOf.has(`${WORKTREE_PREFIX}${props.focus.groupId}`)
+                ? `${WORKTREE_PREFIX}${props.focus.groupId}`
+                : "";
+    // A row shows its children once the person selected it or one under it,
+    // and the row on screen always stands open; nothing the document says
+    // about its folds is drawn here.
+    const opened = new Set([
+        ...(snapshot.rowsOpened?.rows ?? []),
+        ...rowPath(drawn.items, activeItemId),
+    ]);
+    const openItems = drawn.items.map((item) =>
+        item.collapsed === undefined || item.kind === "section"
+            ? item
+            : { ...item, collapsed: !opened.has(item.id) },
+    );
     const stories = props.stories;
+    const clock = props.clock;
+    const now = useSyncExternalStore(
+        clock?.subscribe ?? clockSubscribeNone,
+        () => (clock ? clockMinuteOf(clock) : props.now),
+        () => (clock ? clockMinuteOf(clock) : props.now),
+    );
     const items = stories
-        ? drawn.items.map((item) => {
-              if (item.kind === "separator") return item;
+        ? openItems.map((item) => {
+              if (item.kind === "separator" || item.kind === "section" || item.kind === "action")
+                  return item;
+              if ((item.depth ?? 0) > 0) return storyNestedRow(item);
               const agentId = rowAgentId(item.id);
-              if (agentId !== undefined) return storyRow(item, agentId, places, stories);
-              // Sessions without a status and worktree attachments still keep
-              // the same two-line geometry as their siblings.
-              return item.kind === "section" || item.kind === "action"
-                  ? item
-                  : { ...item, story: {} };
+              if (agentId !== undefined) return storyRow(item, agentId, places, stories, now);
+              // A row with no conversation behind it keeps the same geometry
+              // as its siblings, and says nothing.
+              return { ...item, story: {} };
           })
-        : drawn.items;
+        : openItems;
     const pending = changes.some((change) => !proposal?.declined.has(change.id));
     /** Takes one change, as the person's own edit; an archive archives what it names. */
     const changeAccept = (change: SidebarProposalChange) => {
@@ -1447,6 +1541,7 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
     const open = (id: string) => {
         if (id === "search") return props.search?.onOpen();
         if (id === "create") return props.create?.onOpen();
+        props.store.rowsOpen(rowPath(items, id));
         const space = spaceOf(id);
         if (space === undefined) {
             if (id.startsWith("session:"))
@@ -1463,18 +1558,6 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         // pointer has left the sidebar, so no click moves or folds a row away.
         happyAgentSpaceOpen(space, places, snapshot, props.navigation);
     };
-    // The row for what is on screen, most specific first: the session itself
-    // at whatever depth it is drawn, then the worktree it runs in, then the
-    // space it opens from.
-    const activeItemId =
-        props.focus.chatId !== undefined && anchorOf.has(`session:${props.focus.chatId}`)
-            ? `session:${props.focus.chatId}`
-            : focused
-              ? `space:${focused.id}`
-              : props.focus.groupId !== undefined &&
-                  anchorOf.has(`${WORKTREE_PREFIX}${props.focus.groupId}`)
-                ? `${WORKTREE_PREFIX}${props.focus.groupId}`
-                : "";
     return (
         <Sidebar
             activeItemId={activeItemId}
@@ -1546,6 +1629,9 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
             {...(props.onBodyWheel ? { onBodyWheel: props.onBodyWheel } : {})}
             foldControlPlacement="trailing"
             foldControlReveal="hover"
+            // Rows open their children as they are selected; only a section
+            // heading folds by hand.
+            itemFoldControls={false}
             onItemSelect={open}
             {...(stories
                 ? {
@@ -1724,11 +1810,13 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                     );
                     // The person opened the row to show them, so its fold is
                     // theirs: the row's node, a space's or a session's.
-                    if (html !== undefined)
+                    if (html !== undefined) {
                         props.store.sidebarSessionsRevealWrite(
                             html,
                             key.slice(key.indexOf(":") + 1),
                         );
+                        props.store.rowsOpen(rowPath(items, item.id));
+                    }
                 } else if (actionId === MENU_SUBTASKS_HIDE) {
                     const key = anchorOf.get(item.id);
                     if (key)

@@ -138,6 +138,11 @@ function fixture(options: { readonly canArchive: boolean }) {
         snapshot: {
             ...happyAgentSpacesStoreNoop.get(),
             spaces: new Map(spaces.map((entry) => [entry.id, entry])),
+            // The person opened both trees by selecting their rows.
+            rowsOpened: {
+                top: "space:release",
+                rows: new Set(["space:release", "session:sub1", "space:steward"]),
+            },
             sidebar: {
                 artifactId: "sidebar",
                 version: 1,

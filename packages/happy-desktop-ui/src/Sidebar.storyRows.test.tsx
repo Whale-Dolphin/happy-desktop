@@ -56,8 +56,8 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
     const next = row(root, "next");
     const labels = [parent, child].map((element) => part(element, "sidebar-item-label"));
     const initial = [...[parent, child, next].map(bounds), ...labels.map(titlePosition)];
-    expect(parent.getBoundingClientRect().height).toBe(52);
-    expect(child.getBoundingClientRect().height).toBe(44);
+    expect(parent.getBoundingClientRect().height).toBe(60);
+    expect(child.getBoundingClientRect().height).toBe(28);
     for (const story of [
         { subtitle: "On main", time: "9/3" },
         {
@@ -67,7 +67,7 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
             signal: "working",
             ring: { total: 3, unseen: 2 },
         },
-        { subtitle: "Ready for your review", time: "14:05", signal: "waiting" },
+        { subtitle: "Ready for your review", time: "14:05", signal: "unread" },
         {},
     ] satisfies SidebarItemStory[]) {
         flushSync(() => update(story));
@@ -76,25 +76,28 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
         expect([...[parent, child, next].map(bounds), ...labels.map(titlePosition)]).toEqual(
             initial,
         );
+        const subtitle = part(parent, "sidebar-item-subtitle");
+        expect(subtitle.getBoundingClientRect().height).toBe(18);
+        expect(getComputedStyle(subtitle).whiteSpace).toBe("nowrap");
+        expect(getComputedStyle(subtitle).textOverflow).toBe("ellipsis");
+        // A nested row is one compact line: no status, no time.
+        expect(part(child, "sidebar-item-subtitle")).toBeNull();
+        expect(part(child, "sidebar-item-time")).toBeNull();
         for (const element of [parent, child]) {
-            const subtitle = part(element, "sidebar-item-subtitle");
-            expect(subtitle.getBoundingClientRect().height).toBe(16);
-            expect(getComputedStyle(subtitle).whiteSpace).toBe("nowrap");
-            expect(getComputedStyle(subtitle).textOverflow).toBe("ellipsis");
             expect(element.querySelector(".happy-shimmer-text")).toBeNull();
             const signal = part(element, "sidebar-item-corner");
             if (story.signal === "working") {
                 expect(part(signal, "spinner").dataset.variant).toBe("braille-2");
                 expect(part(signal, "spinner-braille-canvas")).toBeTruthy();
-            } else if (story.signal === "waiting") {
-                expect(signal.dataset.signal).toBe("waiting");
+            } else if (story.signal === "unread") {
+                expect(signal.dataset.signal).toBe("unread");
                 expect(signal.querySelector(".happy-spinner")).toBeNull();
             } else expect(signal).toBeNull();
         }
     }
 });
 
-it("aligns each nested mark with its parent's text without connectors or extra separation", async () => {
+it("aligns each nested mark with its parent's text without connectors, and parts top-level rows with a hairline from the text to the edge", async () => {
     const items: SidebarItem[] = [
         { id: "parent", kind: "agent", label: "Happy", story: {}, collapsed: false },
         {
@@ -107,6 +110,7 @@ it("aligns each nested mark with its parent's text without connectors or extra s
         },
         { id: "grandchild", kind: "agent", label: "Review", depth: 2, story: {} },
         { id: "sibling", kind: "agent", label: "GitHub CLI login", depth: 1, story: {} },
+        { id: "next", kind: "agent", label: "Next task", story: {} },
     ];
     const view = createRenderer().render(
         () => (
@@ -115,6 +119,7 @@ it("aligns each nested mark with its parent's text without connectors or extra s
                 style={{ width: 300 }}
                 onItemSelect={() => {}}
                 onItemCollapseToggle={() => {}}
+                itemFoldControls={false}
                 foldControlPlacement="trailing"
                 sections={[{ id: "work", items }]}
             />
@@ -134,7 +139,7 @@ it("aligns each nested mark with its parent's text without connectors or extra s
         ).getBoundingClientRect();
         const mark = part(row(root, childId!), "sidebar-item-leading").getBoundingClientRect();
         expect(mark.left).toBe(parentLabel.left);
-        expect(mark.width).toBe(28);
+        expect(mark.width).toBe(20);
     }
     for (const [index, item] of items.entries()) {
         const element = row(root, item.id);
@@ -147,6 +152,19 @@ it("aligns each nested mark with its parent's text without connectors or extra s
     }
     for (const connector of root.querySelectorAll<HTMLElement>(".happy-sidebar__tree-connector"))
         expect(getComputedStyle(connector).visibility).toBe("hidden");
+    // Without fold controls, the rows that hold others show no chevron.
+    expect(root.querySelector('[data-happy-desktop-ui="sidebar-item-fold"]')).toBeNull();
+    // Only the next top-level row is parted from the tree above it, from its
+    // text column to the sidebar's right edge.
+    const hairline = (id: string) =>
+        getComputedStyle(part(row(root, id), "sidebar-item-body"), "::before");
+    for (const id of ["parent", "child", "grandchild", "sibling"])
+        expect(hairline(id).content).toBe("none");
+    expect(hairline("next").content).not.toBe("none");
+    const body = part(row(root, "next"), "sidebar-item-body").getBoundingClientRect();
+    const label = part(row(root, "next"), "sidebar-item-label").getBoundingClientRect();
+    expect(body.left + parseFloat(hairline("next").left)).toBe(label.left);
+    expect(body.left + parseFloat(hairline("next").width)).toBe(root.getBoundingClientRect().right);
 });
 
 it("shows only folded arrows at rest and both controls on hover, without shifting either heading form", async () => {

@@ -7,8 +7,8 @@ export interface StoryRingSegments {
 }
 
 export interface StoryRingProps {
-    /** Sidebar rows use 40px; their nested rows use 28px. */
-    readonly size?: 28 | 40 | 48;
+    /** Sidebar rows use 44px. */
+    readonly size?: 44 | 48;
     /** One segment per story; absent draws no ring and keeps the box. */
     readonly segments?: StoryRingSegments;
     /** What the ring goes around, centred in it. */

@@ -124,29 +124,35 @@ const snapshotOf = (
 const nav = (happyRow: string[]) =>
     ["<nav>", "  <happy-search/>", "  <happy-create/>", ...happyRow, "</nav>"].join("\n");
 
-it("shows Focus nested under Happy when Happy is unfolded, and not when it folds", () => {
-    const nested = (expanded: boolean) =>
-        nav([
-            `  <happy-space id="happy"${expanded ? ' expanded="true"' : ""}>`,
-            '    <happy-space id="agent-focus"/>',
-            "  </happy-space>",
-        ]);
-    const view = render(
-        <HappyAgentSpacesSidebar {...props(happyAgentSpacesStoreNoop, snapshotOf(nested(true)))} />,
-    );
+it("shows Focus nested under Happy once the person opens Happy, whatever the document says", () => {
+    const html = nav([
+        '  <happy-space id="happy" expanded="true">',
+        '    <happy-space id="agent-focus"/>',
+        "  </happy-space>",
+    ]);
+    const rowsOpen = vi.fn();
+    const store = { ...happyAgentSpacesStoreNoop, rowsOpen };
+    const view = render(<HappyAgentSpacesSidebar {...props(store, snapshotOf(html))} />);
     const row = (id: string) => view.container.querySelector<HTMLElement>(`[data-item-id="${id}"]`);
-    expect(row("space:happy")?.getAttribute("aria-expanded")).toBe("true");
-    expect(row("session:agent-focus")?.dataset.depth).toBe("1");
+    // Shut until opened, and no chevron to open it with.
+    expect(row("session:agent-focus")).toBeNull();
+    expect(view.container.textContent).not.toContain("agent-focus");
+    expect(row("space:happy")?.hasAttribute("aria-expanded")).toBe(false);
+    expect(
+        row("space:happy")?.querySelector('[data-happy-desktop-ui="sidebar-item-fold"]'),
+    ).toBeNull();
 
+    fireEvent.click(row("space:happy")!);
+    expect(rowsOpen).toHaveBeenCalledWith(["space:happy"]);
     view.rerender(
         <HappyAgentSpacesSidebar
-            {...props(happyAgentSpacesStoreNoop, snapshotOf(nested(false)))}
+            {...props(store, {
+                ...snapshotOf(html),
+                rowsOpened: { top: "space:happy", rows: new Set(["space:happy"]) },
+            })}
         />,
     );
-    expect(row("space:happy")?.getAttribute("aria-expanded")).toBe("false");
-    expect(row("session:agent-focus")).toBeNull();
-    // Nowhere else in the sidebar either.
-    expect(view.container.textContent).not.toContain("agent-focus");
+    expect(row("session:agent-focus")?.dataset.depth).toBe("1");
 });
 
 it("nests Focus with Happy's other subtasks when they are shown", () => {

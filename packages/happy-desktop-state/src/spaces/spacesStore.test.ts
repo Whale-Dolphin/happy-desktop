@@ -190,6 +190,38 @@ it("holds incoming sidebar versions through the saved drop", async () => {
     }
 });
 
+it("keeps the rows opened in one tree until another top-level row is selected, and never writes them", () => {
+    const daemon = fakeHappyAgentDaemonCreate();
+    const sync = happyAgentSyncCreate();
+    const store = happyAgentSpacesStoreCreate({ client: daemon.client, sync: sync.source });
+    const opened = () => {
+        const rows = store.get().rowsOpened;
+        return rows === null ? null : { top: rows.top, rows: [...rows.rows].sort() };
+    };
+    try {
+        expect(opened()).toBeNull();
+        store.rowsOpen(["space:release"]);
+        store.rowsOpen(["space:release", "session:signing"]);
+        store.rowsOpen(["space:release", "session:notes"]);
+        expect(opened()).toEqual({
+            top: "space:release",
+            rows: ["session:notes", "session:signing", "space:release"],
+        });
+        // Selecting what is already open publishes nothing.
+        const listener = vi.fn();
+        const unsubscribe = store.subscribe(listener);
+        store.rowsOpen(["space:release", "session:signing"]);
+        expect(listener).not.toHaveBeenCalled();
+        unsubscribe();
+        store.rowsOpen(["space:polish"]);
+        expect(opened()).toEqual({ top: "space:polish", rows: ["space:polish"] });
+        expect(daemon.callCount("updateSpaceSidebar")).toBe(0);
+    } finally {
+        store[Symbol.dispose]();
+        sync.writer.close();
+    }
+});
+
 it("keeps an open proposal unseen until Prioritizing's chat shows its latest version", async () => {
     vi.useFakeTimers();
     const daemon = fakeHappyAgentDaemonCreate();

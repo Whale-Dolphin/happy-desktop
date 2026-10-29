@@ -78,7 +78,7 @@ it("draws a conversation's row with its ring and one corner signal; the ring ope
             story: {
                 subtitle: "Ready for a test build. Send it?",
                 ring: { total: 2, unseen: 1 },
-                signal: "waiting",
+                signal: "unread",
             },
         },
         {
@@ -112,7 +112,7 @@ it("draws a conversation's row with its ring and one corner signal; the ring ope
         )!;
 
     // The title, then the agent's status under it.
-    expect(row("waiting").getBoundingClientRect().height).toBe(52);
+    expect(row("waiting").getBoundingClientRect().height).toBe(60);
     expect(row("waiting").textContent).toContain("Ready for a test build. Send it?");
 
     // One corner signal per row, never a second dot.
@@ -122,7 +122,7 @@ it("draws a conversation's row with its ring and one corner signal; the ring ope
                 '[data-happy-desktop-ui="sidebar-item-corner"]',
             ),
         ].map((corner) => corner.dataset.signal);
-    expect(corners("waiting")).toEqual(["waiting"]);
+    expect(corners("waiting")).toEqual(["unread"]);
     expect(corners("working")).toEqual(["working"]);
     expect(
         row("waiting").querySelector('[data-happy-desktop-ui="sidebar-item-unread"]'),
@@ -148,7 +148,7 @@ it("keeps every story row one height with its name on one line, whatever the sta
     const LONG =
         "Ready for a test build once the last two crash reports are triaged and the changelog is short enough to read in one go";
     const statuses = { none: undefined, one: "Running the third pass", two: LONG } as const;
-    const signals = { idle: undefined, working: "working", waiting: "waiting" } as const;
+    const signals = { idle: undefined, working: "working", unread: "unread" } as const;
     const grid: SidebarItem[] = Object.entries(statuses).flatMap(([lines, subtitle]) =>
         Object.entries(signals).map(([signal, value]) => ({
             id: `${lines}-${signal}`,
@@ -227,14 +227,14 @@ it("keeps every story row one height with its name on one line, whatever the sta
 
     // Every combination, and a Surface with no agent, has one geometry.
     const reference = geometry("none-idle");
-    expect(reference.height).toBe(52);
-    expect(reference.leading.y + reference.leading.height / 2).toBe(26);
+    expect(reference.height).toBe(60);
+    expect(reference.leading.y + reference.leading.height / 2).toBe(30);
     for (const id of [...grid.map((item) => item.id), "surface", "live"])
         expect({ id, ...geometry(id) }).toEqual({ id, ...reference });
 
     // A long status stays on the reserved second line and ends in an ellipsis.
     const long = part("two-idle", "sidebar-item-subtitle");
-    expect(px(long.getBoundingClientRect().height)).toBe(16);
+    expect(px(long.getBoundingClientRect().height)).toBe(18);
     expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
     expect(getComputedStyle(long).textOverflow).toBe("ellipsis");
     expect(getComputedStyle(long).whiteSpace).toBe("nowrap");
@@ -252,7 +252,7 @@ it("keeps every story row one height with its name on one line, whatever the sta
         {
             subtitle: LONG,
             time: "14:08",
-            signal: "waiting" as const,
+            signal: "unread" as const,
             ring: { total: 1, unseen: 1 },
         },
         {},
@@ -266,11 +266,11 @@ it("keeps every story row one height with its name on one line, whatever the sta
         expect(row("none-idle").getBoundingClientRect().top).toBe(settled.next);
     }
 
-    // A hairline parts two story rows and none follows the list's last.
+    // A hairline parts two story rows, drawn over the second, and none heads the list.
     const hairline = (id: string) =>
-        getComputedStyle(part(id, "sidebar-item-body"), "::after").content;
+        getComputedStyle(part(id, "sidebar-item-body"), "::before").content;
     expect(hairline("none-idle")).not.toBe("none");
-    expect(hairline("surface")).toBe("none");
+    expect(hairline("live")).toBe("none");
 });
 
 it("takes feedback for the agent, pauses, scrubs, shows a live page, and offers a repost", async () => {

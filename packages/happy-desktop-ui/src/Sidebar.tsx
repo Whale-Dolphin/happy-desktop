@@ -227,9 +227,13 @@ export type SidebarItem = {
      * enlarged inside the ring of its stories, the name on a first line that
      * never moves, one status line under it, and at
      * most one signal in the row's bottom-right corner. Such a row reports only
-     * through these: it has no title shimmer, no activity glyph and no unread
-     * dot. A row with no agent behind it states this empty, to stand in the
-     * same column at the same height.
+     * through these: it has no title shimmer, no activity glyph, no unread
+     * weight and no unread dot of its own. A row with no agent behind it
+     * states this empty, to stand in the same column at the same height.
+     *
+     * Nested under another row, it is one compact line instead: its mark,
+     * its name, its `changeStats`, and the same one signal at its end. It has
+     * no ring, no time and no status.
      */
     story?: SidebarItemStory;
 };
@@ -237,16 +241,16 @@ export type SidebarItem = {
 export type SidebarItemStory = {
     /** The agent's status; absent leaves the second line empty. */
     subtitle?: string;
-    /** When the status was set, as the list tells it ("14:05", "Tue"); shown at the first line's end. */
+    /** How long since the agent's last activity ("now", "5m", "Tue"); shown at the first line's end. */
     time?: string;
     /** The agent's stories, one segment each; absent draws no ring. */
     ring?: StoryRingSegments;
     /**
-     * The one thing the corner says: `waiting` is a dot, the agent is waiting
-     * on the reader; `working` is the chat's braille spinner. Absent
-     * says nothing — the agent is idle, or inside a wait it chose.
+     * The one thing the corner says: `unread` is a dot, there is something
+     * new for the reader; `working` is the chat's braille spinner, and takes
+     * the dot's place. Absent says nothing.
      */
-    signal?: "waiting" | "working";
+    signal?: "unread" | "working";
 };
 /**
  * What a proposed change does to one row. A move is drawn twice: `move` where
@@ -292,6 +296,14 @@ export const SIDEBAR_ROW_INDENT = 16;
 /** The fixed row geometry used by the sidebar's reorder and connector layers. */
 export const SIDEBAR_ROW_HEIGHT = 32;
 export const SIDEBAR_ROW_GAP = 2;
+/**
+ * Where a top-level story row's text column starts: its 8px inset, its 44px
+ * ring and the 10px gap after it, as `sidebar.css` lays them out. A nested
+ * story row puts its mark there, and each deeper one under the name above
+ * it, one 20px mark and an 8px gap further in.
+ */
+const SIDEBAR_STORY_TEXT_INSET = 62;
+const SIDEBAR_STORY_NESTED_STEP = 28;
 /** Width of the leading lane whose centre carries a tree stem. */
 export const SIDEBAR_LEADING_SLOT = 20;
 /**
@@ -656,6 +668,13 @@ export type SidebarProps = Omit<HTMLAttributes<HTMLElement>, "style"> & {
      * that undoes itself on the next update.
      */
     onItemCollapseToggle?: (id: string) => void;
+    /**
+     * Whether a row other than a section heading draws a fold of its own.
+     * Defaults to true. `false` leaves those rows' `collapsed` to the caller
+     * alone, which opens a row's children as the row is selected; a section
+     * heading still folds through `onItemCollapseToggle`.
+     */
+    itemFoldControls?: boolean;
     /**
      * Invoked by a section's heading control or by the button in its empty
      * state. The two are reported apart because they are different acts on the
@@ -1895,6 +1914,8 @@ function SidebarRow({
        corner signal only; everything the plain row reports otherwise steps
        aside, so the row never shows two dots or a dot and a spinner. */
     const story = () => item().story;
+    /** A story row nested under another: one compact line. See `SidebarItem.story`. */
+    const compact = () => story() !== undefined && (item().depth ?? 0) > 0;
     // A muted row keeps the unread weight on its name and gives up only the dot.
     const unreadDot = () => unread() && item().muted !== true && story() === undefined;
     const unreadOnLeading = () =>
@@ -2405,7 +2426,7 @@ function SidebarRow({
                 ...(depth() > 0
                     ? {
                           paddingLeft: story()
-                              ? SIDEBAR_ROW_PADDING_X + 48 + (depth() - 1) * 36
+                              ? SIDEBAR_STORY_TEXT_INSET + (depth() - 1) * SIDEBAR_STORY_NESTED_STEP
                               : SIDEBAR_ROW_PADDING_X + depth() * SIDEBAR_ROW_INDENT,
                       }
                     : {}),
@@ -2455,13 +2476,14 @@ function SidebarRow({
                         put back the glyph that line replaced. */}
                     {((mark: ReactNode) =>
                         /* A story row's mark grows inside the ring of its stories,
-                           which opens them; the rest of the row opens its chat. */
-                        story() ? (
+                           which opens them; the rest of the row opens its chat. A
+                           compact nested row keeps its mark at its own size. */
+                        story() && !compact() ? (
                             <StoryRing
                                 label={`Watch ${item().label}'s stories`}
                                 onOpen={props.onStoryOpen}
                                 segments={story()?.ring}
-                                size={depth() > 0 ? 28 : 40}
+                                size={44}
                             >
                                 {mark}
                             </StoryRing>
@@ -2565,12 +2587,14 @@ function SidebarRow({
                         >
                             {line}
                         </span>
-                        <span
-                            className="happy-sidebar__item-subtitle"
-                            data-happy-desktop-ui="sidebar-item-subtitle"
-                        >
-                            {story()?.subtitle ?? ""}
-                        </span>
+                        {compact() ? null : (
+                            <span
+                                className="happy-sidebar__item-subtitle"
+                                data-happy-desktop-ui="sidebar-item-subtitle"
+                            >
+                                {story()?.subtitle ?? ""}
+                            </span>
+                        )}
                     </span>
                 ) : (
                     line
@@ -2751,7 +2775,7 @@ function SidebarRow({
                             {item().meta}
                         </span>
                     ) : null}
-                    {story()?.time !== undefined ? (
+                    {story()?.time !== undefined && !compact() ? (
                         <span
                             className="happy-sidebar__item-time"
                             data-happy-desktop-ui="sidebar-item-time"
@@ -2837,13 +2861,14 @@ function SidebarRow({
                 </>,
             )}
             {/* One signal, always in the row's bottom-right corner, where a
-                messenger puts its unread dot: a dot while the agent waits on
-                the reader, the chat's spinner while it works, nothing otherwise. */}
+                messenger puts its unread dot: the chat's spinner while the
+                agent works, else a dot while something is unread, nothing
+                otherwise. */}
             {story()?.signal ? (
                 <span
                     aria-label={
-                        story()?.signal === "waiting"
-                            ? `${item().label} is waiting for you`
+                        story()?.signal === "unread"
+                            ? `${item().label} has unread activity`
                             : `${item().label} is working`
                     }
                     className="happy-sidebar__item-corner"
@@ -2975,6 +3000,7 @@ export function Sidebar(props: SidebarProps) {
         "bodyFloat",
         "onItemMenuSelect",
         "onItemCollapseToggle",
+        "itemFoldControls",
         "onItemReorder",
         "itemDragAcrossSections",
         "onInteractionChange",
@@ -5419,7 +5445,9 @@ export function Sidebar(props: SidebarProps) {
                                                     }
                                                     canCollapse={
                                                         local.onItemCollapseToggle !== undefined &&
-                                                        foldable
+                                                        foldable &&
+                                                        (item.kind === "section" ||
+                                                            local.itemFoldControls !== false)
                                                     }
                                                     canRename={local.itemRename !== undefined}
                                                     tabStop={

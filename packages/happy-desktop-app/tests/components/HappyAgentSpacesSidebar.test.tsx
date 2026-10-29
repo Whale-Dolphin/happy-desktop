@@ -32,7 +32,12 @@ function fixture() {
     };
     const props: HappyAgentSpacesSidebarProps = {
         store: happyAgentSpacesStoreNoop,
-        snapshot: { ...happyAgentSpacesStoreNoop.get(), spaces: new Map([[space.id, space]]) },
+        snapshot: {
+            ...happyAgentSpacesStoreNoop.get(),
+            spaces: new Map([[space.id, space]]),
+            // The person opened Parent's tree, and the session under it, by selecting them.
+            rowsOpened: { top: "space:parent", rows: new Set(["space:parent", "session:aChild"]) },
+        },
         places: { bots: [], tasks: [], chatGroupOf: () => undefined },
         focus: {},
         navigation: { onChatSelect: vi.fn() },

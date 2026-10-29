@@ -60,7 +60,7 @@ const DAY: readonly SidebarItem[] = [
                 "Good morning. Three things need you today; the release can't wait past noon.",
             time: "08:30",
             ring: { total: 1, unseen: 1 },
-            signal: "waiting",
+            signal: "unread",
         },
         unread: true,
     }),
@@ -86,7 +86,7 @@ const DAY: readonly SidebarItem[] = [
             subtitle: "Ready for a new test build. Send it?",
             time: "10:47",
             ring: { total: 1, unseen: 1 },
-            signal: "waiting",
+            signal: "unread",
         },
     }),
     story("x-post", "X post", "marketing", {
@@ -94,8 +94,9 @@ const DAY: readonly SidebarItem[] = [
             subtitle: "Draft is ready to read",
             time: "Mon",
             ring: { total: 2, unseen: 0 },
+            signal: "unread",
         },
-        // Unread, not waiting: a heavier name and no dot.
+        // Unread: the corner dot, and the name keeps its weight.
         unread: true,
     }),
     story("launch-list", "Launch checklist", "kanban", { story: {} }),
@@ -172,17 +173,17 @@ const STATUS_LINES = {
     one: "Running the third pass",
     two: "Ready for a test build once the last two crash reports are triaged and the changelog is short enough to read in one go",
 } as const;
-const SIGNALS = { idle: undefined, working: "working", waiting: "waiting" } as const;
+const SIGNALS = { idle: undefined, working: "working", unread: "unread" } as const;
 
 /*
  * Every combination a row can be in, one under another: no status, one line
- * and more than two, each idle, working and waiting, and a Surface with no
+ * and more than two, each idle, working and unread, and a Surface with no
  * agent at all. They are all one height and their names all stand on one line.
  */
 const STATES: readonly SidebarItem[] = (
     Object.entries(STATUS_LINES) as [keyof typeof STATUS_LINES, string | undefined][]
 ).flatMap(([lines, subtitle]) =>
-    (Object.entries(SIGNALS) as [keyof typeof SIGNALS, "working" | "waiting" | undefined][]).map(
+    (Object.entries(SIGNALS) as [keyof typeof SIGNALS, "working" | "unread" | undefined][]).map(
         ([signal, value]) =>
             story(`${lines}-${signal}`, `Status ${lines} · ${signal}`, "wip", {
                 story: {
@@ -273,7 +274,7 @@ export function StoryRingPage() {
                     <DaySidebar />
                 </Specimen>
                 <Specimen
-                    detail="Status none, one line, past two lines × idle, working, waiting · and a Surface · all 64"
+                    detail="Status none, one line, past two lines × idle, working, unread · and a Surface · all 64"
                     label="Every state, one height"
                     number="RG-03"
                     stage="app"
