@@ -106,6 +106,8 @@ export interface HappyAgentRouterContext {
     /** The local Happy Agent update card, beside `daemon` and only with it. */
     readonly agentUpdate?: AppHappyAgentUpdateStore;
     readonly agentReleaseNotes?: AppHappyAgentReleaseNotesStore;
+    /** First run on this machine, in Happy's own chat, until it is over. */
+    readonly happyOnboarding?: import("happy-desktop-state").HappyOnboardingStore;
     readonly profiler?: AppHappyAgentProfilerStore;
     readonly happyAgents: AppHappyAgentDirectoryStore;
     /** This build's development identity; absent in the packaged product. */
@@ -630,6 +632,7 @@ function HappyAgentWorkspaceLayout() {
             {...(context.daemon ? { daemon: context.daemon } : {})}
             {...(context.agentUpdate ? { agentUpdate: context.agentUpdate } : {})}
             {...(context.agentReleaseNotes ? { agentReleaseNotes: context.agentReleaseNotes } : {})}
+            {...(context.happyOnboarding ? { happyOnboarding: context.happyOnboarding } : {})}
             {...(context.experiments ? { experiments: context.experiments } : {})}
             {...(context.projectsVisibility
                 ? { projectsVisibility: context.projectsVisibility }

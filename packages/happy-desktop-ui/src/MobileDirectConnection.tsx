@@ -146,6 +146,8 @@ export interface MobileDirectPairingPanelProps {
     readonly codeSize?: number;
     /** False where the code's countdown is drawn beside it rather than under it. */
     readonly codeCountdown?: boolean;
+    /** Draws the code flat where it sits, as a chat does, with no paper shape or shadow. */
+    readonly codePlain?: boolean;
     /** `compact` fits the emoji step under a setup page's title line. */
     readonly density?: "regular" | "compact";
     readonly "data-testid"?: string;
@@ -154,7 +156,7 @@ export interface MobileDirectPairingPanelProps {
     onConfirm(): void;
     /** The person says they don't match, or stops the pairing. */
     onReject(): void;
-    /** Hands a failure to the Chief of Staff. */
+    /** Hands a failure to Happy. */
     onErrorAssist?(): void;
 }
 
@@ -201,7 +203,7 @@ function DirectPairingBody(props: MobileDirectPairingPanelProps & { readonly blo
             <PairingNote detail={connector.message} title="Couldn't read direct connection">
                 {props.onErrorAssist ? (
                     <Button onClick={props.onErrorAssist} size="small" variant="ghost">
-                        Ask Chief of Staff
+                        Ask Happy
                     </Button>
                 ) : null}
             </PairingNote>
@@ -274,6 +276,7 @@ function DirectPairingBody(props: MobileDirectPairingPanelProps & { readonly blo
             return (
                 <PairingCode
                     countdown={props.codeCountdown}
+                    {...(props.codePlain ? { plain: true } : {})}
                     data={pairing.qr}
                     expiresAt={pairing.expiresAt}
                     label="QR code to connect a phone directly"
@@ -285,6 +288,28 @@ function DirectPairingBody(props: MobileDirectPairingPanelProps & { readonly blo
         case "verifying":
             return <EmojiVerification {...props} pairing={pairing} />;
         case "completed":
+            // In a chat the emoji and the answer stay where they were, so
+            // nothing moves; the line under them says the phone is paired.
+            if (props.density === "compact" && pairing.emoji)
+                return <EmojiVerification {...props} paired pairing={pairing} />;
+            // Without them it settles to one line, so the reply after it stays close.
+            if (props.density === "compact")
+                return (
+                    <Box
+                        className="happy-mobile-direct-pairing__paired"
+                        data-happy-desktop-ui="mobile-direct-pairing-paired"
+                    >
+                        <Ionicon name="checkmark-circle" size={18} />
+                        <span>
+                            <span className="happy-mobile-direct-pairing__paired-title">
+                                {pairing.device?.name ?? "Your phone"} is paired
+                            </span>
+                            <span className="happy-mobile-direct-pairing__paired-detail">
+                                {" · It reaches this computer directly."}
+                            </span>
+                        </span>
+                    </Box>
+                );
             return (
                 <PairingResult
                     detail={
@@ -356,11 +381,15 @@ function EmojiVerification(
     props: MobileDirectPairingPanelProps & {
         readonly blocked: boolean;
         readonly pairing: MobileDirectPairing;
+        /** The pairing finished: the answer stays, chosen, over the result. */
+        readonly paired?: boolean;
     },
 ) {
     const { pairing } = props;
     const busy = props.confirming === true || props.cancelling === true;
     const compact = props.density === "compact";
+    // In a chat, this computer's answer stays where it was given.
+    const answered = compact && (pairing.desktopConfirmed || props.paired === true);
     const titleId = useId();
     const waitingForPhone = pairing.desktopConfirmed && !pairing.mobileConfirmed;
     return (
@@ -392,18 +421,62 @@ function EmojiVerification(
                     choose Don&apos;t match.
                 </p>
             )}
-            <Box
-                className="happy-mobile-direct-pairing__progress"
-                data-happy-desktop-ui="mobile-direct-pairing-progress"
-            >
-                <ConfirmationMark confirmed={pairing.desktopConfirmed} label="This computer" />
-                <ConfirmationMark confirmed={pairing.mobileConfirmed} label="Phone" />
-                <span className="happy-mobile-pairing__expiry">
-                    Expires in {pairingCountdown(pairing.expiresAt, props.now)}
-                </span>
-            </Box>
+            {props.paired ? (
+                // The progress row's own one line, so the answer under it stays put.
+                <Box
+                    className="happy-mobile-direct-pairing__progress"
+                    data-happy-desktop-ui="mobile-direct-pairing-progress"
+                >
+                    <ConfirmationMark
+                        confirmed
+                        label={`${pairing.device?.name ?? "Your phone"} is paired`}
+                        plain
+                    />
+                    <span className="happy-mobile-pairing__expiry">
+                        It reaches this computer directly.
+                    </span>
+                </Box>
+            ) : answered ? (
+                <Box
+                    className="happy-mobile-direct-pairing__progress"
+                    data-happy-desktop-ui="mobile-direct-pairing-progress"
+                >
+                    <span className="happy-mobile-direct-pairing__progress-note">
+                        <Spinner size={14} />
+                        Waiting for the phone to confirm…
+                    </span>
+                </Box>
+            ) : (
+                <Box
+                    className="happy-mobile-direct-pairing__progress"
+                    data-happy-desktop-ui="mobile-direct-pairing-progress"
+                >
+                    <ConfirmationMark confirmed={pairing.desktopConfirmed} label="This computer" />
+                    <ConfirmationMark confirmed={pairing.mobileConfirmed} label="Phone" />
+                    <span className="happy-mobile-pairing__expiry">
+                        Expires in {pairingCountdown(pairing.expiresAt, props.now)}
+                    </span>
+                </Box>
+            )}
             <PairingActions>
-                {pairing.desktopConfirmed ? (
+                {answered ? (
+                    <>
+                        <Button
+                            aria-pressed="true"
+                            className="happy-mobile-direct-pairing__chosen"
+                            data-chosen=""
+                            disabled
+                            icon="check"
+                            size="medium"
+                            variant="primary"
+                        >
+                            Emoji match
+                        </Button>
+                        <Button disabled size="medium" variant="secondary">
+                            Don&apos;t match
+                        </Button>
+                    </>
+                ) : pairing.desktopConfirmed ? (
                     <>
                         {waitingForPhone ? (
                             <span className="happy-mobile-direct-pairing__progress-note">
@@ -422,17 +495,9 @@ function EmojiVerification(
                         </Button>
                     </>
                 ) : (
+                    /* The answer to give first, where every default answer in
+                       Happy stands: on the left. */
                     <>
-                        <Button
-                            data-testid="happy-mobile-direct-reject"
-                            disabled={props.blocked || busy}
-                            loading={props.cancelling}
-                            onClick={props.onReject}
-                            size="medium"
-                            variant="secondary"
-                        >
-                            Don&apos;t match
-                        </Button>
                         <Button
                             data-testid="happy-mobile-direct-confirm"
                             disabled={props.blocked || busy}
@@ -444,6 +509,16 @@ function EmojiVerification(
                         >
                             Emoji match
                         </Button>
+                        <Button
+                            data-testid="happy-mobile-direct-reject"
+                            disabled={props.blocked || busy}
+                            loading={props.cancelling}
+                            onClick={props.onReject}
+                            size="medium"
+                            variant="secondary"
+                        >
+                            Don&apos;t match
+                        </Button>
                     </>
                 )}
             </PairingActions>
@@ -452,7 +527,12 @@ function EmojiVerification(
 }
 
 /** One screen's answer, in sentence case beside its mark. */
-function ConfirmationMark(props: { readonly confirmed: boolean; readonly label: string }) {
+function ConfirmationMark(props: {
+    readonly confirmed: boolean;
+    readonly label: string;
+    /** The label is the whole sentence, without ": confirmed". */
+    readonly plain?: boolean;
+}) {
     return (
         <span
             className="happy-mobile-direct-pairing__mark"
@@ -460,7 +540,9 @@ function ConfirmationMark(props: { readonly confirmed: boolean; readonly label: 
             data-happy-desktop-ui="mobile-direct-pairing-mark"
         >
             <Ionicon name={props.confirmed ? "checkmark-circle" : "ellipse-outline"} size={14} />
-            {props.label}: {props.confirmed ? "confirmed" : "not yet"}
+            {props.plain
+                ? props.label
+                : `${props.label}: ${props.confirmed ? "confirmed" : "not yet"}`}
         </span>
     );
 }
@@ -528,7 +610,7 @@ function DirectFailure(
             <PairingActions>
                 {props.onErrorAssist ? (
                     <Button onClick={props.onErrorAssist} size="small" variant="ghost">
-                        Ask Chief of Staff
+                        Ask Happy
                     </Button>
                 ) : null}
                 <Button
@@ -663,7 +745,7 @@ export function MobileDirectConnectionSection(props: MobileDirectConnectionSecti
                         <Box className="happy-mobile-direct-section__status-control">
                             {failure && props.onErrorAssist ? (
                                 <Button onClick={props.onErrorAssist} size="small" variant="ghost">
-                                    Ask Chief of Staff
+                                    Ask Happy
                                 </Button>
                             ) : null}
                             <HappyAgentSettingsStatus label={state.label} variant={state.variant} />

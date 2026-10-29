@@ -24,6 +24,15 @@ import {
 } from "./AgentActivityRow";
 import type { ConversationMediaRun } from "./conversationMediaRuns";
 import type { MessageInlineLayouts } from "./conversationInlineLayouts";
+import {
+    chatActionBlockKey,
+    chatActionChoiceRecorded,
+    type HappyAgentActionChoice,
+    type ChatAction,
+    type ChatActionChoice,
+    type ChatActionInvocation,
+} from "happy-desktop-state";
+import { ChatActionBlock, type ChatActionFigures } from "./ChatActionBlock";
 import { ConversationMedia } from "./ConversationMedia";
 import type { InlinePageProps } from "./InlinePage";
 import { ConversationComputeEvent } from "./ConversationComputeEvent";
@@ -123,6 +132,12 @@ export type ConversationEntryViewProps = {
      * that showed it.
      */
     messageLayouts?: MessageInlineLayouts;
+    /** What was chosen in each of this conversation's action blocks, by `chatActionBlockKey`. */
+    actionChoices?: ReadonlyMap<string, ChatActionChoice>;
+    /** Runs a press in one of a reply's action blocks. Absent, they are shown but locked. */
+    onChatAction?: (invocation: ChatActionInvocation) => void;
+    /** What a reply's live figures show: the phone pairing, a provider CLI, a setting. */
+    chatActionFigures?: ChatActionFigures;
     /** Opens one child session represented by a delegated-agent entry. */
     onDelegationSelect?: (sessionId: string) => void;
     /** Reference epoch millis used by live delegated-agent timers. */
@@ -584,6 +599,7 @@ export function ConversationEntryView(props: ConversationEntryViewProps) {
         <Message
             agent={author?.kind === "agent"}
             author={author?.displayName ?? "Unknown"}
+            {...(author?.mark === "happy" ? { happyMark: true } : {})}
             imageUrl={
                 author?.imageUrl ??
                 (author?.avatar ? thumbhashDataUrl(author.avatar.thumbhash) : undefined)
@@ -600,7 +616,29 @@ export function ConversationEntryView(props: ConversationEntryViewProps) {
                   }
                 : {})}
             {...(props.messageLayouts
-                ? { layoutRender: messageLayoutRender(props.messageLayouts, props.onToolMediaOpen) }
+                ? {
+                      layoutRender: messageLayoutRender(
+                          props.messageLayouts,
+                          props.onToolMediaOpen,
+                          {
+                              messageId: message.id,
+                              ...(entry.messageId
+                                  ? {
+                                        source: {
+                                            messageId: entry.messageId,
+                                            offset: entry.actionBlockOffset ?? 0,
+                                            ...(entry.actionChoices
+                                                ? { recorded: entry.actionChoices }
+                                                : {}),
+                                        },
+                                    }
+                                  : {}),
+                              choices: props.actionChoices,
+                              onAction: props.onChatAction,
+                              figures: props.chatActionFigures,
+                          },
+                      ),
+                  }
                 : {})}
             className={props.className}
             {...(props.contextNote === undefined ? {} : { contextNote: props.contextNote })}
@@ -783,10 +821,62 @@ function activityMediaRun(
 function messageLayoutRender(
     layouts: MessageInlineLayouts,
     open: ConversationEntryViewProps["onToolMediaOpen"],
+    actions: {
+        readonly messageId: string;
+        /**
+         * The durable message a Happy Agent served this text from, where its
+         * blocks start in it, and the choices the daemon recorded there.
+         */
+        readonly source?: {
+            readonly messageId: string;
+            readonly offset: number;
+            readonly recorded?: ReadonlyMap<number, HappyAgentActionChoice>;
+        };
+        readonly choices: ReadonlyMap<string, ChatActionChoice> | undefined;
+        readonly onAction: ((invocation: ChatActionInvocation) => void) | undefined;
+        readonly figures: ChatActionFigures | undefined;
+    },
 ) {
     return function messageLayout(key: string): ReactNode {
         const layout = layouts.layouts.get(key);
         if (layout === undefined) return null;
+        if (layout.kind === "actions") {
+            const blockKey = chatActionBlockKey(actions.messageId, layout.index);
+            const source = actions.source;
+            const blockIndex = source ? source.offset + layout.index : undefined;
+            /* What the daemon recorded wins over a press still on its way. */
+            const choice =
+                (source && blockIndex !== undefined
+                    ? chatActionChoiceRecorded(layout.block, source.recorded?.get(blockIndex))
+                    : undefined) ?? actions.choices?.get(blockKey);
+            const onAction = actions.onAction;
+            return (
+                <ChatActionBlock
+                    block={layout.block}
+                    {...(choice ? { choice } : {})}
+                    {...(actions.figures ? { figures: actions.figures } : {})}
+                    {...(onAction
+                        ? {
+                              onInvoke: (
+                                  picked: ChatActionChoice,
+                                  action: ChatAction,
+                                  label: string,
+                              ) =>
+                                  onAction({
+                                      blockKey,
+                                      messageId: actions.messageId,
+                                      choice: picked,
+                                      action,
+                                      label,
+                                      ...(source && blockIndex !== undefined
+                                          ? { source: { messageId: source.messageId, blockIndex } }
+                                          : {}),
+                                  }),
+                          }
+                        : {})}
+                />
+            );
+        }
         return (
             <ConversationMedia
                 items={layout.members.map((member) => member.item)}

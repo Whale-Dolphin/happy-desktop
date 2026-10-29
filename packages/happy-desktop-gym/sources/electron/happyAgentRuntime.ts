@@ -22,6 +22,8 @@ export async function happyAgentRuntimeCreate(
     paths: GymRunPaths,
     inference: GymInferenceServer | undefined,
     liveConfiguration?: string,
+    /** What the scenario adds to the daemon's environment, such as where it finds stand-in apps. */
+    environmentExtra: Readonly<Record<string, string>> = {},
 ): Promise<StartedHappyAgentRuntime> {
     if (inference === undefined && liveConfiguration === undefined)
         throw new Error("Live inference requires an explicit run-owned provider configuration.");
@@ -50,10 +52,10 @@ export async function happyAgentRuntimeCreate(
         // factory wraps this account, so discovery and verification exercise
         // the ordinary API without reading credentials or contacting a vendor.
         liveConfiguration ??
-            '[settings]\nhappy_integration = false\n\n[providers.codex]\ntype = "codex"\nenabled = true\ncredential_isolation = true\n',
+            '[settings]\nhappy_integration = false\nmenu_bar = false\n\n[providers.codex]\ntype = "codex"\nenabled = true\ncredential_isolation = true\n',
         "utf8",
     );
-    const environment = environmentCreate(paths, inference);
+    const environment = { ...environmentCreate(paths, inference), ...environmentExtra };
     await gymRunProfileWrite(paths, environment);
     // Electron/Playwright can terminate its Node controller before ordinary
     // finally cleanup runs (for example, a host GUI launch abort). A detached

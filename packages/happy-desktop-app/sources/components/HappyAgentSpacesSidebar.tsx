@@ -27,6 +27,7 @@ import {
     type SidebarProposalChange,
     type SidebarProposalPlace,
     type HappyAgentBot,
+    type HappyAgentSidebarProposalNewRow,
     type HappyAgentSpace,
     type HappyAgentSpaceBatch,
     type HappyAgentSpaceIcon,
@@ -62,6 +63,10 @@ import {
     type TabItem,
 } from "happy-desktop-ui";
 import { useMemo, useSyncExternalStore, type ReactNode } from "react";
+import {
+    happyAgentSpacesExampleSection,
+    type HappyAgentSpacesOnboarding,
+} from "./happyAgentSpacesOnboarding";
 
 /** The places a space can open, as the window addresses them. */
 export interface HappyAgentSpacesNavigation {
@@ -279,8 +284,9 @@ export function happyAgentSpaceMark(
     space: HappyAgentSpace,
     places: HappyAgentSpacesPlaces,
     stemCellAnimation: boolean,
-): Pick<SidebarItem & TabItem, "icon" | "imageMark" | "imageUrl" | "stemCell"> {
-    if (happyAgentSpaceHappyIs(space, places)) return { imageMark: happyIconMark() };
+): Pick<SidebarItem & TabItem, "icon" | "imageMark" | "imageUrl" | "stemCell" | "happyMark"> {
+    // Happy wears its own mark wherever it appears: its row, its tab, the palette.
+    if (happyAgentSpaceHappyIs(space, places)) return { happyMark: true };
     const icon = space.icon;
     if (icon?.type === "stem_cell") return { stemCell: { id: space.id } };
     // A clay icon is what a stem cell becomes; unless the reader turned it
@@ -367,6 +373,7 @@ function spaceRow(
         label: happyAgentSpaceLabel(space),
         labelShimmer: titleShimmerEnabled,
         workingIndicator: "none",
+        // Happy's row wears Happy's own mark, which New divides.
         ...happyAgentSpaceMark(space, places, stemCellAnimation),
         ...(activity === "awaitingInput"
             ? { status: "awaitingInput" as const }
@@ -608,6 +615,9 @@ export interface HappyAgentSpacesSidebarProps {
     readonly titleShimmerEnabled: boolean;
     /** Whether a row that sees its stem cell get an icon grows it, as the reader set it. */
     readonly stemCellAnimation: boolean;
+    /** Happy's membrane seed after it last divided, as this window keeps it. */
+    readonly happySeed?: number;
+    readonly onHappySeed?: (seed: number) => void;
     readonly brand: boolean;
     readonly footer: ReactNode;
     readonly headerAccessory?: ReactNode;
@@ -642,6 +652,8 @@ export interface HappyAgentSpacesSidebarProps {
      * ring around its picture, and the ring opens the agent's stories.
      */
     readonly stories?: HappyAgentSpacesStories;
+    /** First run, while it goes on: the example, and the work Happy proposed. */
+    readonly onboarding?: HappyAgentSpacesOnboarding;
 }
 
 /** What Stories add to the sidebar's rows. */
@@ -888,6 +900,8 @@ export interface HappyAgentSpacesItemsInput {
     readonly worktreeRows: (agentId: string) => readonly SidebarItem[];
     /** Whether Stories draw the rows, which name a nested row's project themselves. */
     readonly stories?: boolean;
+    /** A proposal's new chats, by the space ID its document names each by. */
+    readonly newRows?: ReadonlyMap<string, HappyAgentSidebarProposalNewRow>;
 }
 
 /**
@@ -1044,6 +1058,22 @@ export function happyAgentSpacesItems(input: HappyAgentSpacesItemsInput): {
                 ];
             case "space": {
                 const space = snapshot.spaces.get(item.id as HappyAgentSpaceId);
+                // A chat a proposal would start: its title and icon, marked new.
+                const proposed = space === undefined ? input.newRows?.get(item.id) : undefined;
+                if (proposed)
+                    return [
+                        {
+                            id: key,
+                            kind: "project",
+                            label: proposed.title,
+                            note: "new",
+                            workingIndicator: "none",
+                            ...(proposed.icon !== undefined && clayIconSlugIs(proposed.icon)
+                                ? { imageMark: clayIconMark(proposed.icon) }
+                                : { stemCell: { id: item.id } }),
+                            ...(editable ? {} : { reorderable: false }),
+                        },
+                    ];
                 // A space this window does not know yet draws nothing until it does.
                 if (space === undefined) return [];
                 const children = nested(spaceAgentId(space), item.children, 1);
@@ -1342,6 +1372,37 @@ function rowPath(items: readonly SidebarItem[], id: string): string[] {
     return path;
 }
 
+/** The rows of Happy's own subtasks that stand in the sidebar as spaces of their own. */
+function happySubtaskRows(
+    happySpace: HappyAgentSpace,
+    snapshot: HappyAgentSpacesSnapshot,
+    places: HappyAgentSpacesPlaces,
+): string[] {
+    const happy = targetBot(happySpace.target, places);
+    if (happy === undefined) return [];
+    const own = new Set(happy.subtasks.map((subtask) => subtask.conversation.id));
+    const rows: string[] = [];
+    for (const space of snapshot.spaces.values()) {
+        const agentId = spaceAgentId(space);
+        if (space.id !== happySpace.id && agentId !== undefined && own.has(agentId))
+            rows.push(`space:${space.id}`);
+    }
+    return rows;
+}
+
+/** The rows standing directly under Happy's own, by row ID. */
+function happyChildRows(
+    view: SidebarDocumentView,
+    happySpaceId: string,
+    attached: (id: string) => boolean,
+): string[] {
+    const happy = view.items.find((item) => item.kind === "space" && item.id === happySpaceId);
+    if (happy?.kind !== "space") return [];
+    return happy.children.map((child) =>
+        attached(child.id) ? `space:${child.id}` : sidebarDocumentKey(child),
+    );
+}
+
 /**
  * The spaces sidebar: the person's document drawn as it stands. Search,
  * Create, sections, separators and spaces are items of one list, and any of them can be
@@ -1387,7 +1448,7 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         proposalsStore.get,
         proposalsStore.get,
     );
-    const asked = editable ? snapshot.proposal : null;
+    const asked = editable && props.onboarding === undefined ? snapshot.proposal : null;
     // Records what is wanted; the read starts after this render.
     if (asked) proposalsStore.proposalsRequest([asked.artifactId]);
     const entry = asked ? proposals.get(asked.artifactId) : undefined;
@@ -1418,18 +1479,6 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
               ? subject.agentId
               : undefined;
     };
-    // The row for what is on screen, most specific first: the session itself
-    // at whatever depth it is drawn, then the worktree it runs in, then the
-    // space it opens from.
-    const activeItemId =
-        props.focus.chatId !== undefined && anchorOf.has(`session:${props.focus.chatId}`)
-            ? `session:${props.focus.chatId}`
-            : focused
-              ? `space:${focused.id}`
-              : props.focus.groupId !== undefined &&
-                  anchorOf.has(`${WORKTREE_PREFIX}${props.focus.groupId}`)
-                ? `${WORKTREE_PREFIX}${props.focus.groupId}`
-                : "";
     // A row shows its children once the selection has opened it: the store
     // keeps the one open tree, and nothing the document says about its folds
     // is drawn here.
@@ -1467,6 +1516,7 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
     );
     // Stories draw the stem-cell sidebar, which does not nest: only top-level
     // rows are drawn, and none of them folds. Nesting stays the classic sidebar's.
+    const onboarding = props.onboarding;
     const items = stories
         ? openItems
               .filter((item) => (item.depth ?? 0) === 0)
@@ -1550,6 +1600,9 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
             if (anchorOf.has(items[index]!.id)) return anchorOf.get(items[index]!.id);
         return null;
     };
+    const happySpace = [...snapshot.spaces.values()].find((space) =>
+        happyAgentSpaceHappyIs(space, places),
+    );
     const spaceOf = (id: string) =>
         id.startsWith("space:")
             ? snapshot.spaces.get(id.slice("space:".length) as HappyAgentSpaceId)
@@ -1627,10 +1680,49 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         // pointer has left the sidebar, so no click moves or folds a row away.
         happyAgentSpaceOpen(space, places, snapshot, props.navigation);
     };
+    // The row for what is on screen, most specific first: the session itself
+    // at whatever depth it is drawn, then the worktree it runs in, then the
+    // space it opens from.
+    const shown =
+        props.focus.chatId !== undefined && anchorOf.has(`session:${props.focus.chatId}`)
+            ? `session:${props.focus.chatId}`
+            : focused
+              ? `space:${focused.id}`
+              : props.focus.groupId !== undefined &&
+                  anchorOf.has(`${WORKTREE_PREFIX}${props.focus.groupId}`)
+                ? `${WORKTREE_PREFIX}${props.focus.groupId}`
+                : "";
+    // First run opens on Happy's chat: its row is the selected one from the
+    // first frame, before the window has finished going there.
+    const activeItemId =
+        shown === "" &&
+        onboarding !== undefined &&
+        happySpace !== undefined &&
+        props.focus.surfaceId === undefined &&
+        props.focus.artifactId === undefined
+            ? `space:${happySpace.id}`
+            : shown;
     return (
         <Sidebar
             activeItemId={activeItemId}
             brand={props.brand}
+            // New divides Happy into the row it makes, and Happy into each
+            // agent of its own, such as Focus: one nested under its row, or
+            // one with a row of its own.
+            {...(happySpace
+                ? {
+                      division: {
+                          from: `space:${happySpace.id}`,
+                          into: [
+                              ...snapshot.divisions.map((id) => `space:${id}`),
+                              ...happyChildRows(view, happySpace.id, attached),
+                              ...happySubtaskRows(happySpace, snapshot, places),
+                          ],
+                          ...(props.happySeed !== undefined ? { seed: props.happySeed } : {}),
+                          ...(props.onHappySeed ? { onSeed: props.onHappySeed } : {}),
+                      },
+                  }
+                : {})}
             // Every item but a separator is walked with the arrows and opens
             // with Enter or Space.
             keyboardNavigation
@@ -1954,7 +2046,10 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                       },
                   }
                 : {})}
-            sections={[{ id: LIST, items }]}
+            sections={[
+                { id: LIST, items },
+                ...(onboarding?.exampleSidebar ? [happyAgentSpacesExampleSection()] : []),
+            ]}
         />
     );
 }

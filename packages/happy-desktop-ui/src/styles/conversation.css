@@ -291,6 +291,30 @@
     min-height: 0;
 }
 
+.happy-conversation__dock-inner[data-disabled-note] {
+    position: relative;
+}
+
+/* Why a disabled composer takes nothing: a small popover over its top edge, in
+   the tooltip's language, out of the flow so nothing under it moves. */
+.happy-conversation__disabled-note {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 16px;
+    z-index: var(--happy-z-overlay);
+    max-width: 320px;
+    padding: 5px 10px;
+    background: var(--surface);
+    border: 1px solid var(--modal-border);
+    border-radius: var(--happy-radius-sm);
+    box-shadow: 0 2px 8px var(--shadow-color);
+    color: var(--text);
+    font-family: var(--happy-font-ui);
+    font-size: 13px;
+    line-height: 18px;
+    pointer-events: none;
+}
+
 /*
  * Why sending is held, said directly above the input in the voice of the
  * transcript's start-aligned service lines (a model or provider switch): the

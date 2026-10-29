@@ -19,6 +19,12 @@ export type ConversationDockProps = {
     composer: ComposerSnapshot;
     /** Keeps the session configuration visible while making its write end inert. */
     disabled?: boolean;
+    /**
+     * Why a disabled composer takes nothing, said in a small popover above it
+     * when the reader clicks it. The placeholder keeps saying who the message
+     * is for; this says what to do first.
+     */
+    disabledNote?: string;
     /** Keeps the draft editable but disables submission to an unavailable Happy Agent. */
     submitDisabled?: boolean;
     /** Controls rendered inside the composer toolbar, beside the send control. */
@@ -167,6 +173,9 @@ export function ConversationDock(props: ConversationDockProps) {
         readonly loadedImage?: ImageViewerLoadedImage;
     } | null>(null);
     const previewAttachmentId = preview?.id;
+    // Open from a click on the disabled composer until the pointer leaves the dock.
+    const [noteOpen, setNoteOpen] = useState(false);
+    const disabledNote = props.disabled ? props.disabledNote : undefined;
     /*
      * The draft is the query: the store hands over a command query only while the
      * whole draft is one command word that something still matches, so the list
@@ -293,7 +302,25 @@ export function ConversationDock(props: ConversationDockProps) {
                     {composer.submission.error.message}
                 </Banner>
             ) : null}
-            <div className="happy-conversation__dock-inner">
+            <div
+                className="happy-conversation__dock-inner"
+                {...(disabledNote
+                    ? {
+                          "data-disabled-note": "",
+                          onPointerDown: () => setNoteOpen(true),
+                          onPointerLeave: () => setNoteOpen(false),
+                      }
+                    : {})}
+            >
+                {disabledNote && noteOpen ? (
+                    <span
+                        className="happy-conversation__disabled-note"
+                        data-happy-desktop-ui="conversation-dock-disabled-note"
+                        role="status"
+                    >
+                        {disabledNote}
+                    </span>
+                ) : null}
                 {props.composerAboveControl}
                 {props.notice === undefined || props.notice.length === 0 ? null : (
                     <div

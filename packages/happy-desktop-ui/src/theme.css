@@ -97,8 +97,16 @@
     --warning-critical: #ff3b30;
     --warning: #8e8e93;
     --success: #34c759;
-    --stem-cell-membrane: #f6cfe3;
-    --stem-cell-core: #ee9fcb;
+    --stem-cell-membrane: #f5c9dd;
+    --stem-cell-core: #d4467f;
+    /* The light a clay cell is lit by: a matte dome and rim light up and to
+       the left, a shade along the lower rim, and a soft contact shadow,
+       matched to the clay icons. */
+    --cell-clay-sheen: rgb(255 255 255 / 0.26);
+    --cell-clay-light: rgb(255 255 255 / 0.45);
+    --cell-clay-grain: rgb(18 26 34 / 0.022);
+    --cell-clay-shade: rgb(150 30 85 / 0.2);
+    --cell-clay-shadow: rgb(20 24 30 / 0.14);
     --surface: #ffffff;
     --surface-ripple: rgb(0 0 0 / 0.08);
     --surface-pressed: #f0f0f2;
@@ -168,6 +176,15 @@
     --box-warning-background: #fff8f0;
     --box-warning-border: #ff9500;
     --box-warning-text: #ff9500;
+    /* Attention: an example, or something proposed or worth noticing that is
+       not the person's yet. Drawn as dashed yellow hairlines, one meaning
+       everywhere. */
+    /* An outline button's hairline: firmer than a divider, which disappears on white. */
+    --happy-button-outline: color-mix(in srgb, var(--text) 22%, transparent);
+    --happy-attention: var(--review-accent);
+    --happy-attention-wash: color-mix(in srgb, var(--box-warning-background) 65%, var(--surface));
+    --happy-attention-badge: var(--box-warning-border);
+    --happy-attention-on: var(--button-primary-background);
     --box-error-background: #fff0f0;
     --box-error-border: #ff3b30;
     --box-error-text: #ff3b30;
@@ -403,8 +420,13 @@
         --warning-critical: #ff453a;
         --warning: #8e8e93;
         --success: #32d74b;
-        --stem-cell-membrane: #653c53;
-        --stem-cell-core: #ee9fcb;
+        --stem-cell-membrane: #c98aae;
+        --stem-cell-core: #a82a5e;
+        --cell-clay-sheen: rgb(255 255 255 / 0.24);
+        --cell-clay-light: rgb(255 255 255 / 0.26);
+        --cell-clay-grain: rgb(0 0 0 / 0.03);
+        --cell-clay-shade: rgb(80 10 45 / 0.32);
+        --cell-clay-shadow: rgb(0 0 0 / 0.36);
         --surface: #212121;
         --surface-ripple: rgb(255 255 255 / 0.08);
         --surface-pressed: #2c2c2e;
@@ -456,6 +478,14 @@
         --box-warning-background: rgb(255 159 10 / 0.15);
         --box-warning-border: #ff9f0a;
         --box-warning-text: #ffab00;
+        --happy-attention: var(--review-accent);
+        --happy-attention-wash: color-mix(
+            in srgb,
+            var(--box-warning-background) 65%,
+            var(--surface)
+        );
+        --happy-attention-badge: var(--box-warning-border);
+        --happy-attention-on: var(--button-primary-background);
         --box-error-background: rgb(255 69 58 / 0.15);
         --box-error-border: #ff453a;
         --box-error-text: #ff6b6b;
@@ -622,8 +652,13 @@
     --warning-critical: #ff453a;
     --warning: #8e8e93;
     --success: #32d74b;
-    --stem-cell-membrane: #653c53;
-    --stem-cell-core: #ee9fcb;
+    --stem-cell-membrane: #c98aae;
+    --stem-cell-core: #a82a5e;
+    --cell-clay-sheen: rgb(255 255 255 / 0.24);
+    --cell-clay-light: rgb(255 255 255 / 0.26);
+    --cell-clay-grain: rgb(0 0 0 / 0.03);
+    --cell-clay-shade: rgb(80 10 45 / 0.32);
+    --cell-clay-shadow: rgb(0 0 0 / 0.36);
     --surface: #212121;
     --surface-ripple: rgb(255 255 255 / 0.08);
     --surface-pressed: #2c2c2e;
@@ -675,6 +710,10 @@
     --box-warning-background: rgb(255 159 10 / 0.15);
     --box-warning-border: #ff9f0a;
     --box-warning-text: #ffab00;
+    --happy-attention: var(--review-accent);
+    --happy-attention-wash: color-mix(in srgb, var(--box-warning-background) 65%, var(--surface));
+    --happy-attention-badge: var(--box-warning-border);
+    --happy-attention-on: var(--button-primary-background);
     --box-error-background: rgb(255 69 58 / 0.15);
     --box-error-border: #ff453a;
     --box-error-text: #ff6b6b;

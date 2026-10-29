@@ -165,6 +165,18 @@ to be a single one — in Happy — the main agent — as a subagent.
 So we have the 'baby sitters' idea — some of them hidden, or we can make it
 more explicit — just not show these in the side bar.
 
+## Temporary things are dashed
+
+I want to try a dashed outline for temporary things that we show. Like a
+temporary tab in Arc: it shows with a dashed outline. If you double-click it, it
+stays in Happy.
+
+For example, when Happy gathers your priorities during onboarding, it uses the
+Focus sub-agent, and Focus can show up like that: dashed, temporary, until you
+keep it.
+
+Maybe this is too much for now.
+
 ## Icons
 
 Generated icons (soft clay style) — honestly I like the current set the most.

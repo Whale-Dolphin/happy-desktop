@@ -102,6 +102,10 @@ import {
 } from "./happyAgentProfileStore.js";
 import type { HappyAgentProfilePhotoCodec } from "./happyAgentProfilePhoto.js";
 import {
+    happyAgentDefaultModelStoreCreate,
+    type HappyAgentDefaultModelStore,
+} from "./happyAgentDefaultModelStore.js";
+import {
     happyAgentProvidersStoreCreate,
     type HappyAgentProvidersStore,
 } from "./happyAgentProvidersStore.js";
@@ -210,6 +214,12 @@ export interface HappyAgentWorkspaceClient {
      * catalog `models` holds, so a provider switched off stops being offered.
      */
     providers(): HappyAgentProvidersStore;
+    /**
+     * The model new conversations start on, as a chat's default-model figure
+     * reads and changes it. Materialized on first access and shared; every
+     * change the daemon confirms replaces the catalog `models` holds.
+     */
+    defaultModel(): HappyAgentDefaultModelStore;
     /**
      * The voice controller and prompt this machine's calls start with, as the
      * Voice settings read and change them. Materialized on first access and
@@ -598,6 +608,7 @@ export function happyAgentWorkspaceClientCreate(
     let teamsStore: HappyAgentTeamsStore | undefined;
     let profileStore: HappyAgentProfileStore | undefined;
     let providersStore: HappyAgentProvidersStore | undefined;
+    let defaultModelStore: HappyAgentDefaultModelStore | undefined;
     let voiceSettingsStore: HappyAgentVoiceSettingsStore | undefined;
     let taskSettingsStore: HappyAgentTaskSettingsStore | undefined;
     let surfaceSettingsStore: HappyAgentSurfaceSettingsStore | undefined;
@@ -956,6 +967,14 @@ export function happyAgentWorkspaceClientCreate(
             });
             return providersStore;
         },
+        defaultModel() {
+            if (disposed) throw new Error("The Happy Agent client is disposed.");
+            defaultModelStore ??= happyAgentDefaultModelStoreCreate({
+                client: deps.client,
+                models,
+            });
+            return defaultModelStore;
+        },
         taskSettings() {
             if (disposed) throw new Error("The Happy Agent client is disposed.");
             taskSettingsStore ??= happyAgentTaskSettingsStoreCreate({
@@ -1040,6 +1059,7 @@ export function happyAgentWorkspaceClientCreate(
                         agentIdentities: (agentIdentities ??= happyAgentAgentIdentitySourceCreate({
                             client: deps.client,
                             list: workspace.sessionList(),
+                            spaces: () => spaces,
                         })),
                         output: deps.chatOutput
                             ? (event) => deps.chatOutput?.(sessionId, event)
@@ -1145,6 +1165,8 @@ export function happyAgentWorkspaceClientCreate(
             profileStore = undefined;
             providersStore?.[Symbol.dispose]();
             providersStore = undefined;
+            defaultModelStore?.[Symbol.dispose]();
+            defaultModelStore = undefined;
             voiceSettingsStore?.[Symbol.dispose]();
             voiceSettingsStore = undefined;
             taskSettingsStore?.[Symbol.dispose]();

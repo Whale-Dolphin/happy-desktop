@@ -136,7 +136,7 @@ export async function gymLiveVoiceRun(options: {
                     GIT_CONFIG_GLOBAL: "/dev/null",
                 },
             });
-        const configuration = `[settings]\nhappy_integration = false\n[profile]\nname = "Voice Gym"\nemail = "voice-gym@example.invalid"\n[providers]\ndefault_enable = false\n[providers.voice]\ntype = "codex"\nenabled = true\nhidden = ${options.poolDefault === true}\ncredential_isolation = true\nauth_file = ${JSON.stringify(options.authFile)}\n${options.poolDefault ? '[providers.voice_pool]\ntype = "smart"\nstrategy = "round_robin"\nproviders = ["voice"]\nenabled = true\n' : ""}[defaults]\nprovider = "${options.poolDefault ? "voice_pool" : "voice"}"\nmodel = "openai/gpt-6-astra"\neffort = "medium"\n`;
+        const configuration = `[settings]\nhappy_integration = false\nmenu_bar = false\n[profile]\nname = "Voice Gym"\nemail = "voice-gym@example.invalid"\n[providers]\ndefault_enable = false\n[providers.voice]\ntype = "codex"\nenabled = true\nhidden = ${options.poolDefault === true}\ncredential_isolation = true\nauth_file = ${JSON.stringify(options.authFile)}\n${options.poolDefault ? '[providers.voice_pool]\ntype = "smart"\nstrategy = "round_robin"\nproviders = ["voice"]\nenabled = true\n' : ""}[defaults]\nprovider = "${options.poolDefault ? "voice_pool" : "voice"}"\nmodel = "openai/gpt-6-astra"\neffort = "medium"\n`;
         runtime = await happyAgentRuntimeCreate(paths, undefined, configuration);
         const { config } = await happyAgentClientCreate(
             runtime.socketPath,

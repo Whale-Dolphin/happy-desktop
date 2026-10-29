@@ -45,6 +45,7 @@ export function happyAgentModelCatalogProject(config: DaemonConfig): HappyAgentM
     return {
         defaultModelId: config.defaults.modelId,
         defaultProviderId: config.defaults.providerId,
+        defaultEffort: config.defaults.effort as HappyAgentThinkingLevel,
         models: Object.keys(config.models).flatMap((modelId) => {
             const model = modelProject(config, modelId);
             return model === undefined ? [] : [model];

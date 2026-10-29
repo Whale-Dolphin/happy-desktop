@@ -4,6 +4,8 @@ import type {
     ConversationAgentIdentity,
 } from "../conversation/conversationEntry.js";
 import type { ChatElement } from "../happyAgentConnection/index.js";
+import type { HappyAgentSpacesStore } from "../spaces/spacesStore.js";
+import type { HappyAgentSpace, HappyAgentSpaceIcon } from "../spaces/spaceTypes.js";
 import { happyAgentBotSubtasks } from "./happyAgentBotSubtasks.js";
 import type { HappyAgentSessionListSnapshot } from "./happyAgentSessionListStore.js";
 import type { HappyAgentTask } from "./happyAgentTypes.js";
@@ -86,10 +88,36 @@ export function happyAgentAgentIdentitiesIndex(
     return index;
 }
 
+/** The face a sidebar icon gives an agent; a stem cell is no face yet. */
+function iconFace(icon: HappyAgentSpaceIcon | null | undefined): ConversationAgentFace | undefined {
+    if (icon?.type === "library") return { kind: "library", slug: icon.slug };
+    if (icon?.type === "image") return { kind: "image", url: icon.url };
+    return undefined;
+}
+
+/** Each conversation's sidebar row, by agent ID, kept per list of rows. */
+const rowsByAgentCache = new WeakMap<
+    ReadonlyMap<string, HappyAgentSpace>,
+    ReadonlyMap<string, HappyAgentSpace>
+>();
+function rowsByAgent(
+    spaces: ReadonlyMap<string, HappyAgentSpace>,
+): ReadonlyMap<string, HappyAgentSpace> {
+    const cached = rowsByAgentCache.get(spaces);
+    if (cached !== undefined) return cached;
+    const rows = new Map<string, HappyAgentSpace>();
+    for (const space of spaces.values())
+        if (space.target.agentId !== null) rows.set(space.target.agentId, space);
+    rowsByAgentCache.set(spaces, rows);
+    return rows;
+}
+
 /**
  * The identity source over one session list, asking the host with `getAgent`
  * for an agent the list does not name. An agent the host refuses — deleted, or
  * not visible to this reader — is asked about once and then left unnamed.
+ * Where the sidebar is open, an agent with a row there is named and pictured
+ * as that row is, and is working when the row says so.
  */
 export function happyAgentAgentIdentitySourceCreate(deps: {
     readonly client: Pick<HappyAgentClient, "getAgent">;
@@ -97,6 +125,8 @@ export function happyAgentAgentIdentitySourceCreate(deps: {
         get(): HappyAgentSessionListSnapshot;
         subscribe(listener: () => void): () => void;
     };
+    /** The sidebar, when this window has opened it; never opened for this. */
+    readonly spaces?: () => Pick<HappyAgentSpacesStore, "get" | "subscribe"> | undefined;
 }): HappyAgentAgentIdentitySource {
     let indexedFrom: HappyAgentSessionListSnapshot | undefined;
     let index: ReadonlyMap<string, ConversationAgentIdentity> = new Map();
@@ -113,8 +143,23 @@ export function happyAgentAgentIdentitySourceCreate(deps: {
     const notify = (): void => {
         for (const listener of [...listeners]) listener();
     };
+    const listed = (agentId: string): ConversationAgentIdentity | undefined =>
+        indexed().get(agentId) ?? fetched.get(agentId) ?? undefined;
     return {
-        lookup: (agentId) => indexed().get(agentId) ?? fetched.get(agentId) ?? undefined,
+        lookup(agentId) {
+            const known = listed(agentId);
+            const sidebar = deps.spaces?.()?.get();
+            if (sidebar === undefined) return known;
+            const row = rowsByAgent(sidebar.spaces).get(agentId);
+            const name = row?.title ?? known?.name;
+            if (name === undefined) return undefined;
+            const face =
+                iconFace(row?.icon) ??
+                iconFace(sidebar.sidebar?.agentIcons.get(agentId)) ??
+                known?.face ??
+                ({ kind: "initials", initials: initialsOf(name) } as const);
+            return { name, face, ...(row === undefined ? {} : { working: row.working }) };
+        },
         request(agentId) {
             if (indexed().has(agentId) || fetched.has(agentId)) return;
             // Held as unnamed while asked, so a second request waits on the first.
@@ -135,15 +180,17 @@ export function happyAgentAgentIdentitySourceCreate(deps: {
         subscribe(listener) {
             listeners.add(listener);
             const unsubscribeList = deps.list.subscribe(listener);
+            const unsubscribeSpaces = deps.spaces?.()?.subscribe(listener);
             return () => {
                 listeners.delete(listener);
                 unsubscribeList();
+                unsubscribeSpaces?.();
             };
         },
     };
 }
 
-/** The agents that sent messages into a transcript, other than the reader's own. */
+/** The agents a transcript names: those that sent messages into it, other than the reader's own, and those its calls made. */
 export function happyAgentTranscriptSenderIds(
     elements: readonly ChatElement[],
 ): ReadonlySet<string> {
@@ -152,6 +199,13 @@ export function happyAgentTranscriptSenderIds(
         if (element.kind === "inbound_agent_message") ids.add(element.agentId);
         else if (element.kind === "user_message" && element.senderAgent !== undefined)
             ids.add(element.senderAgent.agentId);
+        // An agent a call made is named on that call's row.
+        else if (
+            element.kind === "tool_call" &&
+            element.presentation?.kind === "agent_spawn" &&
+            element.presentation.agentId !== undefined
+        )
+            ids.add(element.presentation.agentId);
     }
     return ids;
 }

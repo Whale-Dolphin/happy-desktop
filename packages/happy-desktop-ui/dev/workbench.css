@@ -629,7 +629,7 @@
 }
 
 /* Seeded marks stay on the tuned resting geometry in every capture. */
-.happy-stem-cell[data-wobble] > path {
+.happy-cell-paint[data-wobble] > path {
     animation-play-state: paused;
 }
 

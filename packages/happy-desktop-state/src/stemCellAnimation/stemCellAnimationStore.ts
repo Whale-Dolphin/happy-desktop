@@ -1,6 +1,7 @@
 /**
  * Whether new work's stem cell grows into its icon when the icon arrives, or
- * the icon simply replaces it.
+ * the icon simply replaces it; and the membrane seed Happy formed again from
+ * after it last divided, so Happy keeps its shape across reloads.
  *
  * It is the window's own visual choice, like the experiments switch, so it is
  * kept by the host's storage rather than by any machine the window connects
@@ -10,7 +11,9 @@
  * back only when the reader changes the setting.
  */
 export interface StemCellAnimationDocument {
-    readonly stemCellAnimationEnabled: boolean;
+    /** Absent until the reader has chosen, so the default can still change. */
+    readonly stemCellAnimationEnabled?: boolean;
+    readonly happySeed?: number;
 }
 
 /** Where the choice is kept. Omitting it keeps the choice for this window's lifetime only. */
@@ -22,12 +25,16 @@ export interface StemCellAnimationPersistence {
 export interface StemCellAnimationSnapshot {
     /** On until the reader turns it off. */
     readonly stemCellAnimationEnabled: boolean;
+    /** Happy's membrane seed after its last division; absent, its shape's own. */
+    readonly happySeed?: number;
 }
 
 export interface StemCellAnimationStore {
     get(): StemCellAnimationSnapshot;
     subscribe(listener: () => void): () => void;
     stemCellAnimationUpdate(enabled: boolean): void;
+    /** Happy divided and formed again from `seed`. */
+    happySeedUpdate(seed: number): void;
 }
 
 /**
@@ -35,10 +42,15 @@ export interface StemCellAnimationStore {
  * the field this version knows is no record at all, since a person can edit the
  * host's storage by hand.
  */
-function documentParse(value: unknown): StemCellAnimationDocument | undefined {
-    if (typeof value !== "object" || value === null) return undefined;
-    const enabled = (value as { stemCellAnimationEnabled?: unknown }).stemCellAnimationEnabled;
-    return typeof enabled === "boolean" ? { stemCellAnimationEnabled: enabled } : undefined;
+function documentParse(value: unknown): StemCellAnimationDocument {
+    if (typeof value !== "object" || value === null) return {};
+    const record = value as { stemCellAnimationEnabled?: unknown; happySeed?: unknown };
+    const enabled = record.stemCellAnimationEnabled;
+    const seed = record.happySeed;
+    return {
+        ...(typeof enabled === "boolean" ? { stemCellAnimationEnabled: enabled } : {}),
+        ...(typeof seed === "number" && Number.isFinite(seed) ? { happySeed: seed } : {}),
+    };
 }
 
 const ENABLED: StemCellAnimationSnapshot = { stemCellAnimationEnabled: true };
@@ -47,15 +59,29 @@ const ENABLED: StemCellAnimationSnapshot = { stemCellAnimationEnabled: true };
 export function stemCellAnimationStoreCreate(
     persistence?: StemCellAnimationPersistence,
 ): StemCellAnimationStore {
-    let snapshot: StemCellAnimationSnapshot = (() => {
+    let stored: StemCellAnimationDocument = (() => {
         try {
-            return documentParse(persistence?.read()) ?? ENABLED;
+            return documentParse(persistence?.read());
         } catch {
             // Storage the host refused is a window with no record.
-            return ENABLED;
+            return {};
         }
     })();
+    let snapshot: StemCellAnimationSnapshot = {
+        stemCellAnimationEnabled: stored.stemCellAnimationEnabled ?? true,
+        ...(stored.happySeed !== undefined ? { happySeed: stored.happySeed } : {}),
+    };
     const listeners = new Set<() => void>();
+    const store = (document: StemCellAnimationDocument) => {
+        stored = document;
+        try {
+            persistence?.write(document);
+        } catch {
+            // Storage the host refused still keeps this window's value for as
+            // long as it stays open.
+        }
+        for (const listener of listeners) listener();
+    };
 
     return {
         get: () => snapshot,
@@ -67,14 +93,13 @@ export function stemCellAnimationStoreCreate(
         },
         stemCellAnimationUpdate(enabled) {
             if (snapshot.stemCellAnimationEnabled === enabled) return;
-            snapshot = { stemCellAnimationEnabled: enabled };
-            try {
-                persistence?.write(snapshot);
-            } catch {
-                // Storage the host refused still keeps this window's choice for
-                // as long as it stays open.
-            }
-            for (const listener of listeners) listener();
+            snapshot = { ...snapshot, stemCellAnimationEnabled: enabled };
+            store({ ...stored, stemCellAnimationEnabled: enabled });
+        },
+        happySeedUpdate(seed) {
+            if (snapshot.happySeed === seed) return;
+            snapshot = { ...snapshot, happySeed: seed };
+            store({ ...stored, happySeed: seed });
         },
     };
 }
@@ -83,5 +108,6 @@ export function stemCellAnimationStoreCreate(
 export const stemCellAnimationStoreNoop: StemCellAnimationStore = {
     get: () => ENABLED,
     stemCellAnimationUpdate: () => {},
+    happySeedUpdate: () => {},
     subscribe: () => () => {},
 };

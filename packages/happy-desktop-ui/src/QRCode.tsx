@@ -15,6 +15,11 @@ export interface QRCodeProps {
     /** Clears the centre of the symbol and names where the code leads. */
     readonly mark?: QRCodeMark;
     readonly size?: number;
+    /**
+     * `card`, the default, lifts the code on its own rounded paper; `plain`
+     * draws it flat where it sits, with no shape or shadow of its own.
+     */
+    readonly appearance?: "card" | "plain";
     readonly "data-testid"?: string;
 }
 
@@ -132,6 +137,7 @@ export function QRCode(props: QRCodeProps) {
         <div
             aria-label={props.label ?? "QR code"}
             className={["happy-qr-code", props.className].filter(Boolean).join(" ")}
+            data-appearance={props.appearance ?? "card"}
             data-happy-desktop-ui="qr-code"
             data-testid={props["data-testid"]}
             role="img"

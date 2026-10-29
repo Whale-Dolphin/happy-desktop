@@ -20,7 +20,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { Avatar, type AvatarSize, type ToneName } from "./Avatar";
-import { happyLogoBlackUrl } from "./assets";
+import { HappyMark } from "./HappyMark";
 import { AutomatedTag } from "./AutomatedTag";
 import { ReactionChip } from "./Badge";
 import { Button } from "./Button";
@@ -209,6 +209,8 @@ export type MessageProps = Omit<HTMLAttributes<HTMLDivElement>, "style"> & {
      * Defaults to `time`. */
     gutterTime?: string;
     imageUrl?: string;
+    /** Happy's own mark (`HappyMark`) in the identity gutter, in place of a picture. */
+    happyMark?: boolean;
     /** Unframed entity artwork, shared with its sidebar row and tab. */
     imageMark?: { src: string; srcSet?: string; alt?: string };
     /** Unformed item identity, retained until its artwork is assigned. */
@@ -385,6 +387,7 @@ export function Message(props: MessageProps) {
         "grouped",
         "gutterTime",
         "imageUrl",
+        "happyMark",
         "imageMark",
         "stemCell",
         "images",
@@ -419,9 +422,16 @@ export function Message(props: MessageProps) {
        their hover metadata inline after the body instead of repeating identity. */
     const showIncomingMeta = () => !local.own && !grouped();
     const authorActionLabel = () => `View ${local.author}’s profile`;
-    const happyAgent = () => local.agent && local.author.trim().toLocaleLowerCase() === "happy";
+    /* Happy wears the product mark unless it brings a face of its own, as its
+       bot does. */
+    const happyAgent = () =>
+        local.agent &&
+        local.imageUrl === undefined &&
+        local.author.trim().toLocaleLowerCase() === "happy";
     const renderAvatar = (size: AvatarSize) =>
-        local.stemCell ? (
+        local.happyMark || happyAgent() ? (
+            <HappyMark size={16} />
+        ) : local.stemCell ? (
             <StemCell {...local.stemCell} size={16} />
         ) : local.imageMark ? (
             <img
@@ -432,8 +442,7 @@ export function Message(props: MessageProps) {
             />
         ) : (
             <Avatar
-                imageTheme={happyAgent() ? "brand" : undefined}
-                imageUrl={happyAgent() ? happyLogoBlackUrl : local.imageUrl}
+                imageUrl={local.imageUrl}
                 initials={local.initials ?? deriveInitials(local.author)}
                 size={size}
                 tone={local.tone}
@@ -868,6 +877,12 @@ export type MessageListProps = {
      * A key the rows do not carry yet falls back to the chrome row.
      */
     liftKey?: string;
+    /**
+     * Lifts the `liftKey` row by its end rather than its start: the reader
+     * answered inside that row, with one of its inline actions, so its last
+     * line takes the place a send would and the reply gets the room below.
+     */
+    liftEnd?: boolean;
     /** A send queued during a run: carry it into view from near the bottom, without reserving reply space. */
     followKey?: string;
     /**
@@ -1986,8 +2001,12 @@ export function MessageList(props: MessageListProps) {
     /** Lifts the reader's send to `SEND_LIFT_TOP` down the viewport and holds the space under it, in this commit. */
     function sendLift(element: HTMLElement, key: string) {
         const index = sentRowIndex(key);
-        const start = index === undefined ? undefined : rowSizeModel.starts[index];
-        if (start === undefined) return;
+        const rowStart = index === undefined ? undefined : rowSizeModel.starts[index];
+        if (rowStart === undefined) return;
+        const start =
+            props.liftEnd === true && index !== undefined
+                ? rowStart + (rowSizeModel.sizes[index] ?? 0)
+                : rowStart;
         /* A resting header's gap is held from the first send on, so the rows
            that follow fill the space under it instead of lifting it. The
            header rests with its lift line at the lift height, so the first
@@ -3107,6 +3126,16 @@ export function MessageList(props: MessageListProps) {
         }
         const lift = props.liftKey !== liftSeen.current ? props.liftKey : undefined;
         liftSeen.current = props.liftKey;
+        /* An inline answer is the reader acting on the row they read, as a
+           send is: wherever they had scrolled, the list follows again, so the
+           answered row lifts and the reply lands under it. */
+        if (lift !== undefined && props.liftEnd === true && initialPositionApplied.current) {
+            following.current = true;
+            escapedFromFollow.current = false;
+            pendingAnchor.current = undefined;
+            readerAnchor.current = undefined;
+            geometryFollowInset.current = 0;
+        }
         if (!following.current) pendingFollowerTop.current = undefined;
         if (!initialPositionApplied.current) {
             initialPositionApplied.current = true;
@@ -3162,7 +3191,9 @@ export function MessageList(props: MessageListProps) {
             if (lift !== undefined) sendLift(element, lift);
             /* A lifted send is bounded like a followed one: one too tall for
                the space below the lift shows its end, held until a row arrives. */
-            const followed = followSentPending.current ?? lift;
+            /* An answer lifted by its row's end has nothing of its own below to bound. */
+            const followed =
+                followSentPending.current ?? (props.liftEnd === true ? undefined : lift);
             followSentPending.current = undefined;
             if (followed !== undefined) sentStartKeep(element, followed);
             scrollBottomFollow(element);

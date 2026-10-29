@@ -2,6 +2,7 @@ import { Button } from "./Button";
 import { ConversationDock, type ConversationDockProps } from "./ConversationDock";
 import type { ConversationLeadingHeader } from "./ConversationView";
 import type { IconName } from "./Icon";
+import { HappyMark } from "./HappyMark";
 import { controlLabelNaturalWidth, uiTextHeight } from "./messageTextLayout";
 import { StemCellGrowth, type ImageMark } from "./StemCellGrowth";
 import { WorkTranscript, type WorkTranscriptRow } from "./WorkTranscript";
@@ -44,6 +45,11 @@ export type MakeStuffIntroProps = {
     /** Things that can be made at once, offered under the line; the chat stays. */
     options?: readonly MakeStuffOption[];
     onOptionSelect?: (id: string) => void;
+    /**
+     * Happy's own conversation: Happy's mark stands where the stem cell would,
+     * with no line under it, and Happy's first message lands right below.
+     */
+    happy?: boolean;
     /** Grow on a software rasteriser too. For the Blueprint and verification only. */
     softwareRendering?: boolean;
 };
@@ -68,7 +74,8 @@ const INTRO_OPTION_HEIGHT = 28;
  * The intro rests with this line at the height a send is lifted to, and the
  * first message takes the options' place on it.
  */
-export function makeStuffIntroLift(width: number): number {
+export function makeStuffIntroLift(width: number, happy = false): number {
+    if (happy) return INTRO_INSET + INTRO_MARK + INTRO_INSET;
     const measure = Math.max(0, width - INTRO_INSET * 2);
     return (
         INTRO_INSET +
@@ -80,11 +87,11 @@ export function makeStuffIntroLift(width: number): number {
 
 /** The intro's height at a row `width`, from its own content, as the transcript's first row. */
 export function makeStuffIntroHeight(
-    props: Pick<MakeStuffIntroProps, "options" | "settled">,
+    props: Pick<MakeStuffIntroProps, "options" | "settled" | "happy">,
     width: number,
 ): number {
-    const lift = makeStuffIntroLift(width);
-    if (props.settled) return lift;
+    const lift = makeStuffIntroLift(width, props.happy);
+    if (props.settled || props.happy) return lift;
     const options = props.options ?? [];
     if (options.length === 0) return lift + INTRO_INSET;
     const measure = Math.max(0, width - INTRO_INSET * 2);
@@ -115,7 +122,7 @@ export function makeStuffIntroHeader(props: MakeStuffIntroProps): ConversationLe
     return {
         content: <MakeStuffIntro {...props} />,
         height: (width) => makeStuffIntroHeight(props, width),
-        lift: makeStuffIntroLift,
+        lift: (width) => makeStuffIntroLift(width, props.happy),
     };
 }
 
@@ -126,7 +133,19 @@ export function makeStuffIntroHeader(props: MakeStuffIntroProps): ConversationLe
  * first message takes the options' place.
  */
 export function MakeStuffIntro(props: MakeStuffIntroProps) {
-    const options = props.settled ? [] : (props.options ?? []);
+    const options = props.settled || props.happy ? [] : (props.options ?? []);
+    if (props.happy)
+        return (
+            <div
+                className="happy-make-stuff__empty"
+                data-happy-desktop-ui="make-stuff-intro"
+                data-lead="happy"
+            >
+                <div className="happy-make-stuff__lead">
+                    <HappyMark size={INTRO_MARK} />
+                </div>
+            </div>
+        );
     return (
         <div
             className="happy-make-stuff__empty"

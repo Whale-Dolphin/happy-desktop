@@ -621,11 +621,35 @@ export async function completeOnboarding(page: Page): Promise<void> {
         .catch(() => undefined);
     let welcomeClicked = await clickButtonIfVisible(page, "Go Happy");
     let sawOnboarding = false;
+    let sawFirstRun = false;
     const clickIfVisible = async (label: string | RegExp): Promise<boolean> => {
         return clickButtonIfVisible(page, label);
     };
 
     while (Date.now() < deadline) {
+        // A first launch opens on Happy's first conversation. Workloads that are
+        // not about it record it as had, and the native setup below continues.
+        if (
+            !sawFirstRun &&
+            (await page.evaluate(() => {
+                const held = localStorage.getItem("happy.welcome.v1");
+                return (
+                    !held ||
+                    !(JSON.parse(held) as { welcomeAcknowledged?: boolean }).welcomeAcknowledged
+                );
+            }))
+        ) {
+            sawFirstRun = true;
+            await page.evaluate(() =>
+                localStorage.setItem(
+                    "happy.welcome.v1",
+                    JSON.stringify({ welcomeAcknowledged: true }),
+                ),
+            );
+            await page.reload();
+            welcomeClicked = true;
+            continue;
+        }
         if (!welcomeClicked) {
             const welcomeAction = page
                 .locator('[data-happy-desktop-ui="welcome-screen"] .happy-welcome-screen__action')

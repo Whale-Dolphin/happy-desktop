@@ -53,6 +53,38 @@ function panel(
     );
 }
 
+/**
+ * The panel as a chat's pairing figure draws it: compact, the code at 204px,
+ * on the reply's left edge in the figure's own fixed box, outlined so a state
+ * that does not fill it shows.
+ */
+function inChat(connector: MobileDirectConnectorState, screen: string) {
+    return (
+        <div
+            data-screen={screen}
+            style={{
+                alignItems: "flex-start",
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
+                height: "var(--happy-chat-phone-pair-height)",
+                outline: "1px dashed var(--divider)",
+                width: "360px",
+            }}
+            className="happy-chat-action__phone-pair"
+        >
+            <MobileDirectPairingPanel
+                {...handlers}
+                codePlain
+                codeSize={204}
+                connector={connector}
+                density="compact"
+                now={now}
+            />
+        </div>
+    );
+}
+
 /** Settings' content column, for the section and its rows. */
 function column(children: ReactNode, height?: number) {
     return (
@@ -146,6 +178,34 @@ const states: readonly {
         render: () => panel(direct.completed),
     },
     {
+        id: "09b",
+        label: "Completed · in a chat",
+        detail: "Compact: settles to one line so the reply after it stays close",
+        render: () => (
+            <div data-screen="phone-paired-in-chat">
+                {panel(direct.completed, { density: "compact" }, 480)}
+            </div>
+        ),
+    },
+    {
+        id: "09c",
+        label: "In a chat · code",
+        detail: "The code on the left; the copy link over the countdown beside it",
+        render: () => inChat(direct.waiting, "phone-chat-code"),
+    },
+    {
+        id: "09d",
+        label: "In a chat · emoji",
+        detail: "The figure's box holds the code and the emoji at one height",
+        render: () => inChat(direct.phoneConfirmed, "phone-chat-emoji"),
+    },
+    {
+        id: "09e",
+        label: "In a chat · paired",
+        detail: "The emoji stay; Emoji match chosen, Don't match unavailable, the result under them",
+        render: () => inChat(direct.completed, "phone-chat-paired"),
+    },
+    {
         id: "10",
         label: "Rejected by the phone",
         detail: "The phone said the emoji didn't match; warns that the code may have leaked",
@@ -172,7 +232,7 @@ const states: readonly {
     {
         id: "14",
         label: "Failed",
-        detail: "The pairing's own English error, Ask Chief of Staff, and Try again",
+        detail: "The pairing's own English error, Ask Happy, and Try again",
         render: () => panel(direct.failed),
     },
     {

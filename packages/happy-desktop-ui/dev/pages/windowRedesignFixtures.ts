@@ -242,7 +242,7 @@ export const redesignMorning: readonly WorkTranscriptRow[] = [
     },
     human(
         "morning-3",
-        "Improve command-palette preview/focus and shortcuts; unmatched text should route to Chief of Staff.",
+        "Improve command-palette preview/focus and shortcuts; unmatched text should route to Happy.",
     ),
     agent(
         "morning-4",

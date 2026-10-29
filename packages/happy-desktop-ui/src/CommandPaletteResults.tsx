@@ -1,3 +1,4 @@
+import { HappyMark } from "./HappyMark";
 import { useCallback, type CSSProperties, type ReactNode } from "react";
 import { Avatar, type ToneName } from "./Avatar";
 import { KeyCap } from "./Badge";
@@ -48,6 +49,8 @@ export type CommandPaletteCommandRow = {
      */
     imageMark?: ImageMark;
     stemCell?: StemCellMark;
+    /** Happy's own mark (`HappyMark`), as its sidebar row wears it. It outranks `avatar`. */
+    happyMark?: true;
     /** The product's own mark for this row's kind of news; it wins the lane. */
     emphasis?: CommandPaletteRowEmphasis;
     /** Trailing cap. The chord is announced on the row and drawn decoratively. */
@@ -143,6 +146,8 @@ function commandRowContent(row: CommandPaletteCommandRow) {
             >
                 {row.emphasis === "update" ? (
                     <Ionicon name="arrow-up-circle" size={18} />
+                ) : row.happyMark ? (
+                    <HappyMark size={20} />
                 ) : row.imageMark || row.stemCell ? (
                     <StemCellGrowth
                         imageClassName="happy-command-palette-results__image-mark"

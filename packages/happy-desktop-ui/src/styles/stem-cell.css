@@ -1,38 +1,9 @@
-.happy-stem-cell {
-    display: block;
-    flex: 0 0 auto;
-}
-
 .happy-stem-cell__membrane {
     fill: var(--stem-cell-membrane);
 }
 
 .happy-stem-cell__core {
     fill: var(--stem-cell-core);
-}
-
-.happy-stem-cell[data-wobble] > path {
-    animation: happy-stem-cell-drift 32s ease-in-out infinite;
-}
-
-@keyframes happy-stem-cell-drift {
-    0%,
-    50%,
-    100% {
-        d: var(--happy-stem-cell-rest);
-    }
-    25% {
-        d: var(--happy-stem-cell-forward);
-    }
-    75% {
-        d: var(--happy-stem-cell-backward);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .happy-stem-cell[data-wobble] > path {
-        animation: none;
-    }
 }
 
 /* A stem cell growing into its picture: the canvas takes exactly the mark's
@@ -58,4 +29,16 @@
     inset: 0;
     width: 100%;
     height: 100%;
+}
+
+/* The cell as it was painted, over the canvas until the growth has drawn its
+   first frame, then faded into it. */
+.happy-stem-cell-growth__cell[data-started] {
+    animation: happy-stem-cell-handover 240ms ease-out forwards;
+}
+
+@keyframes happy-stem-cell-handover {
+    to {
+        opacity: 0;
+    }
 }

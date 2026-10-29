@@ -18,6 +18,19 @@ import { cuid2Create } from "../utils/cuid2Create.js";
 /** Where a proposal stands: open to edit and answer, or answered. */
 export type HappyAgentSidebarProposalStatus = "open" | "accepted" | "declined";
 
+/**
+ * A chat the proposal would start, which has no space until it is accepted:
+ * the document names it by the space ID the daemon reserved for it.
+ */
+export interface HappyAgentSidebarProposalNewRow {
+    readonly id: string;
+    readonly title: string;
+    /** Its clay icon, by library slug. */
+    readonly icon?: string;
+    /** Why Focus proposes it, in a few words. */
+    readonly why?: string;
+}
+
 /** One proposal as the chat shows it: its latest document with the person's edits on top. */
 export interface HappyAgentSidebarProposal {
     readonly artifactId: string;
@@ -31,6 +44,8 @@ export interface HappyAgentSidebarProposal {
     readonly status: HappyAgentSidebarProposalStatus;
     /** The proposed sidebar, in the sidebar's own grammar. */
     readonly html: string;
+    /** The chats it would start, by the space ID its document names each by. */
+    readonly newRows: ReadonlyMap<string, HappyAgentSidebarProposalNewRow>;
     /**
      * The changes the person declined one by one from their sidebar, by
      * `SidebarProposalChange.id`, at this version only: a new version is
@@ -174,6 +189,7 @@ export function happyAgentSidebarProposalsStoreCreate(
                 revision: entry.revision,
                 status: entry.proposal.status,
                 html: shownHtml(entry),
+                newRows: newRowsRead(entry.proposal),
                 declined:
                     entry.declined?.version === entry.proposal.version
                         ? entry.declined.ids
@@ -542,3 +558,34 @@ export const happyAgentSidebarProposalsStoreNoop: HappyAgentSidebarProposalsStor
     proposalDecline: () => undefined,
     [Symbol.dispose]: () => undefined,
 };
+
+const NO_NEW_ROWS: ReadonlyMap<string, HappyAgentSidebarProposalNewRow> = new Map();
+const newRowsHeld = new WeakMap<object, ReadonlyMap<string, HappyAgentSidebarProposalNewRow>>();
+
+/**
+ * A proposal's `newRows`. The published client does not type the field yet, so
+ * it is read here against API.md's shape, once per proposal object.
+ */
+function newRowsRead(proposal: object): ReadonlyMap<string, HappyAgentSidebarProposalNewRow> {
+    const held = newRowsHeld.get(proposal);
+    if (held) return held;
+    const raw = (proposal as { newRows?: unknown }).newRows;
+    if (!Array.isArray(raw) || raw.length === 0) return NO_NEW_ROWS;
+    const rows = new Map<string, HappyAgentSidebarProposalNewRow>();
+    for (const value of raw as unknown[]) {
+        if (typeof value !== "object" || value === null) continue;
+        const row = value as Record<string, unknown>;
+        if (typeof row.id !== "string" || typeof row.title !== "string") continue;
+        const icon = row.icon as { type?: unknown; slug?: unknown } | null | undefined;
+        rows.set(row.id, {
+            id: row.id,
+            title: row.title,
+            ...(icon?.type === "library" && typeof icon.slug === "string"
+                ? { icon: icon.slug }
+                : {}),
+            ...(typeof row.why === "string" && row.why.length > 0 ? { why: row.why } : {}),
+        });
+    }
+    newRowsHeld.set(proposal, rows);
+    return rows;
+}

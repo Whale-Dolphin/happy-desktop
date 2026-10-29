@@ -59,6 +59,8 @@ interface ConversationGroupCache {
     readonly startIndex: number;
     /** The lookahead this turn's footer depended on. */
     readonly nextOpensOmitted: boolean;
+    /** Whether this turn is a new reply, which its first row then opens. */
+    readonly opensReply: boolean;
     readonly entries: readonly ConversationEntry[];
 }
 
@@ -250,6 +252,10 @@ export function happyAgentConversationProject(
        where the turn sits: its sequence numbers are its place in the finished
        transcript. A turn that keeps its place keeps its key. */
     const groups = new Map<number, ConversationGroupCache>();
+    /* Every run is the agent replying to something new: a message, a press,
+       an event. The one exception is a run that transport steered on from
+       the last, which is the same work going on. */
+    let steeredOn = false;
     for (let group = 0; group < starts.length; group += 1) {
         const start = starts[group]!;
         const end = starts[group + 1] ?? input.elements.length;
@@ -258,12 +264,15 @@ export function happyAgentConversationProject(
             end,
             omittedInboundMessageIds,
         );
+        const opensReply = !steeredOn;
+        steeredOn = nextOpensOmitted && groupSteered(input.elements, start, end);
         const startIndex = entries.length;
         const cached = contextStands ? cache?.groups.get(group) : undefined;
         if (
             cached !== undefined &&
             cached.startIndex === startIndex &&
             cached.nextOpensOmitted === nextOpensOmitted &&
+            cached.opensReply === opensReply &&
             sameElements(cached.elements, input.elements, start, end)
         ) {
             for (const entry of cached.entries) entries.push(entry);
@@ -271,7 +280,7 @@ export function happyAgentConversationProject(
             continue;
         }
         const elements = input.elements.slice(start, end);
-        const projected = happyAgentConnectGroupProject(
+        const turn = happyAgentConnectGroupProject(
             elements,
             input,
             userInputs,
@@ -279,12 +288,19 @@ export function happyAgentConversationProject(
             delegatedChildByRow,
             nextOpensOmitted,
         );
+        const projected = opensReply ? replyOpened(turn) : turn;
         // A row's sequence is its place in the finished transcript, so it is
         // assigned here rather than in one pass at the end: a turn whose rows
         // are kept must keep the sequence it was projected with too.
         const sequenced = projected.map((entry, index) => resequence(entry, startIndex + index));
         for (const entry of sequenced) entries.push(entry);
-        groups.set(group, { elements, startIndex, nextOpensOmitted, entries: sequenced });
+        groups.set(group, {
+            elements,
+            startIndex,
+            nextOpensOmitted,
+            opensReply,
+            entries: sequenced,
+        });
     }
 
     for (const entry of input.ephemeral) entries.push(resequence(entry, entries.length));
@@ -590,6 +606,35 @@ function groupOpensWithOnlyOmittedUserMessages(
     return found;
 }
 
+/** Whether the turn in `start`..`end` ended because something steered it. */
+function groupSteered(elements: readonly ChatElement[], start: number, end: number): boolean {
+    for (let index = start; index < end; index += 1) {
+        const element = elements[index]!;
+        if (element.kind === "group_end" && element.reason === "steering") return true;
+    }
+    return false;
+}
+
+/**
+ * A reply's rows with its first agent-owned row opening the author's group:
+ * the agent's words, a step of its work, a question it asked, or a service
+ * line about it. Every later row of the reply continues that group.
+ */
+function replyOpened(entries: readonly ConversationEntry[]): readonly ConversationEntry[] {
+    const index = entries.findIndex(
+        (entry) =>
+            (entry.kind === "message" && entry.message.sender?.kind === "agent") ||
+            entry.kind === "agentActivity" ||
+            entry.kind === "delegation" ||
+            (entry.kind === "request" && entry.request.kind === "userInput") ||
+            (entry.kind === "notice" && entry.variant === "notice"),
+    );
+    if (index < 0) return entries;
+    const opened = [...entries];
+    opened[index] = { ...entries[index]!, opensGroup: true };
+    return opened;
+}
+
 function happyAgentConnectGroupProject(
     elements: readonly ChatElement[],
     input: HappyAgentConversationInput,
@@ -795,6 +840,10 @@ function happyAgentConnectGroupProject(
                     }),
                     messageId: element.messageId,
                     runId: element.runId,
+                    ...(element.actionChoices ? { actionChoices: element.actionChoices } : {}),
+                    ...(element.actionBlockOffset
+                        ? { actionBlockOffset: element.actionBlockOffset }
+                        : {}),
                 });
                 break;
             }
@@ -938,7 +987,10 @@ function happyAgentConnectGroupProject(
                             id: element.id,
                             occurredAt: element.createdAt,
                             sequence,
-                            activity: { kind: "tool", tool: toolProject(element, groupSteered) },
+                            activity: {
+                                kind: "tool",
+                                tool: toolProject(element, groupSteered, input.agentIdentities),
+                            },
                         });
                 }
                 break;
@@ -1255,6 +1307,7 @@ function messageProject(input: {
 function toolProject(
     element: Extract<ChatElement, { kind: "tool_call" }>,
     groupSteered: boolean,
+    agents: HappyAgentConversationInput["agentIdentities"],
 ): ConversationToolCall {
     const waitWokeFromInput =
         groupSteered && element.name === "wait_agent" && element.status === "interrupted";
@@ -1275,7 +1328,7 @@ function toolProject(
             ? { display: element.result ?? element.progress }
             : {}),
         failed: element.status === "failed",
-        ...presentationEntry(element.presentation),
+        ...presentationEntry(element.presentation, agents),
         ...(element.elevated === true ? { elevated: true } : {}),
         ...(summary === undefined ? {} : { summary }),
         // A review still running has only the action it is weighing: no
@@ -1334,19 +1387,26 @@ function toolSummary(name: string, input: unknown): string | undefined {
  * value, so the row falls back to the tool's own result text — which is what
  * `display` already holds — instead of showing a shape with nothing in it.
  */
-function presentationEntry(presentation: ToolPresentation | undefined): {
+function presentationEntry(
+    presentation: ToolPresentation | undefined,
+    agents: HappyAgentConversationInput["agentIdentities"],
+): {
     presentation?: ConversationActivityPresentation;
 } {
     if (presentation === undefined) return {};
-    const projected = presentationProject(presentation);
+    const projected = presentationProject(presentation, agents);
     return projected === undefined ? {} : { presentation: projected };
 }
 
 function presentationProject(
     presentation: ToolPresentation,
+    agents: HappyAgentConversationInput["agentIdentities"],
 ): ConversationActivityPresentation | undefined {
     switch (presentation.kind) {
-        case "agent_spawn":
+        case "agent_spawn": {
+            // The agent it made, as the window knows it now.
+            const agent =
+                presentation.agentId === undefined ? undefined : agents?.get(presentation.agentId);
             return {
                 type: "agentSpawn",
                 ...(presentation.model === undefined
@@ -1359,7 +1419,9 @@ function presentationProject(
                           },
                       }),
                 ...(presentation.agentId === undefined ? {} : { agentId: presentation.agentId }),
+                ...(agent === undefined ? {} : { agent }),
             };
+        }
         case "compaction":
             return {
                 type: "compaction",

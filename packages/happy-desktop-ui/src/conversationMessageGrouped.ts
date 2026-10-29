@@ -72,6 +72,7 @@ export function conversationMessageGrouped(
 ): boolean {
     const entry = entries[index];
     if (entry?.kind !== "message") return false;
+    if (entry.opensGroup) return false;
     /* A row carrying a turn's trace control shows it in its header, so it
        keeps one: an open turn's answer offers "Hide traces" right where the
        folded one offered "View traces". */
@@ -165,6 +166,7 @@ export function conversationAgentRowStartsGroup(
     index: number,
 ): boolean {
     const entry = entries[index];
+    if (entry?.opensGroup) return true;
     // The trace control rides the header, so a row carrying it opens one.
     if (entry?.kind === "agentActivity" && entry.agentTrace && !entry.agentTrace.quiet) return true;
     return agentOwnedRow(entry) && !agentGroupContinues(entries, index);

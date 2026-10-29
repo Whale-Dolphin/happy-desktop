@@ -1,60 +1,53 @@
-import { useState } from "react";
-import type { SidebarItem, SidebarReorder } from "../../src/Sidebar";
-import { SidebarProposal, type SidebarProposalStatus } from "../../src/SidebarProposal";
+import type { SidebarItem } from "../../src/Sidebar";
+import { SidebarProposal } from "../../src/SidebarProposal";
+import { clayIconMark } from "../../src/clayIcons";
 import { ComponentPage, DimensionRule, Specimen } from "../kit";
 
 /** The component plan this page documents. The selector and the page header read the same value. */
 export const componentNumber = "C-311";
 
-const V1: SidebarItem[] = [
-    { icon: "search", id: "search", kind: "action", label: "Search" },
-    { icon: "compose", id: "create", kind: "action", label: "Create" },
-    { emoji: "🙂", id: "happy", kind: "view", label: "Happy" },
-    { collapsed: false, id: "releases", kind: "section", label: "Releases" },
-    { emoji: "🪟", id: "signing", kind: "view", label: "Windows installer signing" },
-    { emoji: "🤖", id: "android", kind: "view", label: "Android release 2.4" },
-    { collapsed: false, id: "desktop", kind: "section", label: "Desktop" },
-    { emoji: "⚡", id: "voice", kind: "view", label: "Voice dictation latency" },
-    { emoji: "🔍", id: "zoom", kind: "view", label: "Artifact viewer zoom" },
-    { collapsed: true, id: "distractions", kind: "section", label: "Distractions" },
-    { emoji: "🍞", id: "sourdough", kind: "view", label: "Sourdough starter ratio" },
+/* Fixture data: a made-up developer's proposed work. */
+const PROPOSED: SidebarItem[] = [
+    { collapsed: false, id: "signin", kind: "section", label: "Sign-in and onboarding" },
+    {
+        id: "redesign",
+        imageMark: clayIconMark("ux"),
+        kind: "project",
+        label: "Onboarding redesign",
+        note: "new",
+    },
+    {
+        id: "windows",
+        imageMark: clayIconMark("login"),
+        kind: "project",
+        label: "Windows sign-in",
+        note: "new",
+    },
+    { collapsed: false, id: "release", kind: "section", label: "Release pipeline" },
+    {
+        id: "ci",
+        imageMark: clayIconMark("flaky"),
+        kind: "project",
+        label: "Release CI",
+        note: "new",
+    },
+    {
+        id: "checkin",
+        imageMark: clayIconMark("app-store-release"),
+        kind: "project",
+        label: "Release check-in",
+        note: "new · ongoing",
+    },
 ];
 
-const V2: SidebarItem[] = [
-    ...V1.slice(0, 3),
+/* A revision that moves rows the person already has, under their current sections. */
+const MOVED: SidebarItem[] = [
     { collapsed: false, id: "this-week", kind: "section", label: "This week" },
     { emoji: "🪟", id: "signing", kind: "view", label: "Windows installer signing" },
     { emoji: "⚡", id: "voice", kind: "view", label: "Voice dictation latency" },
     { collapsed: false, id: "releases", kind: "section", label: "Releases" },
     { emoji: "🤖", id: "android", kind: "view", label: "Android release 2.4" },
-    { collapsed: false, id: "desktop", kind: "section", label: "Desktop" },
-    { emoji: "🔍", id: "zoom", kind: "view", label: "Artifact viewer zoom" },
-    ...V1.slice(9),
 ];
-
-const breaks = (item: SidebarItem) => item.kind === "section" || item.kind === "separator";
-
-/* The document's move: a section carries its run, a row lands after the run of
-   a folded section it follows. */
-function moveApply(items: readonly SidebarItem[], move: SidebarReorder): SidebarItem[] {
-    const runEnd = (list: readonly SidebarItem[], index: number) => {
-        let end = index + 1;
-        if (list[index]!.kind === "section" && (list === items || list[index]!.collapsed))
-            while (end < list.length && !breaks(list[end]!)) end += 1;
-        return end;
-    };
-    const from = items.findIndex((item) => item.id === move.id);
-    const moved = items.slice(from, runEnd(items, from));
-    const rest = [...items.slice(0, from), ...items.slice(from + moved.length)];
-    const at =
-        move.afterId === null
-            ? 0
-            : runEnd(
-                  rest,
-                  rest.findIndex((item) => item.id === move.afterId),
-              );
-    return [...rest.slice(0, at), ...moved, ...rest.slice(at)];
-}
 
 function Column(props: { children: React.ReactNode }) {
     return (
@@ -73,96 +66,50 @@ function Column(props: { children: React.ReactNode }) {
     );
 }
 
-/** A proposal in a chat: v1 revised, v2 open and editable until answered. */
-function LiveProposal() {
-    const [items, setItems] = useState(V2);
-    const [status, setStatus] = useState<SidebarProposalStatus>("open");
-    const [answering, setAnswering] = useState<"accept" | "decline">();
-    const answer = (kind: "accept" | "decline") => {
-        setAnswering(kind);
-        setTimeout(() => {
-            setAnswering(undefined);
-            setStatus(kind === "accept" ? "accepted" : "declined");
-        }, 600);
-    };
-    return (
-        <Column>
-            <SidebarProposal
-                sections={[{ id: "v1", items: V1, label: "" }]}
-                status="superseded"
-                revision={1}
-            />
-            <SidebarProposal
-                answering={answering}
-                itemMenuItems={(item) =>
-                    item.kind === "section"
-                        ? [{ icon: "edit", id: "rename", kind: "item", label: "Rename section" }]
-                        : []
-                }
-                itemRename={{
-                    actionId: "rename",
-                    onSubmit: (item, name) =>
-                        setItems((current) =>
-                            current.map((candidate) =>
-                                candidate.id === item.id
-                                    ? { ...candidate, label: name }
-                                    : candidate,
-                            ),
-                        ),
-                }}
-                onAccept={() => answer("accept")}
-                onDecline={() => answer("decline")}
-                onItemCollapseToggle={(id) =>
-                    setItems((current) =>
-                        current.map((item) =>
-                            item.id === id ? { ...item, collapsed: !item.collapsed } : item,
-                        ),
-                    )
-                }
-                onItemReorder={(_, move) => setItems((current) => moveApply(current, move))}
-                sections={[{ id: "v2", items, label: "" }]}
-                status={status}
-                summary="Grouped what you touched this week at the top; Distractions stays folded."
-                revision={2}
-            />
-        </Column>
-    );
-}
-
 export function SidebarProposalPage() {
     return (
         <ComponentPage
             number={componentNumber}
-            summary="A sidebar the focus agent proposes, shown in its chat as the real Sidebar: live and editable at its full height, with no scroll of its own. Edits go to the proposal; Use this sidebar takes it, Keep mine leaves yours. A revision is a new card below; the older one stays, read-only."
+            summary="A sidebar Focus proposes, previewed in a chat as the real Sidebar at its full height, with no scroll of its own. It shows what the proposal changes and the sections around it; the decision is the chat's own button, and a change is asked for in words. Answered or revised, it stays in the chat, read-only, with one line saying where it stands."
             title="Sidebar proposal"
         >
             <Specimen
-                detail="card ≤ 360 px · 12 px padding · 1 px hairline · footer 28 px whatever it holds"
-                label="In a chat — revised, then open"
+                detail="card ≤ 360 px · 12 px padding · 1 px hairline · no footer while open"
+                label="In a chat — open"
                 number="01"
                 stage="surface"
             >
-                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                    <LiveProposal />
+                <div
+                    data-screen="sidebar-proposal-open"
+                    style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+                >
+                    <Column>
+                        <SidebarProposal
+                            revision={1}
+                            sections={[{ id: "open", items: PROPOSED, label: "" }]}
+                            status="open"
+                        />
+                    </Column>
                     <DimensionRule label="420 px chat column · the chat scrolls, the proposal never does" />
                 </div>
             </Specimen>
             <Specimen
-                detail="answered, the rows are read-only and only the footer's line changes"
+                detail="answered or revised, the rows are read-only and one line says where it stands"
                 label="Answered"
                 number="02"
                 stage="surface"
             >
                 <Column>
                     <SidebarProposal
-                        sections={[{ id: "a", items: V2, label: "" }]}
+                        revision={1}
+                        sections={[{ id: "a", items: PROPOSED, label: "" }]}
                         status="accepted"
-                        revision={2}
                     />
                     <SidebarProposal
-                        sections={[{ id: "d", items: V1, label: "" }]}
-                        status="declined"
-                        revision={1}
+                        revision={2}
+                        sections={[{ id: "m", items: MOVED, label: "" }]}
+                        status="superseded"
+                        summary="Grouped what you touched this week at the top."
                     />
                 </Column>
             </Specimen>

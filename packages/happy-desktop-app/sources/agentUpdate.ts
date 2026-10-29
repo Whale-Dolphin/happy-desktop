@@ -61,7 +61,7 @@ export interface AppHappyAgentUpdateSnapshot {
      */
     readonly revealed: boolean;
     /**
-     * Whether a failure can be handed to the Chief of Staff right now. It is
+     * Whether a failure can be handed to Happy right now. It is
      * `unavailable` while the local Happy Agent is not serving, has no Chief of
      * Staff, or refused the handoff.
      */
@@ -83,7 +83,7 @@ export interface AppHappyAgentUpdateStore {
      * command or a file edit, is recorded as interrupted and not run again.
      */
     restartNow(): void;
-    /** Writes the failure into the Chief of Staff's draft and opens it. */
+    /** Writes the failure into Happy's draft and opens it. */
     chiefOfStaffAsk(): void;
 }
 

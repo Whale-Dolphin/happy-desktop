@@ -1362,6 +1362,16 @@
     color: var(--text);
 }
 
+/* What a row is, in a few words at its trailing edge: quiet, and never
+   wider than it needs, so the name keeps the row. */
+.happy-sidebar__item-note {
+    flex: none;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
 .happy-sidebar__item-label {
     display: block;
     flex: 1;

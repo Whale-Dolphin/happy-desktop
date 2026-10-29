@@ -34,6 +34,7 @@ export interface StemCellGrowthProps {
 interface Growth {
     /** The stem cell that is dividing, as it was on screen. */
     readonly id: string;
+    readonly variant: StemCellMark["variant"];
     /** The picture it grows into, at this mark's size. */
     readonly src: string;
 }
@@ -63,8 +64,11 @@ export function StemCellGrowth(props: StemCellGrowthProps) {
     // The stem cell this mark last showed. A change is observed here, during
     // render, so only a mounted mark that saw the cell can grow it.
     const [seen, setSeen] = useState(stemCell?.id);
+    // And how it was painted, so the growth starts from the cell as it looked.
+    const [seenVariant, setSeenVariant] = useState(stemCell?.variant);
     const [growth, setGrowth] = useState<Growth | undefined>(undefined);
     const [started, setStarted] = useState(false);
+    if (stemCell && stemCell.variant !== seenVariant) setSeenVariant(stemCell.variant);
     if (stemCell?.id !== seen) {
         setSeen(stemCell?.id);
         const grows =
@@ -76,7 +80,7 @@ export function StemCellGrowth(props: StemCellGrowthProps) {
                 reducedMotion: stemCellReducedMotion(),
                 support: stemCellSupportKnown(allowSoftware),
             }).kind !== "skip";
-        setGrowth(grows ? { id: seen, src: imageMark.src } : undefined);
+        setGrowth(grows ? { id: seen, variant: seenVariant, src: imageMark.src } : undefined);
         setStarted(false);
     }
 
@@ -126,8 +130,13 @@ export function StemCellGrowth(props: StemCellGrowthProps) {
             data-happy-desktop-ui="stem-cell-growth"
             data-size={size}
         >
-            {started ? null : <StemCell id={growth.id} size={size} />}
             <canvas aria-hidden="true" className="happy-stem-cell-growth__canvas" ref={grow} />
+            {/* The cell as it was painted stays over the canvas and fades once the
+                first frame is drawn, so a clay cell hands over to the engine's
+                flat founding cell without a visible switch. */}
+            <span className="happy-stem-cell-growth__cell" data-started={started ? "" : undefined}>
+                <StemCell id={growth.id} size={size} variant={growth.variant} />
+            </span>
         </span>
     );
 }

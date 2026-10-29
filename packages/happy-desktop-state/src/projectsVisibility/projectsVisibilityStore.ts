@@ -43,8 +43,10 @@ function documentParse(value: unknown): ProjectsVisibilityDocument | undefined {
         ? { projectsHidden: value.projectsHidden }
         : undefined;
 }
-const SHOWN: ProjectsVisibilityConnection = {
-    projectsHidden: false,
+/* Tasks and bots are how work is organized; the Projects list is shown only
+   to someone who asked for it. */
+const DEFAULT: ProjectsVisibilityConnection = {
+    projectsHidden: true,
     synchronization: "waitingForIdentity",
 };
 const EMPTY: ProjectsVisibilitySnapshot = { connections: new Map() };
@@ -53,7 +55,7 @@ export function projectsVisibilityConnection(
     snapshot: ProjectsVisibilitySnapshot,
     connectionId: string,
 ): ProjectsVisibilityConnection {
-    return snapshot.connections.get(connectionId) ?? SHOWN;
+    return snapshot.connections.get(connectionId) ?? DEFAULT;
 }
 
 /** One authenticated daemon preference per connection, with a durable offline queue. */
@@ -95,7 +97,7 @@ export function projectsVisibilityStoreOwnedCreate(options: ProjectsVisibilitySt
                 const connections = new Map<string, ProjectsVisibilityConnection>();
                 for (const [id, entry] of current.connections) {
                     const prior = snapshot.connections.get(id);
-                    const projectsHidden = entry.choices?.projectsHidden ?? false;
+                    const projectsHidden = entry.choices?.projectsHidden ?? true;
                     const synchronization =
                         entry.readError || entry.saveError
                             ? "error"

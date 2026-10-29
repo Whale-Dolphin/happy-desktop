@@ -252,7 +252,7 @@ export function AppShellPage() {
                                                     {
                                                         id: "chief-of-staff",
                                                         kind: "agent",
-                                                        label: "Chief of Staff",
+                                                        label: "Happy",
                                                         icon: "chat",
                                                     },
                                                 ],

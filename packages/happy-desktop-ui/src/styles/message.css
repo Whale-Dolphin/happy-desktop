@@ -1211,6 +1211,11 @@
     overflow-anchor: none;
     font-family: var(--happy-font-ui);
     font-synthesis: none;
+    /* The header above draws no hairline: a line scrolled up under it fades
+       out over the content's own 12px top clearance instead of being sliced.
+       At rest that band is empty, so the fade shows only while scrolled. */
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 12px);
+    mask-image: linear-gradient(to bottom, transparent, black 12px);
 }
 
 /* The non-virtual inner content wrapper keeps 12px above the history and a

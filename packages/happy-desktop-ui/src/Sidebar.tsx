@@ -14,6 +14,8 @@ import {
     type ReactNode,
 } from "react";
 import { Avatar, type ToneName } from "./Avatar";
+import { HappyCellDivision, type DivisionRect, type HappyCellDaughter } from "./HappyCellDivision";
+import { HappyMark } from "./HappyMark";
 import { ChangeStats } from "./ChangeStats";
 import { haptic } from "./haptics";
 import { CountBadge, KeyCap } from "./Badge";
@@ -57,6 +59,11 @@ export type SidebarItem = {
     /** Marks a row as archived; the row keeps its position but paints muted. */
     archived?: boolean;
     badge?: number;
+    /**
+     * A few quiet words at the row's trailing edge saying what it is, such
+     * as "new" or "new · ongoing" in a proposed sidebar.
+     */
+    note?: string;
     /** Git line totals painted as a compact green/red diff pair. */
     changeStats?: {
         added: number;
@@ -107,6 +114,8 @@ export type SidebarItem = {
     imageMark?: ImageMark;
     /** Identity for an item that has not taken shape yet, in the same 20px lane. */
     stemCell?: StemCellMark;
+    /** Happy's own mark (`HappyMark`) in the 20px lane, in place of a picture. */
+    happyMark?: true;
     initials?: string;
     /**
      * `section` is a titled heading rather than a destination. It is arranged
@@ -213,6 +222,18 @@ export type SidebarItem = {
      * The mark accepts it, through `onItemChangeAccept`.
      */
     change?: SidebarItemChange;
+    /**
+     * Something the person should notice, or that is proposed and not theirs
+     * yet: the row is drawn with dashed yellow hairlines. Paint only; the row
+     * keeps its size and place.
+     */
+    attention?: boolean;
+    /**
+     * Pointed out while something about it is explained, such as a tour stop:
+     * a solid ring, never the dashed attention a proposal wears, so a row that
+     * is already the person's never looks unaccepted. Paint only.
+     */
+    spotlight?: boolean;
     /**
      * A `separator` the person pinned. `top`: everything above it holds still
      * and only what is below scrolls; `bottom`: everything below it holds still
@@ -485,6 +506,13 @@ export type SidebarSection = {
      * is folded away — so the heading carries the microphone for it.
      */
     voiceFocus?: boolean;
+    /**
+     * The whole section is an example, or a proposal not accepted yet: it is
+     * drawn inside dashed yellow hairlines with `tag` ("Example", "Proposed")
+     * on its edge. Several marked sections in a row are one example, so only
+     * the last needs to say so. Paint only; nothing in it moves.
+     */
+    attention?: { tag?: string };
 };
 
 /** One visible sidebar destination the caller wants Command-numbered. */
@@ -521,7 +549,30 @@ export interface SidebarReorder {
  */
 export type SidebarActivityPlacement = "leading" | "trailing";
 
+/**
+ * Happy dividing into new work: `from` is the row wearing Happy's mark, and
+ * `into` the rows New made from it, oldest first. Each row in `into` that
+ * comes on screen after this sidebar did is drawn as Happy's daughter peeling
+ * off and sliding into it; rows already there never divide again.
+ */
+export type SidebarDivision = {
+    readonly from: string;
+    readonly into: readonly string[];
+    /** Happy's membrane seed as its owner keeps it; absent, its shape's own. */
+    readonly seed?: number;
+    /** Happy divided and formed again from `seed`, for its owner to keep. */
+    readonly onSeed?: (seed: number) => void;
+};
+
+/** How a row's mark is drawn while Happy divides: hidden under the overlay, or Happy re-formed. */
+type SidebarMarkState = { readonly hidden: boolean; readonly happySeed?: number };
+
+const NO_DIVISIONS: readonly string[] = [];
+const MARK_HIDDEN: SidebarMarkState = { hidden: true };
+
 export type SidebarProps = Omit<HTMLAttributes<HTMLElement>, "style"> & {
+    /** Happy divides into the rows New makes. */
+    division?: SidebarDivision;
     /** Gesture attention ends outside this surface too, and on disposal. */
     onInteractionChange?: (interacting: boolean) => void;
     /** The pointer gesture's lifetime, independent of hover and menus. */
@@ -583,6 +634,12 @@ export type SidebarProps = Omit<HTMLAttributes<HTMLElement>, "style"> & {
     /** Always-visible compose hint. Its aria value may include equivalent chords. */
     composeShortcut?: KeyboardShortcut;
     composeTooltip?: string;
+    /**
+     * Everything in the sidebar is an example: one dashed yellow box around all
+     * of it, header and footer too, inside the panel inset, with `tag` on its
+     * top edge. Paint only.
+     */
+    attention?: { tag: string };
     /** A row above the compose row that opens the window's search. */
     searchRow?: { label: string; shortcut?: KeyboardShortcut; onOpen: () => void };
     footer?: ReactNode;
@@ -1789,6 +1846,8 @@ const SidebarListRow = memo(function SidebarListRow({
     activityPlacement?: SidebarActivityPlacement;
     foldControlPlacement?: "leading" | "trailing";
     itemMarkPresentation?: "default" | "glyph" | "none";
+    /** See `SidebarRow.markState`. */
+    markState?: SidebarMarkState;
     treeConnectors?: boolean;
     dragging: boolean;
     expandable: boolean;
@@ -1893,6 +1952,8 @@ function SidebarRow({
     expandable?: boolean;
     foldControlPlacement?: "leading" | "trailing";
     itemMarkPresentation?: "default" | "glyph" | "none";
+    /** While Happy divides: the mark hidden under the overlay, or Happy re-formed. */
+    markState?: SidebarMarkState;
     treeConnectors?: boolean;
     onSelect: (id: string) => void;
     /** The row can be arranged, which is what the keyboard shortcut is offered for. */
@@ -2304,6 +2365,8 @@ function SidebarRow({
                 aria-keyshortcuts={props.reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                 className="happy-sidebar__item happy-sidebar__section-item"
                 data-actionable={item().action && props.onAction ? "" : undefined}
+                data-attention={item().attention ? "" : undefined}
+                data-spotlight={item().spotlight ? "" : undefined}
                 data-change={item().change?.kind}
                 data-change-block={item().change?.block}
                 data-collapsed={item().collapsed ? "" : undefined}
@@ -2372,6 +2435,8 @@ function SidebarRow({
             data-archived={item().archived ? "" : undefined}
             data-change={item().change?.kind}
             data-change-block={item().change?.block}
+            data-attention={item().attention ? "" : undefined}
+            data-spotlight={item().spotlight ? "" : undefined}
             /* Both are needed and neither implies the other: a row that folds is
                styled as one whether it is open or shut, and a row still says it
                is shut while the pointer is elsewhere. */
@@ -2474,6 +2539,7 @@ function SidebarRow({
                 props.itemMarkPresentation === "glyph" ||
                 item().stemCell ||
                 item().imageMark ||
+                item().happyMark ||
                 showsLeadingSlot(item()) ||
                 activityLeading()) ? (
                 <span
@@ -2481,6 +2547,7 @@ function SidebarRow({
                     data-happy-desktop-ui="sidebar-item-leading"
                     data-context={item().contextAvatars?.length ? "" : undefined}
                     data-story={story() ? "" : undefined}
+                    style={props.markState?.hidden ? { visibility: "hidden" } : undefined}
                 >
                     {/* Identity, unless the window asked for work to be reported
                         here. By default it is not: what the row is doing is
@@ -2511,7 +2578,9 @@ function SidebarRow({
                         ) : (
                             mark
                         ))(
-                        item().stemCell || item().imageMark ? (
+                        item().happyMark ? (
+                            <HappyMark seed={props.markState?.happySeed} size={20} />
+                        ) : item().stemCell || item().imageMark ? (
                             <StemCellGrowth
                                 imageClassName="happy-sidebar__image-mark"
                                 imageMark={item().imageMark}
@@ -2762,6 +2831,14 @@ function SidebarRow({
                                     item().label
                                 )}
                             </span>
+                            {item().note ? (
+                                <span
+                                    className="happy-sidebar__item-note"
+                                    data-happy-desktop-ui="sidebar-item-note"
+                                >
+                                    {item().note}
+                                </span>
+                            ) : null}
                             {item().voiceFocus ? (
                                 <span
                                     aria-label="Voice focus"
@@ -3040,6 +3117,7 @@ export function Sidebar(props: SidebarProps) {
         "composeShortcut",
         "composeTooltip",
         "searchRow",
+        "attention",
         "footer",
         "foldControlPlacement",
         "foldControlReveal",
@@ -3080,6 +3158,7 @@ export function Sidebar(props: SidebarProps) {
         "onSectionTailToggle",
         "search",
         "onSectionMenuSelect",
+        "division",
         "sections",
         "style",
         "subtitle",
@@ -3341,6 +3420,86 @@ export function Sidebar(props: SidebarProps) {
     // the sidebar shows leaves every row's memoized render standing. See the reuser.
     const [sectionsReuse] = useState(sidebarSectionsReuser);
     const stableSections = sectionsReuse(local.sections);
+    /*
+     * Happy dividing into new work (C-319). A row New made is laid out with
+     * its mark hidden, measured, and drawn as Happy's daughter peeling off and
+     * sliding into it; Happy's mark is hidden too until the overlay hands both
+     * back. Happy then wears the membrane seed it re-formed from.
+     */
+    const divisionInto = local.division?.into ?? NO_DIVISIONS;
+    const [divisionSeen, divisionSeenSet] = useState<ReadonlySet<string>>(
+        () => new Set(divisionInto),
+    );
+    const [divisionPlay, divisionPlaySet] = useState<{
+        readonly from: DivisionRect;
+        readonly daughters: readonly HappyCellDaughter[];
+        /** The rows the daughters go to, in the same order. */
+        readonly rows: readonly string[];
+    }>();
+    // Happy at rest in the seed it last formed again from, one object for as
+    // long as that seed holds. The newest division here wins over the owner's
+    // copy until the owner has caught up.
+    const [happyRest, happyRestSet] = useState<SidebarMarkState>();
+    const happySeedKept = local.division?.seed;
+    if (happyRest === undefined && happySeedKept !== undefined)
+        happyRestSet({ hidden: false, happySeed: happySeedKept });
+    // Each shown row, and the stem cell it wears: the daughter becomes that
+    // exact cell, which need not be named like its row.
+    const shownCells = new Map(
+        [...(local.actions ?? []), ...stableSections.flatMap((section) => section.items)].map(
+            (item) => [item.id, item.stemCell?.id ?? item.id] as const,
+        ),
+    );
+    /* Rows that are there when Happy's own row first is were not made from it:
+       only a row arriving after Happy is shown divides from it. */
+    const divisionFromShown =
+        local.division?.from !== undefined && shownCells.has(local.division.from);
+    const [divisionFromSeen, divisionFromSeenSet] = useState(divisionFromShown);
+    if (divisionFromShown && !divisionFromSeen) {
+        divisionFromSeenSet(true);
+        divisionSeenSet(new Set([...divisionSeen, ...divisionInto]));
+    }
+    const divisionArriving = divisionFromSeen
+        ? divisionInto.filter((id) => !divisionSeen.has(id) && shownCells.has(id))
+        : NO_DIVISIONS;
+    const divisionHidden = new Set([...divisionArriving, ...(divisionPlay?.rows ?? [])]);
+    const divisionFrom = local.division?.from;
+    const markStateOf = (id: string): SidebarMarkState | undefined =>
+        id === divisionFrom
+            ? divisionHidden.size > 0
+                ? MARK_HIDDEN
+                : happyRest
+            : divisionHidden.has(id)
+              ? MARK_HIDDEN
+              : undefined;
+    const divisionStart = (node: HTMLSpanElement | null) => {
+        const root = node?.closest(".happy-sidebar");
+        if (!root || divisionFrom === undefined) return;
+        divisionSeenSet(new Set([...divisionSeen, ...divisionArriving]));
+        const markRect = (id: string): DivisionRect | undefined => {
+            const row = [...root.querySelectorAll("[data-item-id]")].find(
+                (each) => each.getAttribute("data-item-id") === id,
+            );
+            const lane = row?.querySelector('[data-happy-desktop-ui="sidebar-item-leading"]');
+            const box = (lane?.firstElementChild ?? lane)?.getBoundingClientRect();
+            return box ? { x: box.x, y: box.y, width: box.width, height: box.height } : undefined;
+        };
+        const from = divisionPlay?.from ?? markRect(divisionFrom);
+        if (!from) return;
+        const daughters = divisionArriving.flatMap((id) => {
+            const to = markRect(id);
+            return to ? [{ row: id, daughter: { stemCellId: shownCells.get(id) ?? id, to } }] : [];
+        });
+        if (daughters.length === 0 && !divisionPlay) return;
+        divisionPlaySet({
+            from,
+            daughters: [
+                ...(divisionPlay?.daughters ?? []),
+                ...daughters.map((arrival) => arrival.daughter),
+            ],
+            rows: [...(divisionPlay?.rows ?? []), ...daughters.map((arrival) => arrival.row)],
+        });
+    };
     // Cross-section moves use the same measured units and settling animation as
     // production reordering, while previewing the actual eventual row order.
     const sections = (() => {
@@ -4739,12 +4898,22 @@ export function Sidebar(props: SidebarProps) {
             ref={interactionRef}
             data-back={local.onBack ? "" : undefined}
             data-actions-divider={local.actionsDivider ? "" : undefined}
+            data-attention={local.attention ? "" : undefined}
             data-float={local.bodyFloat ? "" : undefined}
             data-fold-control-reveal={local.foldControlReveal}
             data-happy-desktop-ui="sidebar"
             data-scrolled={scrolled ? "" : undefined}
             style={local.style}
         >
+            {local.attention ? (
+                <span
+                    className="happy-sidebar__attention-tag"
+                    data-happy-desktop-ui="sidebar-attention-tag"
+                    data-placement="sidebar"
+                >
+                    {local.attention.tag}
+                </span>
+            ) : null}
             <header className="happy-sidebar__header" data-happy-desktop-ui="sidebar-header">
                 {local.onBack ? (
                     <div className="happy-sidebar__heading" data-happy-desktop-ui="sidebar-heading">
@@ -5003,6 +5172,7 @@ export function Sidebar(props: SidebarProps) {
                                         active={local.activeItemId === action.id}
                                         foldControlPlacement={local.foldControlPlacement}
                                         itemMarkPresentation={local.itemMarkPresentation}
+                                        markState={markStateOf(action.id)}
                                         treeConnectors={local.treeConnectors}
                                         // A nested row is drawn as a section's is.
                                         className={
@@ -5148,7 +5318,16 @@ export function Sidebar(props: SidebarProps) {
                                         : undefined
                                 }
                                 data-section-id={section.id}
+                                data-attention={section.attention ? "" : undefined}
                             >
+                                {section.attention?.tag ? (
+                                    <span
+                                        className="happy-sidebar__attention-tag"
+                                        data-happy-desktop-ui="sidebar-attention-tag"
+                                    >
+                                        {section.attention.tag}
+                                    </span>
+                                ) : null}
                                 {section.spaceHeading ? (
                                     <div
                                         className="happy-sidebar__space-head"
@@ -5549,6 +5728,7 @@ export function Sidebar(props: SidebarProps) {
                                                     itemMarkPresentation={
                                                         local.itemMarkPresentation
                                                     }
+                                                    markState={markStateOf(item.id)}
                                                     treeConnectors={local.treeConnectors}
                                                     dragging={
                                                         held ||
@@ -5699,6 +5879,19 @@ export function Sidebar(props: SidebarProps) {
                 <footer className="happy-sidebar__footer" data-happy-desktop-ui="sidebar-footer">
                     {local.footer}
                 </footer>
+            ) : null}
+            {divisionArriving.length > 0 ? <span hidden ref={divisionStart} /> : null}
+            {divisionPlay ? (
+                <HappyCellDivision
+                    daughters={divisionPlay.daughters}
+                    from={divisionPlay.from}
+                    onDone={() => divisionPlaySet(undefined)}
+                    onSeed={(seed) => {
+                        happyRestSet({ hidden: false, happySeed: seed });
+                        local.division?.onSeed?.(seed);
+                    }}
+                    {...(happyRest?.happySeed !== undefined ? { seed: happyRest.happySeed } : {})}
+                />
             ) : null}
             {itemMenu ? (
                 <div

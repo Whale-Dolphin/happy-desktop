@@ -41,7 +41,7 @@ const reason =
     "The provider rejected authentication.\n\nDetails:\n  Your conversation and draft are preserved.\n  This is not proof that you are signed out.";
 const unavailable: ConversationErrorAssistance = {
     status: "unavailable",
-    reason: "Chief of Staff is not available on this Happy Agent.",
+    reason: "Happy is not available on this Happy Agent.",
 };
 afterEach(() => vi.restoreAllMocks());
 

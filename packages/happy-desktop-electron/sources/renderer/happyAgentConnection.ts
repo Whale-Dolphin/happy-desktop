@@ -1,5 +1,9 @@
 import { terminalDriverCreate, type AppHappyAgentSetup } from "happy-desktop-app";
 import {
+    happyAgentChatActionsClientHttp,
+    happyAgentChatActionsStoreCreate,
+    happyAgentProviderClisStoreCreate,
+    providerCliClientHttp,
     connectHappyAgent,
     describeServerCompatibility,
     HappyAgentClient,
@@ -199,6 +203,14 @@ export interface HappyAgentSession {
     /** The sidebar proposals Prioritizing's chat shows, read as a chat asks for them. */
     readonly sidebarProposals: HappyAgentSidebarProposalsStore;
     readonly clock: HappyAgentClockStore;
+    /** This connection's transport input, which first-run onboarding follows its flow on. */
+    readonly sync: import("happy-desktop-state").HappyAgentSync;
+    /** Presses of the inline actions agents write into this Happy Agent's chats. */
+    readonly chatActions: import("happy-desktop-state").HappyAgentChatActionsStore;
+    /** This Happy Agent's provider CLIs, as a chat's provider-CLI figures draw them. */
+    readonly providerClis: import("happy-desktop-state").HappyAgentProviderClisStore;
+    /** The model new chats start on, as a chat's default-model figure draws it. */
+    readonly defaultModel: () => import("happy-desktop-state").HappyAgentDefaultModelStore;
 }
 
 export interface HappyAgentSessionDeps {
@@ -219,6 +231,12 @@ export interface HappyAgentSessionDeps {
     readonly activity?: (activity: HappyAgentActivity) => void;
     /** Observes this connection's phone pairings while a pairing page shows them. */
     readonly mobilePairingObserve?: HappyAgentMobilePairingObserve;
+    /**
+     * Opens a vendor's sign-in page in the person's browser, for a sign-in a
+     * chat figure started. Only this computer's own Happy Agent has one: a
+     * browser sign-in completes on the daemon's machine.
+     */
+    readonly signInPageOpen?: (url: string) => void;
     /**
      * A top-level session on this connection finished a turn. Delegated
      * subagent runs never arrive here; whether the window says anything about
@@ -456,6 +474,22 @@ export function happyAgentConnectionOpen(input: {
             token: "happy-local-capability",
         });
     const mutationListeners = new Set<(rejection: MutationRejectedDelta) => void>();
+    // One connection's presses, in every chat it serves; it opens nothing until one is made.
+    const chatActions = happyAgentChatActionsStoreCreate({
+        client: happyAgentChatActionsClientHttp({
+            endpoint: input.happyAgentHttpUrl,
+            token: "happy-local-capability",
+        }),
+    });
+    // The provider CLIs a chat's figures draw; read once a figure is shown.
+    const signInPageOpen = input.deps.signInPageOpen;
+    const providerClis = happyAgentProviderClisStoreCreate({
+        client: providerCliClientHttp({
+            endpoint: input.happyAgentHttpUrl,
+            token: "happy-local-capability",
+        }),
+        ...(signInPageOpen ? { listener: (event) => signInPageOpen(event.url) } : {}),
+    });
     const agentConnection: HappyAgentConnection = connectHappyAgent({
         client: directClient,
         endpoint: input.happyAgentHttpUrl,
@@ -741,6 +775,10 @@ export function happyAgentConnectionOpen(input: {
                     clock,
                     spaces: client.spaces(),
                     sidebarProposals: client.sidebarProposals(),
+                    sync: agentConnection.sync,
+                    chatActions,
+                    providerClis,
+                    defaultModel: () => client.defaultModel(),
                 };
                 debugEntry({
                     level: "info",
@@ -807,6 +845,7 @@ export function happyAgentConnectionOpen(input: {
                 source: "connection",
             });
             disposed = true;
+            providerClis[Symbol.dispose]();
             if (retry) clearTimeout(retry);
             workspaceKeepWarm?.();
             workspace?.[Symbol.dispose]();

@@ -75,7 +75,9 @@ import {
     type MediaFlowImage,
 } from "./mediaLayout";
 import { mediaItemsFramed, mediaVideoFramesSignature } from "./mediaVideoFrames";
+import { chatActionFigureSignature } from "./chatActionFigureHeights";
 import { mediaTreeHeight } from "./MediaTree";
+import { chatActionBlockHeight } from "./ChatActionBlock";
 import { userInputRuleText } from "./userInputRule";
 import { conversationMediaRunSignature, type ConversationMediaRun } from "./conversationMediaRuns";
 import {
@@ -591,7 +593,9 @@ function messageLayoutsFramesSignature(layouts: MessageInlineLayouts | undefined
     if (layouts === undefined) return "";
     let signature = "";
     for (const layout of layouts.layouts.values())
-        signature += mediaVideoFramesSignature(layout.members.map((member) => member.item));
+        if (layout.kind === "media")
+            signature += mediaVideoFramesSignature(layout.members.map((member) => member.item));
+        else if (layout.kind === "actions") signature += chatActionFigureSignature(layout.block);
     return signature;
 }
 
@@ -759,6 +763,7 @@ function messageLayoutsHeight(
         const key = messageInlineLayoutKey(html);
         const layout = key === undefined ? undefined : layouts.layouts.get(key);
         if (layout === undefined) return undefined;
+        if (layout.kind === "actions") return chatActionBlockHeight(layout.block, measure);
         return mediaTreeHeight(
             layout.root,
             mediaItemsFramed(layout.members.map((member) => member.item)),
@@ -1215,7 +1220,7 @@ export function conversationRowHeight(
                     layout.resolution ?? "",
                 ].join(":"),
                 () => {
-                    /* The message's own action and Ask Chief of Staff follow
+                    /* The message's own action and Ask Happy follow
                        it on its line, and the message wraps beside them. */
                     const lineButtons = [
                         ...(layout.lineAction

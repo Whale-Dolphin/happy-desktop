@@ -139,6 +139,12 @@
     color: var(--text-secondary);
 }
 
+/* An agent's clay icon fills the glyph lane, as its sidebar row wears it. */
+.happy-agent-activity__face-icon {
+    display: block;
+    object-fit: contain;
+}
+
 /* A question still waiting for the reader is the one still glyph that needs
    them, so it is red where every other glyph — the wait's clock included —
    stays grey. Once it is answered it is history, and greys like the rest. */
@@ -160,6 +166,13 @@
     display: none;
 }
 
+/* A tool the row has no word for is named by its own title, which is words,
+   not code: it is set in the UI face, still, where every other verb is the
+   terminal's typed label. */
+.happy-agent-activity[data-named] .happy-agent-activity__verb .happy-agent-activity__still-text {
+    font-family: var(--happy-font-ui);
+}
+
 /* A command or path longer than the row scrolls sideways (see ScrollingText)
    rather than losing its tail, so nothing an agent did is unreadable. */
 .happy-agent-activity__text {
@@ -169,6 +182,14 @@
     font-size: 13px;
     line-height: 20px;
     color: var(--text);
+}
+
+/* An agent a spawn made is named, then told what it was asked in words, not code. */
+.happy-agent-activity[data-spawned] .happy-agent-activity__text,
+.happy-agent-activity[data-spawned] .happy-agent-activity__text .happy-agent-activity__still-text,
+.happy-agent-activity[data-spawned] .happy-agent-activity__text .happy-typed-text {
+    font-family: var(--happy-font-ui);
+    color: var(--text-secondary);
 }
 
 .happy-agent-activity__file-summary {

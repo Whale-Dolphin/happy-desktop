@@ -345,3 +345,141 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/*
+ * Attention: an example, or something proposed or worth noticing that is not
+ * the person's yet. Dashed yellow hairlines and a faint yellow wash, drawn as
+ * an outline so nothing changes size or moves when it appears or clears.
+ *
+ *   row      the row's own hover shape, edged 1px dashed just inside it;
+ *            marked rows one after another share one box
+ *   section  the whole section, outlined 1px dashed 4px outside its rows,
+ *            with its tag sitting on the top edge at the trailing end
+ */
+.happy-sidebar .happy-sidebar__item[data-attention] {
+    background-color: var(--happy-attention-wash);
+}
+
+.happy-sidebar .happy-sidebar__item[data-attention]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px dashed var(--happy-attention);
+    border-radius: inherit;
+    pointer-events: none;
+}
+
+/* A marked row with another right after it squares its lower corners, paints
+   the 2px gap under it, and leaves its lower edge to the next row's sides. */
+.happy-sidebar .happy-sidebar__item[data-attention]:has(+ .happy-sidebar__item[data-attention]) {
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+    box-shadow: 0 2px 0 var(--happy-attention-wash);
+}
+
+.happy-sidebar
+    .happy-sidebar__item[data-attention]:has(+ .happy-sidebar__item[data-attention])::after {
+    bottom: -2px;
+    border-bottom: none;
+}
+
+.happy-sidebar .happy-sidebar__item[data-attention] + .happy-sidebar__item[data-attention] {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.happy-sidebar .happy-sidebar__item[data-attention] + .happy-sidebar__item[data-attention]::after {
+    border-top: none;
+}
+
+/* The section's box is the column the rows already sit in, inside the panel
+   inset: nothing is drawn outside it, so it never reaches the divider. */
+.happy-sidebar__section[data-attention] {
+    position: relative;
+    border-radius: var(--happy-radius-sm);
+    outline: 1px dashed var(--happy-attention);
+    outline-offset: -1px;
+    background-color: var(--happy-attention-wash);
+}
+
+/* Inside a dashed section its rows need no outline of their own. */
+.happy-sidebar__section[data-attention] .happy-sidebar__item[data-attention] {
+    background-color: transparent;
+    box-shadow: none;
+}
+
+.happy-sidebar__section[data-attention] .happy-sidebar__item[data-attention]::after {
+    content: none;
+}
+
+/* The tag sits on the box's own dashed edge, in the stroke's colour, on the
+   sidebar's ground so the line breaks around the word: quiet, but the edge
+   says what it is. Out of the flow, so it moves nothing. */
+.happy-sidebar__attention-tag {
+    position: absolute;
+    bottom: -8px;
+    right: 8px;
+    z-index: 1;
+    padding: 0 4px;
+    background: var(--groupped-background);
+    color: var(--happy-attention);
+    font-family: var(--happy-font-ui);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    pointer-events: none;
+}
+
+/* The whole sidebar as one example: one box over the list and the footer,
+   inside the panel inset, from just under the window's own control band (the
+   traffic lights and the sidebar toggle keep their normal drawing). The wash
+   is behind everything, so a selected row still paints its own fill; the
+   stroke is over everything, so no hairline or footer covers it. */
+.happy-sidebar[data-attention] {
+    position: relative;
+    isolation: isolate;
+}
+
+.happy-sidebar[data-attention]::before,
+.happy-sidebar[data-attention]::after {
+    content: "";
+    position: absolute;
+    inset: var(--happy-panel-inset);
+    top: var(--happy-integrated-band-height, var(--happy-panel-inset));
+    border-radius: var(--happy-radius-sm);
+    pointer-events: none;
+}
+
+.happy-sidebar[data-attention]::before {
+    z-index: -1;
+    background-color: var(--happy-attention-wash);
+}
+
+.happy-sidebar[data-attention]::after {
+    z-index: 2;
+    outline: 1px dashed var(--happy-attention);
+    outline-offset: -1px;
+}
+
+/* Its header and footer let the wash through. */
+.happy-sidebar[data-attention] > .happy-sidebar__header,
+.happy-sidebar[data-attention] > .happy-sidebar__footer {
+    background: transparent;
+}
+
+.happy-sidebar__attention-tag[data-placement="sidebar"] {
+    /* 12px tall, centred on the bottom edge's 6px inset, so the window's edge
+       never clips it and the band above never covers it. */
+    bottom: calc(var(--happy-panel-inset) - 6px);
+    right: auto;
+    /* At the leading end, clear of the footer's trailing controls. */
+    left: calc(var(--happy-panel-inset) + 12px);
+    line-height: 12px;
+    z-index: 3;
+}
+
+/* A tour stop points at a row with a solid ring: never the dashed
+   attention, which means not yours yet. */
+.happy-sidebar .happy-sidebar__item[data-spotlight] {
+    box-shadow: inset 0 0 0 2px var(--text-link);
+}

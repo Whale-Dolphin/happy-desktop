@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import type { HappyAgentSystemMonitorStore } from "happy-desktop-state";
-import { HappyAgentSystemMonitorSurfacePage, type InlinePageFit } from "happy-desktop-ui";
+import {
+    HappyAgentSystemMonitorSurfacePage,
+    makeStuffIntroHeader,
+    type InlinePageFit,
+} from "happy-desktop-ui";
 import {
     conversationFileChanges,
     conversationFileDiff,
@@ -334,12 +338,25 @@ import {
 } from "happy-desktop-ui";
 import { APP_SHORTCUTS } from "./appShortcuts";
 import {
+    happyAgentChatActionsStoreNoop,
+    happyAgentMobileConnectorStoreNoop,
     happyAgentSpacesStoreNoop,
     happyAgentStemCellsChosen,
+    happyOnboardingStoreNoop,
+    UserError,
+    type ChatActionInvocation,
+    type ChatProviderId,
     type HappyAgentSidebarProposalsStore,
     happyAgentSpaceNewWorkIs,
     happyAgentConversationContent,
+    type HappyAgentSpaceId,
 } from "happy-desktop-state";
+import {
+    HappyAgentChatDefaultModel,
+    HappyAgentChatPhonePairing,
+    HappyAgentChatProviderCli,
+    type AppChatActions,
+} from "./components/HappyAgentChatActions";
 import { HappyAgentSidebarProposal } from "./components/HappyAgentSidebarProposal";
 import {
     HappyAgentStoriesRow,
@@ -352,6 +369,7 @@ import {
     happyAgentSpaceDestination,
     happyAgentSpaceLabel,
     happyAgentSpaceMark,
+    happyAgentSpaceOpen,
     happyAgentSpacesNotes,
     happyAgentSessionMark,
     happyAgentSpacesChildDestination,
@@ -672,6 +690,12 @@ export interface AppHappyAgentSession {
     readonly spaces?: HappyAgentSpacesStore;
     /** The sidebar proposals Prioritizing's chat shows inline. */
     readonly sidebarProposals?: HappyAgentSidebarProposalsStore;
+    /** Presses of the inline actions agents write into this Happy Agent's chats. */
+    readonly chatActions?: import("happy-desktop-state").HappyAgentChatActionsStore;
+    /** This Happy Agent's provider CLIs, as a chat's provider-CLI figures draw them. */
+    readonly providerClis?: import("happy-desktop-state").HappyAgentProviderClisStore;
+    /** The model new chats start on, as a chat's default-model figure draws it. */
+    readonly defaultModel?: () => import("happy-desktop-state").HappyAgentDefaultModelStore;
 }
 
 export interface AppHappyAgentDirectorySnapshot {
@@ -827,6 +851,12 @@ export interface AppHappyAgentViewProps {
     agentUpdate?: AppHappyAgentUpdateStore;
     /** Compact notes for the local Happy Agent update on offer. */
     agentReleaseNotes?: AppHappyAgentReleaseNotesStore;
+    /**
+     * First run on this machine, which happens in Happy's own chat: supplied
+     * with `daemon`, until it is over. The sidebar shows its example and the
+     * work it proposes.
+     */
+    happyOnboarding?: import("happy-desktop-state").HappyOnboardingStore;
     /** Native page renderer supplied only by the packaged Electron host. */
     browserContent?: BrowserContentRenderer;
     /**
@@ -2065,6 +2095,12 @@ function openGroupFind(
  * to `Fix login redirect`, so the group is quoted rather than glued into a
  * sentence that only reads well for one kind of title.
  */
+/**
+ * Why a composer with no model to send to takes nothing, said when the reader
+ * clicks it. The prompt above it keeps naming who the message is for.
+ */
+const MODELS_NOT_CONFIGURED_NOTE = "Sign in to at least one AI to start chatting.";
+
 function composerPlaceholder(groupName: string | undefined): string {
     return groupName === undefined ? "Message Happy…" : `Message Happy in “${groupName}”…`;
 }
@@ -3375,11 +3411,12 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
     );
     // Whether a row or tab that sees its stem cell get an icon grows it there.
     const stemCellAnimationStore = props.stemCellAnimation ?? stemCellAnimationStoreNoop;
-    const stemCellAnimation = useSyncExternalStore(
+    const cellPaint = useSyncExternalStore(
         stemCellAnimationStore.subscribe,
         stemCellAnimationStore.get,
         stemCellAnimationStore.get,
-    ).stemCellAnimationEnabled;
+    );
+    const stemCellAnimation = cellPaint.stemCellAnimationEnabled;
     const navigationOrderStore = props.navigationOrder ?? happyAgentNavigationOrderStoreNoop;
     const navigationOrder = useSyncExternalStore(
         navigationOrderStore.subscribe,
@@ -3913,6 +3950,131 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             else props.onChatSelect(active.id, groupId, chatId, true);
         });
     };
+    // Try Create in a chat makes new work the way Create does, right below
+    // Happy's row, and stays in the chat it was pressed in.
+    const stemCellMake = async (): Promise<string> => {
+        if (!stemCellsEnabled || !active || !activeHappyAgentOnline())
+            throw new UserError("Create isn't available right now.");
+        const happySpace = [...spaces.spaces.values()].find((space) =>
+            happyAgentSpaceHappyIs(space, spacesPlaces),
+        );
+        const creation = spacesStore.stemCellCreate(null, happySpace?.id ?? null);
+        return creation.cell?.space.id ?? (await creation.created).space.id;
+    };
+    // The inline actions agents write into chats are pressed through this
+    // connection, and the daemon records each choice on its message. The few
+    // that are the window's own run here first.
+    const chatActionsStore = active?.session?.chatActions ?? happyAgentChatActionsStoreNoop;
+    const chatActionsSnapshot = useSyncExternalStore(
+        chatActionsStore.subscribe,
+        chatActionsStore.get,
+        chatActionsStore.get,
+    );
+    const onboardingStore = props.happyOnboarding ?? happyOnboardingStoreNoop;
+    const onboarding = useSyncExternalStore(
+        onboardingStore.subscribe,
+        onboardingStore.get,
+        onboardingStore.get,
+    );
+    const chatActionPress = (agentId: string, invocation: ChatActionInvocation): void => {
+        const { action } = invocation;
+        // A vendor's page opens here, and the daemon hears nothing of it.
+        if (onboardingStore.actionClientRun(action)) return;
+        // Another way to reach a model is added among the providers.
+        if (action.id === "onboarding.apiKeyOpen") {
+            if (props.onSettingsSectionOpen) props.onSettingsSectionOpen("providers");
+            else props.onSettingsOpen();
+            return;
+        }
+        chatActionsStore.actionPress(agentId, invocation, {
+            ...(action.id === "onboarding.newChat"
+                ? {
+                      run: async () => ({
+                          kind: "post" as const,
+                          values: [await stemCellMake()],
+                      }),
+                  }
+                : {}),
+            sent: () => {
+                onboardingStore.actionSent(action);
+                // Opening a proposed chat ends onboarding there, in the chat Looks right made.
+                const spaceId = action.id === "onboarding.workOpen" ? action.item : undefined;
+                const space = spaceId
+                    ? spacesStore.get().spaces.get(spaceId as HappyAgentSpaceId)
+                    : undefined;
+                if (space && spacesNavigation)
+                    happyAgentSpaceOpen(space, spacesPlaces, spacesStore.get(), spacesNavigation);
+            },
+        });
+    };
+    const phoneConnector = active?.session?.mobileConnector?.();
+    // Followed only while onboarding offers to pair a phone, so an everyday
+    // window opens no connector reads of its own.
+    const phoneConnectorStore =
+        (onboarding.status === "running" ? phoneConnector : undefined) ??
+        happyAgentMobileConnectorStoreNoop;
+    const phoneConnectorSnapshot = useSyncExternalStore(
+        phoneConnectorStore.subscribe,
+        phoneConnectorStore.get,
+        phoneConnectorStore.get,
+    );
+    const phoneConnectorRead = phoneConnectorSnapshot.connector;
+    const providerClis = active?.session?.providerClis;
+    const defaultModel = active?.session?.defaultModel?.();
+    const chatActions: AppChatActions = {
+        pending: chatActionsSnapshot.pending,
+        press: chatActionPress,
+        figures: {
+            ...(phoneConnector && active?.session
+                ? {
+                      phonePairing: (
+                          <HappyAgentChatPhonePairing
+                              clock={active.session.clock}
+                              phone={phoneConnector}
+                          />
+                      ),
+                      phonePaired:
+                          phoneConnectorRead.kind === "ready" &&
+                          phoneConnectorRead.connector.pairing?.status === "completed",
+                  }
+                : {}),
+            ...(providerClis
+                ? {
+                      providerCli: (cliId: ChatProviderId) => (
+                          <HappyAgentChatProviderCli
+                              cliId={cliId}
+                              linkOpen={props.onExternalLinkOpen ?? openExternalLink}
+                              store={providerClis}
+                          />
+                      ),
+                  }
+                : {}),
+            ...(defaultModel
+                ? {
+                      setting: (setting: string) =>
+                          setting === "default-model" ? (
+                              <HappyAgentChatDefaultModel store={defaultModel} />
+                          ) : null,
+                  }
+                : {}),
+            // A proposal a reply previews, drawn as Focus's own chat draws it.
+            ...(sidebarProposalsStore
+                ? {
+                      sidebarProposal: (artifactId: string) => (
+                          <HappyAgentSidebarProposal
+                              artifactId={artifactId}
+                              places={spacesPlaces}
+                              sessionRow={spacesSessionRow}
+                              snapshot={spaces}
+                              stemCellAnimation={stemCellAnimation}
+                              store={sidebarProposalsStore}
+                              titleShimmerEnabled={titleShimmerEnabled}
+                          />
+                      ),
+                  }
+                : {}),
+        },
+    };
     // What can be made: the Surfaces this Happy Agent serves, and a bot. The
     // Create row's › lists them directly and a new stem cell offers the same.
     const createOffers: readonly MakeStuffOption[] = [
@@ -3938,6 +4100,11 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
     const spacesSidebar =
         spacesEnabled && spacesNavigation ? (
             <HappyAgentSpacesSidebar
+                // While onboarding goes on, a proposal is decided in Happy's chat.
+                {...(props.happyOnboarding &&
+                (onboarding.status === "waiting" || onboarding.status === "running")
+                    ? { onboarding: { exampleSidebar: onboarding.exampleSidebar } }
+                    : {})}
                 actions={{
                     taskLeave: (taskId) =>
                         void active?.session?.workspace
@@ -4032,6 +4199,8 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 {...(active?.session ? { clock: active.session.clock } : {})}
                 titleShimmerEnabled={titleShimmerEnabled}
                 stemCellAnimation={stemCellAnimation}
+                {...(cellPaint.happySeed !== undefined ? { happySeed: cellPaint.happySeed } : {})}
+                onHappySeed={stemCellAnimationStore.happySeedUpdate}
                 sessionRow={spacesSessionRow}
                 worktreeRows={(agentId) =>
                     agentWorktreeSidebarItems(agentId, spacesProjects, titleShimmerEnabled)
@@ -4069,6 +4238,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 }
                 places={spacesPlaces}
                 {...(sidebarProposalsStore ? { proposals: sidebarProposalsStore } : {})}
+                {...(onboarding.status === "running" ? { onboarding } : {})}
                 snapshot={spaces}
                 store={spacesStore}
             />
@@ -4093,14 +4263,17 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
         floatyKey: (sessionId) => spaceOfChat(sessionId)?.id,
         chatHeader: (sessionId, settled) => {
             const space = spaceOfChat(sessionId);
-            return space === undefined || happyAgentSpaceHappyIs(space, spacesPlaces)
-                ? undefined
-                : happyAgentSpacesIntroHeader(space, {
-                      settled,
-                      stemCellAnimation,
-                      options: createOffers,
-                      onOptionSelect: createOfferSelect,
-                  });
+            if (space === undefined) return undefined;
+            // Happy's chat opens as new work does: its mark at the top, and its
+            // first message streaming in right under it.
+            if (happyAgentSpaceHappyIs(space, spacesPlaces))
+                return makeStuffIntroHeader({ id: space.id, happy: true, settled });
+            return happyAgentSpacesIntroHeader(space, {
+                settled,
+                stemCellAnimation,
+                options: createOffers,
+                onOptionSelect: createOfferSelect,
+            });
         },
         chatNotes: (sessionId) =>
             experimental.batchNotes &&
@@ -4941,8 +5114,13 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
         if (active?.session)
             return (
                 <HappyAgentWorkspaceSurface
+                    {...(props.happyOnboarding &&
+                    (onboarding.status === "waiting" || onboarding.status === "running")
+                        ? { happyOpening: true }
+                        : {})}
                     {...(referenceSurfaces ? { referenceSurfaces } : {})}
                     {...(sidebarProposal ? { sidebarProposal } : {})}
+                    chatActions={chatActions}
                     {...(storyRender ? { storyRender } : {})}
                     availability={
                         activeAvailability ??
@@ -5064,7 +5242,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 {...(spacesSidebar && stemCellsEnabled
                     ? {
                           sidebarCollapsedAction: {
-                              label: "New work (⌘N or ⌘T)",
+                              label: "Create (⌘N or ⌘T)",
                               onClick: () => makeStuff(),
                           },
                           sidebarOwnsCreate: true,
@@ -5442,9 +5620,10 @@ function paletteContext(
  * picture, else its glyph, else its initial.
  */
 function paletteMarkGlyph(
-    mark: Pick<SidebarItem, "icon" | "imageMark" | "imageUrl" | "stemCell">,
+    mark: Pick<SidebarItem, "icon" | "imageMark" | "imageUrl" | "stemCell" | "happyMark">,
     title: string,
 ): CommandPaletteGlyph {
+    if (mark.happyMark) return { kind: "mark", happyMark: true };
     if (mark.imageMark || mark.stemCell)
         return {
             kind: "mark",
@@ -5652,6 +5831,7 @@ function paletteResultsRow(
               ? { emphasis: row.glyph.emphasis }
               : row.glyph.kind === "mark"
                 ? {
+                      ...(row.glyph.happyMark ? { happyMark: true as const } : {}),
                       ...(row.glyph.imageMark ? { imageMark: row.glyph.imageMark } : {}),
                       ...(row.glyph.stemCell ? { stemCell: row.glyph.stemCell } : {}),
                   }
@@ -6821,12 +7001,19 @@ function HappyAgentArtifactsPanelSurface(props: {
 }
 
 interface HappyAgentWorkspaceSurfaceProps {
+    /**
+     * First run is about to open Happy's chat here, so the pane stays empty
+     * rather than saying no project is open.
+     */
+    happyOpening?: boolean;
     /** The Surfaces the transcript's references can name, and where one opens. */
     referenceSurfaces?: MessageReferenceSurfaces;
     /** Draws a sidebar proposal in Prioritizing's chat; absent without Spaces. */
     sidebarProposal?: (artifactId: string, fit: InlinePageFit) => ReactNode;
     /** Draws a story an agent drafted, in its chat; absent while Stories are off. */
     storyRender?: (artifactId: string, fit: InlinePageFit) => ReactNode;
+    /** Presses of the inline actions agents write into chats; absent, blocks only show. */
+    chatActions?: AppChatActions;
     /** The machine's artifacts, present only once it has said it keeps them. */
     artifacts?: HappyAgentArtifacts;
     /** Shows an HTML artifact opened beside the conversation as a site of its own. */
@@ -6892,7 +7079,7 @@ interface HappyAgentWorkspaceSpaces {
     chatMark(
         sessionId: string,
     ):
-        | (Pick<TabItem, "icon" | "imageMark" | "imageUrl" | "stemCell"> &
+        | (Pick<TabItem, "icon" | "imageMark" | "imageUrl" | "stemCell" | "happyMark"> &
               Partial<Pick<TabItem, "label">>)
         | undefined;
     /** Which space a chat's hand-folded floaty is remembered for. */
@@ -7776,6 +7963,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
             />
         ) : (
             <HappyAgentConversationBody
+                {...(props.chatActions ? { chatActions: props.chatActions } : {})}
                 composerNotice={workspaceComposerNotice}
                 modelUsageWatch={modelUsageWatch}
                 {...(props.artifacts ? { artifacts: props.artifacts } : {})}
@@ -7841,7 +8029,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                             emphasis="prominent"
                             icon="shield"
                             size="panel"
-                            title="Your Chief of Staff"
+                            title="Happy"
                         />
                     ) : undefined
                 }
@@ -8594,7 +8782,7 @@ function HappyAgentWorkspaceSurface(props: HappyAgentWorkspaceSurfaceProps) {
                         of the machine being out of touch, and this screen has
                         nothing to add to it: what it offers already goes quiet
                         on `availability`, below. */}
-                    {refusedCreate ? (
+                    {props.happyOpening ? null : refusedCreate ? (
                         // This address was a workspace being made until Happy Agent
                         // refused it. Saying "no project open" here would leave
                         // the reader to work out for themselves that the row they
@@ -9191,6 +9379,7 @@ function HappyAgentGroupComposer(props: {
                 <HappyAgentComposerDock
                     composer={props.composer}
                     disabled={modelsNotConfigured}
+                    disabledNote={MODELS_NOT_CONFIGURED_NOTE}
                     composerFocusOnType={props.focusOnType && !modelsNotConfigured}
                     // Only the composer that claims stray typing takes the caret, so the
                     // dock over an expanded panel cannot pull it out from under the one
@@ -9198,11 +9387,7 @@ function HappyAgentGroupComposer(props: {
                     {...(props.focusOnType && !modelsNotConfigured
                         ? { composerFocusKey: props.groupId }
                         : {})}
-                    composerPlaceholder={
-                        modelsNotConfigured
-                            ? "Configure models to start messaging…"
-                            : composerPlaceholder(props.groupName)
-                    }
+                    composerPlaceholder={composerPlaceholder(props.groupName)}
                     submitDisabled={props.unavailable !== undefined || props.restarting === true}
                     notice={[
                         ...(props.composerNotice ?? []),
@@ -9290,6 +9475,8 @@ function HappyAgentConversationBody(props: {
         readonly storyRender?: (artifactId: string, fit: InlinePageFit) => ReactNode;
         readonly browserConnectionId: string | null;
     };
+    /** Presses of the inline actions agents write into chats; absent, blocks only show. */
+    chatActions?: AppChatActions;
     /** The agents, workspaces, and projects the transcript's references can name. */
     referenceEntities: MessageReferenceEntities;
     /** Opens a group a reference names, on one of its conversations or where it was left. */
@@ -9359,6 +9546,7 @@ function HappyAgentConversationBody(props: {
                 activitySelected={props.activitySelected}
                 {...(props.artifacts ? { artifacts: props.artifacts } : {})}
                 {...(props.inlineEngines ? { inlineEngines: props.inlineEngines } : {})}
+                {...(props.chatActions ? { chatActions: props.chatActions } : {})}
                 referenceEntities={props.referenceEntities}
                 onReferenceGroupOpen={props.onReferenceGroupOpen}
                 {...(props.referenceSurfaces ? { referenceSurfaces: props.referenceSurfaces } : {})}
@@ -9755,6 +9943,8 @@ function HappyAgentConversationSurface(props: {
         readonly storyRender?: (artifactId: string, fit: InlinePageFit) => ReactNode;
         readonly browserConnectionId: string | null;
     };
+    /** Presses of the inline actions agents write into chats; absent, blocks only show. */
+    chatActions?: AppChatActions;
     /** The agents, workspaces, and projects the transcript's references can name. */
     referenceEntities: MessageReferenceEntities;
     /** Opens a group a reference names, on one of its conversations or where it was left. */
@@ -9934,6 +10124,8 @@ function HappyAgentConversationSurface(props: {
             ? props.leadingHeader?.(conversation.entries.length > 0)
             : undefined;
     const inlineEngines = props.inlineEngines;
+    // A chat that cannot be written into cannot be answered either.
+    const chatActions = props.readOnly ? undefined : props.chatActions;
     const inlinePages = inlineEngines
         ? conversationInlinePagesCreate({
               artifacts: inlineArtifacts,
@@ -9963,6 +10155,14 @@ function HappyAgentConversationSurface(props: {
             emptyContent={props.emptyContent}
             {...(leadingHeader ? { leadingHeader } : {})}
             agentAuthor={agentAuthor}
+            {...(chatActions
+                ? {
+                      actionChoices: chatActions.pending,
+                      onChatAction: (invocation: ChatActionInvocation) =>
+                          chatActions.press(conversation.conversationId, invocation),
+                      ...(chatActions.figures ? { chatActionFigures: chatActions.figures } : {}),
+                  }
+                : {})}
             activityControl={
                 activityTotal > 0 ? (
                     <HappyAgentActivityControl
@@ -9976,6 +10176,9 @@ function HappyAgentConversationSurface(props: {
                 <HappyAgentComposerDock
                     composer={conversation.composer}
                     disabled={composerDisabled}
+                    {...(!props.readOnly && modelsNotConfigured
+                        ? { disabledNote: MODELS_NOT_CONFIGURED_NOTE }
+                        : {})}
                     submitDisabled={sendRefusal !== undefined || props.restarting === true}
                     // A restarting agent is said in two plain lines above the input,
                     // and only while the input is open: a locked chat already says why.
@@ -10000,10 +10203,9 @@ function HappyAgentConversationSurface(props: {
                     composerPlaceholder={
                         props.readOnly
                             ? (props.readOnlyReason ?? composerPlaceholder(props.groupName))
-                            : modelsNotConfigured
-                              ? "Configure models to start messaging…"
-                              : // The tab already names the chat.
-                                composerPlaceholder(undefined)
+                            : // The agent's own invitation, or the window's; the tab
+                              // already names the chat.
+                              (conversation.composerPlaceholder ?? composerPlaceholder(undefined))
                     }
                     composerControls={
                         <>{modelControl ? <ComposerModelControl {...modelControl} /> : null}</>
@@ -10246,6 +10448,7 @@ function HappyAgentConversationSurface(props: {
             activityTreatment="focused"
             motion="calm-typed"
             running={conversation.running}
+            runningQuiet={conversation.turnScripted}
             delegatedAgents={activeActivity.agents}
             delegatedElapsedMs={happyAgentDelegatedElapsedMs(conversation, props.now)}
             elapsedMs={happyAgentTurnElapsedMs(conversation, props.now)}

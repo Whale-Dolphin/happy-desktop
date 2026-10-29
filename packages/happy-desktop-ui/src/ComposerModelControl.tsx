@@ -840,7 +840,7 @@ function AccountNotice(props: { notice: ComposerModelAccountNotice; open?: boole
                                                 pending: false,
                                                 error: failureMessage(
                                                     error,
-                                                    "Could not ask Chief of Staff.",
+                                                    "Could not ask Happy.",
                                                 ),
                                             }),
                                     );
@@ -848,7 +848,7 @@ function AccountNotice(props: { notice: ComposerModelAccountNotice; open?: boole
                                 size="small"
                                 variant="primary"
                             >
-                                Ask Chief of Staff
+                                Ask Happy
                             </Button>
                             {ask.error ? (
                                 <span
@@ -1559,7 +1559,7 @@ export function ComposerModelControl(props: ComposerModelControlProps) {
                                                         pending: false,
                                                         error: failureMessage(
                                                             error,
-                                                            "Could not open Chief of Staff.",
+                                                            "Could not open Happy.",
                                                         ),
                                                     }),
                                             );

@@ -1019,6 +1019,9 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
     const draftStampAfter = (previous: AgentDraftSnapshot, at: number): number =>
         Math.max(at, (previous.updatedAt ?? 0) + 1);
 
+    const draftHoldsText = (draft: AgentDraftSnapshot | undefined): boolean =>
+        (draft?.value?.text ?? "") !== "";
+
     const replaceDraft = (agentId: string, draft: AgentDraftSnapshot): void => {
         const previous = agentDrafts.get(agentId);
         agentDrafts.set(agentId, draft);
@@ -1032,6 +1035,7 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
         // so typing does not redraw every list on each keystroke.
         if (
             config !== undefined &&
+            draftHoldsText(previous) === draftHoldsText(draft) &&
             deepEqual(
                 modeOf(config, previous, agentModes.get(agentId)),
                 modeOf(config, draft, agentModes.get(agentId)),
@@ -2874,7 +2878,15 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
         ) {
             return;
         }
-        if (entry === undefined || current?.message.role !== "agent" || message.role !== "agent") {
+        // A message no provider produced, such as Happy's scripted onboarding
+        // messages, has no provider segments: its snapshot is the whole message,
+        // even when the daemon rewrote it in place.
+        if (
+            entry === undefined ||
+            current?.message.role !== "agent" ||
+            message.role !== "agent" ||
+            message.metadata.providerId === undefined
+        ) {
             if (entry !== undefined) {
                 entry.messageBlockOffsets.delete(message.id);
                 entry.corruptedMessageIds.delete(message.id);
@@ -4957,13 +4969,13 @@ export function connectHappyAgent(options: ConnectHappyAgentOptions): HappyAgent
                     "This Happy Agent is offline or updating. Try again when it is available.",
                 );
             if (draftRevisions.has(sessionId))
-                throw new Error("The Chief of Staff draft is still saving. Try again.");
+                throw new Error("Happy's draft is still saving. Try again.");
             const previous = agentDrafts.get(sessionId);
             const bootstrap = await client.getAgentBootstrap(sessionId, {
                 signal: deadlineSignal(),
             });
             if (closed || writesHeld()) throw new Error("This Happy Agent is no longer available.");
-            if (bootstrap.agent.archivedAt !== null) throw new Error("Chief of Staff is archived.");
+            if (bootstrap.agent.archivedAt !== null) throw new Error("Happy is archived.");
             // A local edit during the read must never be replaced by its answer.
             if (draftRevisions.has(sessionId) || agentDrafts.get(sessionId) !== previous)
                 throw new Error("The draft changed. Try again.");

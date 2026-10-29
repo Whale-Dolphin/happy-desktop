@@ -23,21 +23,42 @@
     box-sizing: border-box;
 }
 
-/* A code, its copy link, and its countdown, centred on one axis. */
+/* A code with its copy link and countdown beside it: the code on the left,
+   and on its right one column, top-aligned with the code and left-aligned,
+   the copy link over the countdown. */
 .happy-mobile-pairing__code {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
 }
 
-/* The copy link and the countdown share one 28px row under the code. */
+.happy-mobile-pairing__code-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+}
+
+/* The link's icon, not its hover face, lines up with the countdown's words. */
+.happy-mobile-pairing__code-side > .happy-copy-button[data-captioned] {
+    margin-inline-start: -10px;
+}
+
+/* The code's place while it is on its way keeps its note below it. */
 .happy-mobile-pairing__code-footer {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
     min-height: 28px;
+}
+
+.happy-mobile-pairing__code:has(> .happy-mobile-pairing__placeholder) {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
 }
 
 .happy-mobile-pairing__expiry {
@@ -124,6 +145,27 @@
     width: 100%;
 }
 
+/* A compact pairing that finished: one line in the reply's own type. */
+.happy-mobile-direct-pairing__paired {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+}
+
+.happy-mobile-direct-pairing__paired > .happy-vector-icon {
+    flex: none;
+    color: var(--success);
+}
+
+.happy-mobile-direct-pairing__paired-title {
+    font-weight: 600;
+}
+
+.happy-mobile-direct-pairing__paired-detail {
+    color: var(--text-secondary);
+}
+
 .happy-mobile-direct-pairing__connected {
     display: flex;
     flex-direction: column;
@@ -152,6 +194,13 @@
 
 .happy-mobile-direct-pairing__verify[data-density="compact"] {
     gap: 8px;
+}
+
+/* The answer given, kept in place: drawn as chosen, not as unavailable. */
+.happy-mobile-direct-pairing__chosen.happy-button:disabled {
+    background-color: var(--button-primary-background);
+    opacity: 1;
+    cursor: default;
 }
 
 .happy-mobile-direct-pairing__verify[data-density="compact"]

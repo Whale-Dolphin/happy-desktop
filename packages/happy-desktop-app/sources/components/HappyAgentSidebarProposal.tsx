@@ -1,30 +1,23 @@
 import {
-    sidebarDocumentEdit,
-    sidebarDocumentFold,
-    sidebarDocumentMove,
     sidebarDocumentView,
+    sidebarProposalDiff,
     type HappyAgentSidebarProposalsStore,
     type HappyAgentSpacesSnapshot,
     type SidebarDocumentView,
 } from "happy-desktop-state";
 import { SidebarProposal, type InlinePageFit, type SidebarItem } from "happy-desktop-ui";
 import { useSyncExternalStore } from "react";
-import {
-    happyAgentSpacesItems,
-    sidebarDocumentRelabel,
-    type HappyAgentSpacesPlaces,
-} from "./HappyAgentSpacesSidebar";
+import { happyAgentSpacesItems, type HappyAgentSpacesPlaces } from "./HappyAgentSpacesSidebar";
 
-const MENU_RENAME = "rename";
 const LIST = "proposal";
-/** The proposal's own Search and Create rows stand where they would; here they open nothing. */
-const COMMAND_INERT = { onOpen: () => undefined };
+/** A preview has no Search or Create of its own. */
+const COMMAND_NONE = undefined;
 
 export interface HappyAgentSidebarProposalProps {
     readonly store: HappyAgentSidebarProposalsStore;
     readonly artifactId: string;
-    /** Where the chat learns the proposal's height, so it is drawn whole. */
-    readonly fit: InlinePageFit;
+    /** Where an inline page learns the proposal's height; a figure learns it itself. */
+    readonly fit?: InlinePageFit;
     /** The person's spaces, which the proposal's rows name. */
     readonly snapshot: HappyAgentSpacesSnapshot;
     readonly places: HappyAgentSpacesPlaces;
@@ -34,7 +27,8 @@ export interface HappyAgentSidebarProposalProps {
 }
 
 /** The proposal's document, or nothing while it is not one the window draws. */
-function viewOf(html: string): SidebarDocumentView | undefined {
+function viewOf(html: string | undefined): SidebarDocumentView | undefined {
+    if (html === undefined) return undefined;
     try {
         return sidebarDocumentView(html);
     } catch {
@@ -43,10 +37,38 @@ function viewOf(html: string): SidebarDocumentView | undefined {
 }
 
 /**
- * A sidebar Prioritizing proposed, in its chat: drawn from the proposal's
- * document by the same rows as the window's sidebar, at its full height. While
- * it is open the person's drags, folds and section names edit the proposal;
- * Use this sidebar accepts it and Keep mine declines it.
+ * The part of a proposed sidebar worth reading: each run under a heading that
+ * holds something the proposal changes, heading and all, so a new or moved row
+ * is read among its neighbours. Runs it leaves as they are, and the rules
+ * between runs, are left out. Without the sidebar it changes, all of it.
+ */
+function changedRuns(
+    items: readonly SidebarItem[],
+    anchorOf: ReadonlyMap<string, string | null>,
+    changed: ReadonlySet<string> | undefined,
+): SidebarItem[] {
+    const rows = items.filter((item) => item.kind !== "separator");
+    if (changed === undefined) return rows;
+    const runs: SidebarItem[][] = [];
+    for (const item of rows) {
+        if (runs.length === 0 || ((item.depth ?? 0) === 0 && item.kind === "section"))
+            runs.push([]);
+        runs.at(-1)!.push(item);
+    }
+    return runs
+        .filter((run) =>
+            run.some((item) => {
+                const key = anchorOf.get(item.id) ?? item.id;
+                return changed.has(key);
+            }),
+        )
+        .flat();
+}
+
+/**
+ * A sidebar Focus proposed, previewed in a chat: what it changes, drawn by the
+ * same rows as the window's sidebar, at its full height. It is read-only; the
+ * decision is the chat's own button, and a change is asked for in words.
  */
 export function HappyAgentSidebarProposal(props: HappyAgentSidebarProposalProps) {
     const { store, artifactId } = props;
@@ -55,28 +77,35 @@ export function HappyAgentSidebarProposal(props: HappyAgentSidebarProposalProps)
     store.proposalsRequest([artifactId]);
     const entry = proposals.get(artifactId);
     const proposal = entry?.type === "ready" ? entry.proposal : undefined;
-    const view = proposal ? viewOf(proposal.html) : undefined;
-    const open = proposal?.status === "open" && proposal.answering === undefined;
+    const view = viewOf(proposal?.html);
+    const current = viewOf(props.snapshot.sidebar?.html);
     const drawn = view
         ? happyAgentSpacesItems({
               view,
               snapshot: props.snapshot,
               places: props.places,
-              editable: open,
+              editable: false,
               titleShimmerEnabled: props.titleShimmerEnabled,
               stemCellAnimation: props.stemCellAnimation,
-              search: { label: "Search", ...COMMAND_INERT },
-              create: { label: "Create", ...COMMAND_INERT },
+              search: COMMAND_NONE,
+              create: COMMAND_NONE,
               sessionRow: props.sessionRow,
               worktreeRows: () => [],
+              ...(proposal ? { newRows: proposal.newRows } : {}),
           })
         : undefined;
-    const edit = (change: (current: SidebarDocumentView) => SidebarDocumentView | undefined) => {
-        if (!proposal || !open) return;
-        const html = sidebarDocumentEdit(proposal.html, change);
-        if (html !== undefined) store.proposalEdit(artifactId, html);
-    };
-    const anchorOf = drawn?.anchorOf;
+    /* What the proposal changes, by node key; once it is decided the sidebar is
+       it, so the whole proposal is read as it was. */
+    const changed =
+        view && current && proposal?.status === "open"
+            ? new Set(
+                  sidebarProposalDiff(current, view).changes.flatMap((change) => [
+                      change.key,
+                      ...change.members,
+                  ]),
+              )
+            : undefined;
+    const rows = drawn ? changedRuns(drawn.items, drawn.anchorOf, changed) : undefined;
     return (
         // The inline frame stretches its child to the height it reserves, so the
         // proposal is measured in a box of its own that keeps its content height.
@@ -88,8 +117,8 @@ export function HappyAgentSidebarProposal(props: HappyAgentSidebarProposalProps)
                 // The chat sizes this row from its model, so every height the
                 // proposal settles on is reported; nothing scrolls inside it.
                 ref={(node) => {
-                    if (!node) return;
                     const fit = props.fit;
+                    if (!node || !fit) return;
                     const report = () => fit.heightChanged(node.getBoundingClientRect().height);
                     const observer = new ResizeObserver(report);
                     observer.observe(node);
@@ -100,47 +129,10 @@ export function HappyAgentSidebarProposal(props: HappyAgentSidebarProposalProps)
             >
                 {entry?.type === "missing" ? (
                     <span>This proposal is no longer available.</span>
-                ) : proposal && drawn ? (
+                ) : proposal && rows ? (
                     <SidebarProposal
-                        {...(proposal.answering ? { answering: proposal.answering } : {})}
                         {...(proposal.error ? { notice: proposal.error.message } : {})}
-                        itemMenuItems={(item) =>
-                            item.kind === "section"
-                                ? [
-                                      {
-                                          kind: "item",
-                                          id: MENU_RENAME,
-                                          label: "Rename section",
-                                          icon: "edit",
-                                      },
-                                  ]
-                                : []
-                        }
-                        itemRename={{
-                            actionId: MENU_RENAME,
-                            onSubmit: (item, name) => {
-                                const label = name.trim();
-                                const key = anchorOf?.get(item.id);
-                                if (label && key)
-                                    edit((current) => sidebarDocumentRelabel(current, key, label));
-                            },
-                        }}
-                        onAccept={() => store.proposalAccept(artifactId)}
-                        onDecline={() => store.proposalDecline(artifactId)}
-                        onItemCollapseToggle={(id) => {
-                            const key = anchorOf?.get(id);
-                            if (key) edit((current) => sidebarDocumentFold(current, key));
-                        }}
-                        onItemReorder={(_list, move) => {
-                            const key = anchorOf?.get(move.id);
-                            if (!key) return;
-                            const afterKey =
-                                move.afterId === null
-                                    ? null
-                                    : (anchorOf?.get(move.afterId) ?? null);
-                            edit((current) => sidebarDocumentMove(current, key, afterKey));
-                        }}
-                        sections={[{ id: LIST, items: drawn.items }]}
+                        sections={[{ id: LIST, items: rows }]}
                         status={proposal.status}
                         revision={proposal.revision}
                     />

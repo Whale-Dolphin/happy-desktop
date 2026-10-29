@@ -25,7 +25,9 @@ import { renderMessageMarkdown } from "./MessageMarkdown";
 import { conversationMediaVisible } from "./conversationInlineLayouts";
 import { messageReferencesPlainText, type MessageReferences } from "./messageReferences";
 import { ArtifactTypeGlyph } from "./pages/artifacts/artifactPresentation";
+import { clayIconMark, clayIconSlugIs } from "./clayIcons";
 import { ScrollingText } from "./ScrollingText";
+import { ShimmerText } from "./ShimmerText";
 import { Spinner } from "./Spinner";
 import { toolCallStillGlyph } from "./toolCallStillGlyph";
 import { TypedText } from "./TypedText";
@@ -281,6 +283,9 @@ function toolVerb(
     if (/(write|edit|patch|update|apply)/.test(lower)) return active ? "Editing" : "Edited";
     return active ? "Tool" : "Used";
 }
+
+/** What `toolVerb` calls a tool it has no word for. */
+const GENERIC_VERBS: ReadonlySet<string> = new Set(["Tool", "Used"]);
 
 /** Turns the lifecycle word into the stable action label used by focused rows. */
 function toolVerbFocused(verb: string): string {
@@ -873,6 +878,21 @@ function AgentToolActivity(props: {
     // derives their block at render time from the name, arguments, and result. We
     // do the same, but only when no richer presentation (diff/exec) applies.
     const mcp = presentation ? undefined : parseMcpToolName(tool.toolName);
+    /* The agent a spawn made, once the window knows it, which a click opens
+       where this reader may. */
+    const spawned =
+        presentation?.type === "agentSpawn" && !tool.failed && tool.status !== "failed"
+            ? presentation.agent
+            : undefined;
+    const spawnedId = presentation?.type === "agentSpawn" ? presentation.agentId : undefined;
+    const references = props.references;
+    const spawnedOpen =
+        spawned !== undefined &&
+        spawnedId !== undefined &&
+        references !== undefined &&
+        references.view({ kind: "agent", id: spawnedId }).type === "link"
+            ? () => references.open({ kind: "agent", id: spawnedId })
+            : undefined;
 
     /* The call's own few words, with any agent it names by ID read as that
        agent's name. */
@@ -881,9 +901,17 @@ function AgentToolActivity(props: {
     let primaryText: string;
     let stats: { added: number; deleted: number } | undefined;
     let verb: string;
+    /** The row's one word is the tool's own name, said as plain words rather than typed out. */
+    let named = false;
     if (mcp) {
         verb = toolVerb(tool.toolName, tool.status, presentation);
         primaryText = `${mcp.server} · ${mcp.tool}`;
+    } else if (presentation?.type === "agentSpawn" && spawned !== undefined) {
+        /* The agent it made, by its own name, then what it was asked and the
+           model it runs on. */
+        verb = spawned.name;
+        named = true;
+        primaryText = [summary, presentation.model?.name].filter(Boolean).join(" · ");
     } else if (presentation?.type === "agentSpawn") {
         verb = toolVerb(tool.toolName, tool.failed ? "failed" : tool.status, presentation);
         primaryText =
@@ -945,6 +973,16 @@ function AgentToolActivity(props: {
         // showing that made a run of rows read as the same thing happening over
         // and over. The command is context, and it moves into the body below.
         primaryText = terminalInputSummary(presentation.input) || presentation.command;
+    } else if (
+        summary === undefined &&
+        stillGlyph === undefined &&
+        GENERIC_VERBS.has(toolVerb(tool.toolName, tool.status, presentation))
+    ) {
+        /* A tool the row knows nothing about is named by what it is, in the
+           row's own words: "Discover work", not "Tool" over its name in code. */
+        verb = humanizeToolName(tool.toolName);
+        named = true;
+        primaryText = "";
     } else {
         verb = toolVerb(tool.toolName, tool.status, presentation);
         primaryText =
@@ -1004,7 +1042,7 @@ function AgentToolActivity(props: {
               ? `$ ${presentation.command}`
               : `${tool.toolName} ${JSON.stringify(tool.arguments)}`;
     const copyText = [
-        primaryText,
+        primaryText || verb,
         // A described command copies with the command itself, which the row no longer shows.
         described && presentation?.type === "execCommand" ? presentation.command : undefined,
         action !== undefined && presentation?.type !== "execCommand" ? rawCall : undefined,
@@ -1081,6 +1119,8 @@ function AgentToolActivity(props: {
                         tone="muted"
                         variant="circle"
                     />
+                ) : spawned !== undefined ? (
+                    <AgentMessageFace face={spawned.face} />
                 ) : (
                     <ToolIcon
                         glyph={toolGlyph(
@@ -1096,7 +1136,12 @@ function AgentToolActivity(props: {
                 data-empty={verb === "" ? "" : undefined}
                 data-happy-desktop-ui="agent-activity-verb"
             >
-                <AgentActivityChangingText typed={verbTyped} value={verb} />
+                {/* An agent it made shimmers its name while it works, as its sidebar row does. */}
+                {spawned?.working ? (
+                    <ShimmerText inline>{verb}</ShimmerText>
+                ) : (
+                    <AgentActivityChangingText typed={verbTyped && !named} value={verb} />
+                )}
             </span>
             {stats ? (
                 <span
@@ -1137,7 +1182,7 @@ function AgentToolActivity(props: {
                         </span>
                     ) : null}
                 </span>
-            ) : (
+            ) : primaryText ? (
                 <ScrollingText
                     className="happy-agent-activity__text"
                     data-happy-desktop-ui="agent-activity-text"
@@ -1148,7 +1193,7 @@ function AgentToolActivity(props: {
                         value={primaryText}
                     />
                 </ScrollingText>
-            )}
+            ) : null}
             {hasBody ? (
                 <span aria-hidden="true" className="happy-agent-activity__chevron">
                     <Icon name={expanded ? "chevron-down" : "chevron-right"} size={14} />
@@ -1171,6 +1216,8 @@ function AgentToolActivity(props: {
             data-presentation={presentation?.type ?? "generic"}
             data-described={described ? "" : undefined}
             data-action={action || presentation?.type === "fileDiff" ? "" : undefined}
+            data-named={named ? "" : undefined}
+            data-spawned={spawned !== undefined ? "" : undefined}
             data-review={tool.review ? "" : undefined}
             data-elevated={elevated ? "" : undefined}
             data-single-line={singleLine ? "" : undefined}
@@ -1181,11 +1228,14 @@ function AgentToolActivity(props: {
                 it: the header is itself a button in most variants, and a
                 nested button would be neither valid nor clickable. */}
             <div className="happy-agent-activity__line" data-happy-desktop-ui="agent-activity-line">
-                {singleLine && props.onSelect ? (
+                {singleLine && (spawnedOpen || props.onSelect) ? (
+                    // A spawned agent opens itself, wherever its row is drawn.
                     <button
+                        aria-label={spawnedOpen && spawned ? `Open ${spawned.name}` : undefined}
                         className="happy-agent-activity__header"
                         data-happy-desktop-ui="agent-activity-header"
-                        onClick={() => props.onSelect?.(tool)}
+                        data-opens={spawnedOpen ? "agent" : undefined}
+                        onClick={() => (spawnedOpen ? spawnedOpen() : props.onSelect?.(tool))}
                         title={rawCall}
                         type="button"
                     >
@@ -1202,10 +1252,15 @@ function AgentToolActivity(props: {
                 ) : (
                     <button
                         aria-expanded={hasBody ? (expanded ? "true" : "false") : undefined}
+                        aria-label={spawnedOpen && spawned ? `Open ${spawned.name}` : undefined}
                         className="happy-agent-activity__header"
                         data-happy-desktop-ui="agent-activity-header"
-                        disabled={!hasBody}
-                        onClick={(event) => hasBody && setExpanded(!expanded, event.currentTarget)}
+                        data-opens={spawnedOpen ? "agent" : undefined}
+                        disabled={!hasBody && !spawnedOpen}
+                        onClick={(event) => {
+                            if (spawnedOpen) spawnedOpen();
+                            else if (hasBody) setExpanded(!expanded, event.currentTarget);
+                        }}
                         type="button"
                     >
                         {header}
@@ -1596,7 +1651,7 @@ function AgentMessageActivity(props: {
                         : // A line that names its sender already says who it is from.
                           props.explanation.includes(props.agentId)
                           ? null
-                          : (props.agentName ?? agentIdShort(props.agentId))}
+                          : `${props.agentName ?? agentIdShort(props.agentId)} replied`}
                 </span>
                 <ScrollingText
                     className="happy-agent-activity__text"
@@ -1643,10 +1698,25 @@ const AGENT_MESSAGE_FACE_SIZE = 14;
 
 /**
  * The sender's face, as its own row elsewhere pictures it, shrunk to the glyph
- * lane: a picture, initials, the tasks glyph, or the generated mark.
+ * lane: a picture, initials, the tasks glyph, its clay icon, or the generated
+ * mark.
  */
 function AgentMessageFace(props: { face: ConversationAgentFace }) {
     const face = props.face;
+    // A clay icon this library doesn't draw is the agents glyph.
+    if (face.kind === "library")
+        return clayIconSlugIs(face.slug) ? (
+            <img
+                {...clayIconMark(face.slug)}
+                alt=""
+                className="happy-agent-activity__face-icon"
+                draggable={false}
+                height={AGENT_MESSAGE_FACE_SIZE}
+                width={AGENT_MESSAGE_FACE_SIZE}
+            />
+        ) : (
+            <Icon name="agents" size={12} />
+        );
     return (
         <Avatar
             {...(face.kind === "image" ? { imageUrl: face.url } : {})}

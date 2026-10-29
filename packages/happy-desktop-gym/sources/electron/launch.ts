@@ -67,7 +67,119 @@ export async function gymElectronLaunch(
             "This desktop build has no hidden-window mode. Rebuild happy-desktop-electron.",
         );
     }
+    // A run has no Dock tile to mark, and touching the tile is the one thing
+    // the app still does to the Dock in a hidden run.
+    await app.evaluate(({ app: electronApp }) => {
+        if (electronApp.dock) electronApp.dock.setBadge = () => undefined;
+    });
+    await gymElectronDockWatch(app).catch(async (error: unknown) => {
+        await app.close().catch(() => undefined);
+        throw error;
+    });
     return app;
+}
+
+/**
+ * Watches for the Dock tile from inside the app's main process, so a run the
+ * hidden-window guard ends says what came just before: every call into the
+ * Dock, the app's activation, and its windows' presentation is kept with its
+ * stack, and the moment the tile shows, the last of them go to stderr as
+ * `[gym-dock]` lines. It only observes; the guard still ends the run.
+ */
+async function gymElectronDockWatch(app: ElectronApplication): Promise<void> {
+    await app.evaluate(({ app: electronApp, BrowserWindow, Menu, powerSaveBlocker }) => {
+        // tsx names the functions below through a helper the app does not have.
+        (globalThis as { __name?: (value: unknown) => unknown }).__name ??= (value) => value;
+        if (process.platform !== "darwin" || !electronApp.dock) return;
+        const started = Date.now();
+        const recent: { at: number; what: string; stack?: string }[] = [];
+        const record = (what: string, stack = true) => {
+            recent.push({
+                at: Date.now() - started,
+                what,
+                ...(stack ? { stack: new Error().stack?.split("\n").slice(3, 12).join("\n") } : {}),
+            });
+            if (recent.length > 60) recent.shift();
+        };
+        const wrap = (owner: object, name: string, label: string) => {
+            const target = owner as Record<string, unknown>;
+            const original = target[name];
+            if (typeof original !== "function") return;
+            target[name] = function (this: unknown, ...args: unknown[]) {
+                record(
+                    `${label}.${name}(${args
+                        .map((arg) => {
+                            // A menu or a window refers back to itself.
+                            try {
+                                return JSON.stringify(arg) ?? typeof arg;
+                            } catch {
+                                return typeof arg;
+                            }
+                        })
+                        .join(", ")
+                        .slice(0, 120)})`,
+                );
+                return (original as (...values: unknown[]) => unknown).apply(this, args);
+            };
+        };
+        const dock = electronApp.dock;
+        for (const name of ["show", "hide", "bounce", "setIcon", "setMenu", "downloadFinished"])
+            wrap(dock, name, "dock");
+        for (const name of ["focus", "show", "hide", "setActivationPolicy", "setBadgeCount"])
+            wrap(electronApp, name, "app");
+        for (const name of [
+            "show",
+            "showInactive",
+            "focus",
+            "moveTop",
+            "restore",
+            "setFullScreen",
+            "setSimpleFullScreen",
+            "setKiosk",
+            "setVisibleOnAllWorkspaces",
+            "setAlwaysOnTop",
+            "setParentWindow",
+            "setSheetOffset",
+        ])
+            wrap(BrowserWindow.prototype, name, "window");
+        wrap(Menu, "setApplicationMenu", "Menu");
+        wrap(powerSaveBlocker, "start", "powerSaveBlocker");
+        for (const event of [
+            "activate",
+            "did-become-active",
+            "did-resign-active",
+            "browser-window-created",
+            "web-contents-created",
+            "open-url",
+            "open-file",
+            "second-instance",
+            "child-process-gone",
+            "render-process-gone",
+        ] as const)
+            (electronApp.on as (name: string, listener: () => void) => void)(event, () =>
+                record(`event ${event}`, false),
+            );
+        let shown = dock.isVisible();
+        setInterval(() => {
+            const now = dock.isVisible();
+            if (now === shown) return;
+            shown = now;
+            const windows = BrowserWindow.getAllWindows().map((window) => ({
+                id: window.id,
+                title: window.getTitle(),
+                visible: window.isVisible(),
+                focused: window.isFocused(),
+                url: window.webContents.getURL().slice(0, 120),
+            }));
+            console.error(
+                `[gym-dock] the Dock tile ${now ? "appeared" : "went away"} at ${String(Date.now() - started)} ms; windows ${JSON.stringify(windows)}`,
+            );
+            for (const entry of recent)
+                console.error(
+                    `[gym-dock]   +${String(entry.at)} ms ${entry.what}${entry.stack ? `\n${entry.stack}` : ""}`,
+                );
+        }, 10).unref();
+    });
 }
 
 export interface GymElectronProcessResult {
@@ -145,9 +257,15 @@ export async function gymElectronInvisibleAssert(
 }
 
 export interface GymElectronVideoOptions {
-    /** Output path; `.webm`. */
+    /** Output path; `.webm` for VP8, `.mkv` for H.264. */
     readonly path: string;
     readonly fps?: number;
+    /**
+     * VP8 by default, which Playwright's own ffmpeg encodes. H.264 is several
+     * times cheaper to encode and needs an ffmpeg with libx264:
+     * `HAPPY_DESKTOP_GYM_FFMPEG`, else the one on PATH.
+     */
+    readonly codec?: "vp8" | "h264";
     /** Output pixels per CSS pixel; 2 records at Retina resolution. */
     readonly scale?: number;
 }
@@ -166,7 +284,7 @@ export interface GymElectronVideo {
 }
 
 /**
- * Records the page's own compositor frames to WebM. Chromium's screencast
+ * Records the page's own compositor frames to WebM, or H.264 Matroska. Chromium's screencast
  * streams frames from the hidden window exactly as it paints them; the latest
  * frame is written at a constant rate, so a still screen is still time.
  */
@@ -183,10 +301,12 @@ export async function gymElectronVideoRecord(
     const even = (value: number) => Math.max(2, Math.round((value * scale) / 2) * 2);
     const width = even(viewport.width);
     const height = even(viewport.height);
+    const h264 = options.codec === "h264";
     const encoder = spawn(
-        ffmpegExecutable(),
-        // The screencast's JPEG frames in at a constant rate, VP8 WebM out; a
-        // resized window keeps the first frame's size, letterboxed.
+        h264 ? process.env.HAPPY_DESKTOP_GYM_FFMPEG?.trim() || "ffmpeg" : ffmpegExecutable(),
+        // The screencast's JPEG frames in at a constant rate, VP8 WebM or
+        // H.264 Matroska out; a resized window keeps the first frame's size,
+        // letterboxed.
         [
             "-loglevel",
             "error",
@@ -200,20 +320,24 @@ export async function gymElectronVideoRecord(
             "-i",
             "pipe:0",
             "-an",
-            "-c:v",
-            "vp8",
-            "-b:v",
-            "4M",
-            "-crf",
-            "6",
-            "-qmin",
-            "0",
-            "-qmax",
-            "40",
-            "-deadline",
-            "realtime",
-            "-cpu-used",
-            "8",
+            ...(h264
+                ? ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-f", "matroska"]
+                : [
+                      "-c:v",
+                      "vp8",
+                      "-b:v",
+                      "4M",
+                      "-crf",
+                      "6",
+                      "-qmin",
+                      "0",
+                      "-qmax",
+                      "40",
+                      "-deadline",
+                      "realtime",
+                      "-cpu-used",
+                      "8",
+                  ]),
             "-pix_fmt",
             "yuv420p",
             "-vf",

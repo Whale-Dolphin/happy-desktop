@@ -339,6 +339,12 @@
     margin-left: auto;
 }
 
+/* A composer that cannot send yet offers no arrow to press. The slot keeps its
+   box, so nothing moves when sending becomes possible. */
+.happy-composer[data-disabled] .happy-composer__send {
+    visibility: hidden;
+}
+
 .happy-composer__send.happy-button {
     border-radius: 50%;
     /* Availability fades this one stable light control in and out. Its dark

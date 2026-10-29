@@ -58,7 +58,13 @@ export type CommandPaletteGlyph =
           readonly icon?: IconName;
       }
     /** The artwork a spaces row wears: a clay icon, or new work's stem cell. */
-    | { readonly kind: "mark"; readonly imageMark?: ImageMark; readonly stemCell?: StemCellMark }
+    | {
+          readonly kind: "mark";
+          readonly imageMark?: ImageMark;
+          readonly stemCell?: StemCellMark;
+          /** Happy's own mark, as its sidebar row wears it. */
+          readonly happyMark?: true;
+      }
     | { readonly kind: "emphasis"; readonly emphasis: CommandPaletteRowEmphasis };
 
 /**

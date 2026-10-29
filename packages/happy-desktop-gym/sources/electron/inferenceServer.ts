@@ -14,6 +14,17 @@ import type {
 
 /** Opens a turn the inference server streams slowly enough to be stopped mid-way. */
 export const GYM_STOP_SHIMMER_PROMPT = "Take your time. gym-stop-shimmer";
+/** How Happy's first conversation starts the task the person accepted. */
+export const GYM_ONBOARDING_START_PROMPT = "Let's start on ";
+/** A short, plausible first reply for onboarding recordings; a fixture, never a model. */
+const GYM_ONBOARDING_START_REPLY = [
+    "I'll start by reading where the onboarding work stands.",
+    "",
+    "- `master-plans/06-onboarding.md` describes first run as Happy's own chat in the real window.",
+    "- The setup screens it replaces are `SetupPage` and `WelcomeScreen`.",
+    "",
+    "Next I'll compare the two and list what's left. I'll check in before changing anything.",
+].join("\n");
 /** Opens a turn that hands a slow turn to a subtask of its own. */
 export const GYM_STOP_SHIMMER_PARENT_PROMPT = "Delegate it. gym-stop-shimmer-parent";
 
@@ -29,16 +40,24 @@ export function gymFixtureLargeChangedLines(profile: GymProfile): number {
     return 1_800;
 }
 
+/**
+ * A gym scenario's own model, in place of the deterministic replies: it
+ * answers every request the scenario's daemon makes.
+ */
+export type GymInferenceScript = (request: GymInferenceRequest) => GymInferenceResponse;
+
 export function gymInferenceServerCreate(
     manifest: GymManifest,
     logPath: string,
+    script?: GymInferenceScript,
 ): GymInferenceServer {
-    return new DeterministicInferenceServer(manifest, logPath);
+    return new DeterministicInferenceServer(manifest, logPath, script);
 }
 
 class DeterministicInferenceServer implements GymInferenceServer {
     readonly #manifest: GymManifest;
     readonly #logPath: string;
+    readonly #script: GymInferenceScript | undefined;
     readonly #token = randomBytes(24).toString("hex");
     readonly #liveToolRequestedSessionIds = new Set<string>();
     readonly #liveToolCompletedSessionIds = new Set<string>();
@@ -48,9 +67,10 @@ class DeterministicInferenceServer implements GymInferenceServer {
     #callIndex = 0;
     #logInitialized = false;
 
-    constructor(manifest: GymManifest, logPath: string) {
+    constructor(manifest: GymManifest, logPath: string, script?: GymInferenceScript) {
         this.#manifest = manifest;
         this.#logPath = logPath;
+        this.#script = script;
     }
 
     get url(): string {
@@ -147,7 +167,7 @@ class DeterministicInferenceServer implements GymInferenceServer {
                 })}\n`,
                 "utf8",
             );
-            const reply = this.#reply(payload);
+            const reply = this.#script?.(payload) ?? this.#reply(payload);
             response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify(reply));
         } catch (error) {
@@ -222,6 +242,13 @@ class DeterministicInferenceServer implements GymInferenceServer {
                 ],
             };
         }
+        if (latestPrompt.startsWith(GYM_ONBOARDING_START_PROMPT))
+            return {
+                content: [{ type: "text", text: GYM_ONBOARDING_START_REPLY }],
+                textDeltaChunkSize: 6,
+                textDeltaDelayMs: 30,
+                completionDelayMs: 0,
+            };
         if (latestPrompt.startsWith(GYM_STOP_SHIMMER_PROMPT)) {
             // A turn slow enough to still be streaming when the person presses
             // Stop: about a minute of small deltas, which the abort cuts short.

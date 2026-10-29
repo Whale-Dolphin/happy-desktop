@@ -329,6 +329,11 @@ export function fakeUserMessage(overrides: Partial<UserMessage> & { id: string }
 }
 
 /** An assistant message with the given blocks. */
+/**
+ * A model's message, as inference writes it: it names the provider and model
+ * that produced it. A message Happy Agent writes itself, with no model, passes
+ * `metadata: {}`.
+ */
 export function fakeAgentMessage(
     overrides: Partial<Extract<Message, { role: "agent" }>> & { id: string },
 ): Extract<Message, { role: "agent" }> {
@@ -337,7 +342,7 @@ export function fakeAgentMessage(
         createdAt: 1,
         role: "agent",
         ...overrides,
-        metadata: overrides.metadata ?? {},
+        metadata: overrides.metadata ?? { providerId: MODE.providerId, modelId: MODE.modelId },
     };
 }
 

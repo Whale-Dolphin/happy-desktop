@@ -8,20 +8,20 @@ export function conversationErrorAssistanceText(assistance: ConversationErrorAss
 } {
     switch (assistance.status) {
         case "ready":
-            return { label: "Ask Chief of Staff", disabled: false };
+            return { label: "Ask Happy", disabled: false };
         case "pending":
-            return { label: "Preparing Chief of Staff draft…", disabled: true };
+            return { label: "Preparing Happy draft…", disabled: true };
         case "prepared":
-            return { label: "Draft prepared in Chief of Staff", disabled: true };
+            return { label: "Draft prepared in Happy", disabled: true };
         case "failed":
             return {
-                label: "Ask Chief of Staff",
+                label: "Ask Happy",
                 detail: `Could not prepare the draft: ${assistance.reason}`,
                 disabled: false,
             };
         case "unavailable":
             return {
-                label: "Ask Chief of Staff",
+                label: "Ask Happy",
                 detail: assistance.reason,
                 disabled: true,
             };

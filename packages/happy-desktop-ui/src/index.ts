@@ -115,6 +115,15 @@ export {
     type ToneName,
 } from "./Avatar";
 export { StemCell, type StemCellMark, type StemCellProps } from "./StemCell";
+export { type CellVariant } from "./CellPaint";
+export { HappyCell, type HappyCellProps, type HappyCellSize } from "./HappyCell";
+export {
+    HappyCellDivision,
+    type DivisionRect,
+    type HappyCellDaughter,
+    type HappyCellDivisionProps,
+} from "./HappyCellDivision";
+export { HappyMark, type HappyMarkSize } from "./HappyMark";
 export { StemCellGrowth, type ImageMark, type StemCellGrowthProps } from "./StemCellGrowth";
 export {
     playStemCellToIcon,
@@ -1124,3 +1133,16 @@ export {
     type StoryInlineCardState,
 } from "./StoryInlineCard";
 export { StickerView, type StickerViewProps, type StorySticker } from "./StickerView";
+
+export {
+    ChatActionBlock,
+    chatActionBlockHeight,
+    type ChatActionBlockProps,
+    type ChatActionFigures,
+} from "./ChatActionBlock";
+export {
+    ChatDefaultModelFigure,
+    ChatProviderCliFigure,
+    type ChatDefaultModelFigureProps,
+    type ChatProviderCliFigureProps,
+} from "./ChatActionFigures";

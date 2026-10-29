@@ -1,6 +1,6 @@
 # Mobile Access management
 
-This is the Desktop workflow and the operational recipe for the Chief of Staff.
+This is the Desktop workflow and the operational recipe for Happy.
 Use Settings → Mobile Access to inspect and manage the selected Happy Agent's
 phone pairing separately from the operating-system user's existing Happy CLI.
 First-run phone pairing has no Node.js or terminal CLI prerequisite.
@@ -108,7 +108,7 @@ already running sessions require their own explicit ownership and cleanup
 contracts. Never describe these scoped controls as complete local auth removal.
 Never recursively remove `~/.happy` or `HAPPY_HOME_DIR`.
 
-## Chief of Staff procedure
+## Happy procedure
 
 Read this recipe alongside the installed `recipe/mobile-access.md` entry in the
 Happy Agent documentation map. Establish whether the request concerns Agent

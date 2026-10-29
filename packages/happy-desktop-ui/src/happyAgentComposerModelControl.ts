@@ -38,7 +38,7 @@ function choiceOf(option: HappyAgentModelOption): ComposerModelChoice {
 /**
  * The notice beside the pill for a selection whose account is not an ordinary
  * choice. An unavailable one carries the exact request it would hand the
- * Chief of Staff, so the reader sees it before asking.
+ * Happy, so the reader sees it before asking.
  */
 function accountNoticeOf(
     menus: HappyAgentMenusSnapshot,
@@ -86,7 +86,7 @@ export function happyAgentComposerModelControlProps(
         readonly usageWatch?: ComposerModelUsageWatch;
         /** The conversation the pill belongs to; absent before it is started. */
         readonly sessionId?: HappyAgentSessionId;
-        /** Adds a request to the Chief of Staff's draft and opens it. Nothing is sent. */
+        /** Adds a request to Happy's draft and opens it. Nothing is sent. */
         readonly onChiefOfStaffAsk?: (request: HappyAgentChiefOfStaffRequest) => Promise<void>;
     },
 ): ComposerModelControlProps {

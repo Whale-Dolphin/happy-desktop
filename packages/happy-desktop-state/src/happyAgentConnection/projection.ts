@@ -1,3 +1,6 @@
+import { chatActionSegments } from "../chatActions/chatActionBlocks.js";
+import { happyAgentActionChoicesRead } from "../chatActions/chatActionChoices.js";
+import { chatActionPressRead, chatActionPressText } from "../chatActions/chatActionPressText.js";
 import { gitSnapshotProject, type GitSnapshotState } from "./gitSnapshotState.js";
 import { mediaLayoutProject, mediaScaleProject } from "./mediaLayoutProject.js";
 import type {
@@ -156,6 +159,7 @@ export function projectSession(input: SessionProjectionInput): SessionState {
               }),
         status: activeRun === undefined ? "idle" : "running",
         archived: agent.archivedAt !== null,
+        ...composerPlaceholderOf(agent),
         sessionId: agent.id,
         ownerInstanceId: input.endpoint,
         scope,
@@ -298,13 +302,35 @@ function projectQuestionElement(question: Question): Extract<ChatElement, { kind
     return element;
 }
 
+/**
+ * The agent's own invitation for its composer. The published client does not
+ * type `composerPlaceholder` yet, so it is read here against API.md's shape.
+ */
+function composerPlaceholderOf(agent: object): { composerPlaceholder?: string } {
+    const value = (agent as { composerPlaceholder?: unknown }).composerPlaceholder;
+    return typeof value === "string" && value.trim().length > 0
+        ? { composerPlaceholder: value }
+        : {};
+}
+
 export function projectElements(input: SessionProjectionInput): readonly ChatElement[] {
+    /* Read once, and only for a transcript with a press to say. */
+    let texts: Map<string, readonly string[]> | undefined;
     const reader: TranscriptReader = {
         mediaUrl: input.mediaUrl,
         agentId: input.agent.id,
         parentAgentId: input.agent.parentAgentId,
         userProfiles: input.userProfiles,
         currentUserId: input.currentUserId,
+        messageTexts: (messageId) => {
+            texts ??= new Map(
+                input.messages.map(({ message }) => [
+                    message.id,
+                    message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])),
+                ]),
+            );
+            return texts.get(messageId);
+        },
     };
     const messagesByRun = new Map<string, TranscriptMessage[]>();
     const pending: TranscriptMessage[] = [];
@@ -798,6 +824,7 @@ const groupSessionCache = new WeakMap<
         workspaceKind: Workspace["kind"] | undefined;
         botId: string | undefined;
         projectId: string;
+        drafted: boolean;
         value: GroupSession;
     }
 >();
@@ -877,9 +904,12 @@ function projectAgent(
     // keystroke does not replace the row or the list.
     const mode = modeOf(config, draft, storedMode);
     const draftPreview = draftPreviewOf(draft);
+    // Whether there is text waiting to be sent, which a row says; never the text.
+    const drafted = (draft?.value?.text ?? "") !== "";
     const cached = groupSessionCache.get(agent);
     if (
         cached &&
+        cached.drafted === drafted &&
         cached.config === config &&
         deepEqual(cached.mode, mode) &&
         cached.draftPreview === draftPreview &&
@@ -907,6 +937,7 @@ function projectAgent(
         ...(agent.archivedAt === null ? {} : { archivedAt: agent.archivedAt }),
         createdAt: agent.createdAt,
         cwd,
+        ...(drafted ? { drafted: true as const } : {}),
         effort: mode.effort,
         id: agent.id,
         ...(agent.lastActivityAt === undefined ? {} : { lastActivityAt: agent.lastActivityAt }),
@@ -957,6 +988,7 @@ function projectAgent(
         workspaceKind: workspace?.kind,
         botId,
         projectId,
+        drafted,
         value,
     });
     return value;
@@ -1076,6 +1108,8 @@ interface TranscriptReader {
     readonly currentUserId?: string;
     readonly agentId: string;
     readonly parentAgentId: string | null;
+    /** The text blocks of another message in this transcript, which a press names. */
+    readonly messageTexts: (messageId: string) => readonly string[] | undefined;
 }
 
 const messageElements = new WeakMap<Message, MessageElements>();
@@ -1146,6 +1180,9 @@ function messageElementsProject(
     const elementId = message.id;
     const base = { groupId: runId, runId, createdAt: message.createdAt };
     if (message.role === "user") {
+        /* A press is the person's action message, said as what they pressed, so
+           they see they could have typed it; the control shows it chosen too. */
+        const press = chatActionPressRead(message.content);
         const senderAgent = senderAgentOf(message, reader);
         return [
             {
@@ -1170,7 +1207,9 @@ function messageElementsProject(
                     message.status === "pending" && message.delivery === "steer"
                         ? "pending_steering"
                         : "sent",
-                text: messageText(message),
+                text: press
+                    ? chatActionPressText(press, reader.messageTexts(press.messageId))
+                    : messageText(message),
                 attachments: message.content
                     .filter(
                         (block): block is Extract<MessageBlock, { type: "image" }> =>
@@ -1207,6 +1246,10 @@ function messageElementsProject(
     }
 
     const elements: ChatElement[] = [];
+    const actionChoices =
+        message.role === "agent" ? happyAgentActionChoicesRead(message) : undefined;
+    /* The daemon counts a message's action blocks across all its text. */
+    let actionBlockOffset = 0;
     for (let index = 0; index < message.content.length; index += 1) {
         const block = message.content[index];
         if (block === undefined) continue;
@@ -1220,7 +1263,16 @@ function messageElementsProject(
                     messageId: message.id,
                     text: block.text,
                     complete: runStatus !== "running",
+                    ...(message.metadata.providerId === undefined
+                        ? { scripted: true as const }
+                        : {}),
+                    ...(actionChoices ? { actionChoices } : {}),
+                    ...(actionBlockOffset > 0 ? { actionBlockOffset } : {}),
                 });
+                if (index < message.content.length - 1 && block.text.includes("<"))
+                    actionBlockOffset += chatActionSegments(block.text).filter(
+                        (segment) => segment.type === "actions" && segment.block !== undefined,
+                    ).length;
             } else if (
                 message.role === "service" &&
                 (message.failure !== undefined ||

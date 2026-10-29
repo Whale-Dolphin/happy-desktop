@@ -62,7 +62,7 @@ export interface AgentUpdateCardProps {
     /** Runs the update again. Offered only on a failed card. */
     onRetry?(): void;
     /**
-     * Hands the failure to the Chief of Staff. Absent while the Chief of Staff
+     * Hands the failure to Happy. Absent while Happy
      * cannot be reached, so the card never offers a link that goes nowhere.
      */
     onChiefOfStaffAsk?(): void;
@@ -396,7 +396,7 @@ function DetailLine(props: {
                             onClick={props.onChiefOfStaffAsk}
                             type="button"
                         >
-                            Ask Chief of Staff
+                            Ask Happy
                         </button>
                     ) : null}
                 </span>

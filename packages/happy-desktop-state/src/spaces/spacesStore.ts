@@ -205,6 +205,11 @@ export interface HappyAgentSpacesSnapshot {
      * own choice, never written to the sidebar document.
      */
     readonly rowsOpened: HappyAgentSpacesRowsOpened | null;
+    /**
+     * The new work this window made, oldest first: Happy divides into each
+     * row as it first appears. A window's own; one refused leaves no row.
+     */
+    readonly divisions: readonly HappyAgentSpaceId[];
     /** When the sidebar was last read, which picks the day's Make Stuff phrase. */
     readonly readAt: number;
     /** The sidebar document, which arranges the rows when present. */
@@ -367,6 +372,7 @@ const EMPTY: HappyAgentSpacesSnapshot = {
     agentWorkspaces: new Map(),
     olderExpanded: false,
     rowsOpened: null,
+    divisions: [],
     readAt: 0,
 };
 
@@ -1263,6 +1269,7 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             const html = snapshot.sidebar && insert(snapshot.sidebar.html, id, placement);
             publish({
                 spaces: new Map(snapshot.spaces).set(id, space),
+                divisions: [...snapshot.divisions, id],
                 ...(html && snapshot.sidebar ? { sidebar: { ...snapshot.sidebar, html } } : {}),
                 agentWorkspaces: new Map(snapshot.agentWorkspaces).set(
                     identity.agentId,
@@ -1288,6 +1295,9 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
                         snapshot.sidebar && insert(snapshot.sidebar.html, space.id, placement);
                     publish({
                         spaces,
+                        ...(snapshot.divisions.includes(space.id)
+                            ? {}
+                            : { divisions: [...snapshot.divisions, space.id] }),
                         ...(html && snapshot.sidebar
                             ? { sidebar: { ...snapshot.sidebar, html } }
                             : {}),

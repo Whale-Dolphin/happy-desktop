@@ -1,7 +1,8 @@
 import type { ConversationToolCall } from "happy-desktop-state";
 import { AgentActivityRow } from "../../src/AgentActivityRow";
 import { ComponentPage, Specimen } from "../kit";
-import { agentSpawnRows } from "./agentSpawnFixtures";
+import { agentSpawnNamedRows, agentSpawnRows } from "./agentSpawnFixtures";
+import type { MessageReferences } from "../../src/messageReferences";
 import {
     artifactReferences,
     createdArtifactTool,
@@ -32,6 +33,12 @@ import {
 /** The component plan this page documents. The selector and the page header read the same value. */
 export const componentNumber = "C-148";
 
+/** Every agent opens, as one the window lists does. */
+const SPAWNED_OPENABLE: MessageReferences = {
+    view: () => ({ type: "link", label: "", busy: false }),
+    open: () => undefined,
+};
+
 export function AgentActivityRowPage() {
     return (
         <ComponentPage
@@ -59,6 +66,32 @@ export function AgentActivityRowPage() {
                             key={tool.toolCallId}
                             motion="calm"
                             singleLine
+                            treatment="focused"
+                        />
+                    ))}
+                </div>
+            </Specimen>
+            <Specimen
+                detail="The agent a spawn made, as the window knows it: its sidebar row's clay icon and name, shimmering while it works, then what it was asked and its model · a click opens it"
+                label="A spawned agent, by its own name"
+                number="spawn-named"
+                stage="surface"
+            >
+                <div
+                    data-screen="spawn-named"
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        width: "720px",
+                    }}
+                >
+                    {agentSpawnNamedRows.map((tool) => (
+                        <AgentActivityRow
+                            activity={{ kind: "tool", tool }}
+                            key={tool.toolCallId}
+                            motion="calm"
+                            references={SPAWNED_OPENABLE}
                             treatment="focused"
                         />
                     ))}

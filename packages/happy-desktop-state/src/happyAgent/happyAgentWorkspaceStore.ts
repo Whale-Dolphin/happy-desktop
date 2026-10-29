@@ -1,4 +1,4 @@
-import { happyAgentPanelChatOpen } from "./happyAgentPanelChat.js";
+import { happyAgentPanelChatOpen, type HappyAgentPanelChatHandle } from "./happyAgentPanelChat.js";
 import type { HappyAgentDeviceBridgesStore } from "./happyAgentDeviceBridgesStore.js";
 import type { HappyAgentDeviceBridgeSupportStore } from "./happyAgentDeviceBridgeSupportStore.js";
 import type { HappyAgentToolMediaDocumentStore } from "./happyAgentToolMediaDocumentStore.js";
@@ -273,6 +273,8 @@ export interface HappyAgentConversationSnapshot {
      */
     readonly subagentsRunning: boolean;
     readonly workingPhase: HappyAgentWorkingPhase;
+    /** The running turn is Happy Agent's own writing, no model's: no working line reports it. */
+    readonly turnScripted: boolean;
     /** Display-ready activity text from the agent, when it describes its work. */
     readonly workingLabel?: string;
     /** The scheduled wait the agent is inside, so a surface can count it down. */
@@ -314,6 +316,11 @@ export interface HappyAgentConversationSnapshot {
      * letting a choice be made that the next message would fail to apply.
      */
     readonly modelLocked: boolean;
+    /**
+     * What the composer invites, in the agent's own words, such as "Or just
+     * tell me in your own words…"; absent for the window's own prompt.
+     */
+    readonly composerPlaceholder?: string;
     /** Whether a failure card may offer switching to another account and model. */
     readonly failureSwitchSupported: boolean;
     /**
@@ -1570,15 +1577,17 @@ export interface HappyAgentWorkspaceStore {
     messageSendCurrent(message: string): Promise<void>;
     /** Sends agent-authored slot text to one explicitly addressed conversation. */
     messageSend(sessionId: HappyAgentSessionId, message: string): Promise<void>;
+    /** Follows one conversation's transcript without opening it, until the handle is disposed. */
+    conversationWatch(sessionId: HappyAgentSessionId): HappyAgentPanelChatHandle;
     /**
-     * Adds one quoted error to this daemon's Chief of Staff draft, below anything
+     * Adds one quoted error to this daemon's Happy draft, below anything
      * already typed there, then requests navigation. Nothing is sent.
      */
     errorAssistanceRequest(entryId: string): void;
     /**
-     * Adds one labelled request to this daemon's Chief of Staff draft, below
+     * Adds one labelled request to this daemon's Happy draft, below
      * anything already typed there, then requests navigation. Nothing is sent,
-     * and the draft keeps the Chief of Staff's own model and access mode.
+     * and the draft keeps Happy's own model and access mode.
      */
     chiefOfStaffDraftAppend(request: HappyAgentChiefOfStaffRequest): Promise<void>;
     /** Replaces one explicitly addressed conversation's composer draft. */
@@ -2926,11 +2935,11 @@ export function happyAgentWorkspaceStoreCreate(
                 continue;
             const attempt = attempts?.get(entry.id);
             const refusal = !chief
-                ? "Chief of Staff is not available on this Happy Agent."
+                ? "Happy is not available on this Happy Agent."
                 : chat.connection !== "live"
                   ? "This Happy Agent is offline or reconnecting. Try again when it is available."
                   : chief.conversation.id === chat.sessionId
-                    ? "This is already the Chief of Staff conversation. Use the composer for follow-up."
+                    ? "This is already Happy's conversation. Use the composer for follow-up."
                     : list.groupConversationRefusal(chief.workspaceId);
             projected.push({
                 entryId: entry.id,
@@ -2984,6 +2993,7 @@ export function happyAgentWorkspaceStoreCreate(
             running: chat.runStatus === "running",
             subagentsRunning: chat.subagentsRunning,
             workingPhase: chat.workingPhase,
+            turnScripted: chat.turnScripted,
             ...(chat.workingLabel !== undefined ? { workingLabel: chat.workingLabel } : {}),
             ...(chat.workingWait !== undefined ? { workingWait: chat.workingWait } : {}),
             ...(chat.retrying !== undefined ? { retrying: chat.retrying } : {}),
@@ -3012,6 +3022,9 @@ export function happyAgentWorkspaceStoreCreate(
             ...(chat.openImage ? { openImage: chat.openImage } : {}),
             ...(chat.menus ? { menus: chat.menus } : pendingMenus ? { menus: pendingMenus } : {}),
             modelLocked: chat.modelLocked,
+            ...(chat.composerPlaceholder === undefined
+                ? {}
+                : { composerPlaceholder: chat.composerPlaceholder }),
             failureSwitchSupported: chat.failureSwitchSupported,
             ...(scrollPositions.has(chat.sessionId)
                 ? { scrollPosition: scrollPositions.get(chat.sessionId)! }
@@ -7232,6 +7245,7 @@ export function happyAgentWorkspaceStoreCreate(
             writeGuard(sessionConversationRefusal(sessionId), () =>
                 withAddressedChat(sessionId, (store) => store.messageSend(message, [])),
             ),
+        conversationWatch: (sessionId) => happyAgentPanelChatOpen(() => client.chat(sessionId)),
         errorAssistanceRequest(entryId) {
             if (disposed || !openId || conversation.type !== "ready") return;
             const sourceSessionId = openId;
@@ -7267,7 +7281,7 @@ export function happyAgentWorkspaceStoreCreate(
                 sessionId: chief.conversation.id as HappyAgentSessionId,
                 groupId: chief.workspaceId,
             };
-            // Only the words travel. The draft keeps the Chief of Staff's own
+            // Only the words travel. The draft keeps Happy's own
             // model, effort, speed, and access mode: the failing session's are
             // often the very thing that is unavailable.
             const text = happyAgentErrorAssistanceText({
@@ -7303,7 +7317,7 @@ export function happyAgentWorkspaceStoreCreate(
         },
         async chiefOfStaffDraftAppend(request) {
             const chief = list.get().bots.find((bot) => bot.systemKey === "chief_of_staff");
-            if (!chief) throw new UserError("Chief of Staff is not available on this Happy Agent.");
+            if (!chief) throw new UserError("Happy is not available on this Happy Agent.");
             const location = {
                 sessionId: chief.conversation.id as HappyAgentSessionId,
                 groupId: chief.workspaceId,
@@ -8855,6 +8869,7 @@ function conversationAcquiring(
         running: false,
         subagentsRunning: false,
         workingPhase: "working",
+        turnScripted: false,
         transcriptComplete: true,
         loadingMore: false,
         queuedMessages: NO_QUEUED,

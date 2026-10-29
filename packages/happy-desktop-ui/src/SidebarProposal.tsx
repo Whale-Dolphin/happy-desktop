@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { Button } from "./Button";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 /**
@@ -20,12 +19,8 @@ export interface SidebarProposalProps {
     readonly revision: number;
     /** What the agent changed, in one line, above the rows. */
     readonly summary?: string;
-    /** Why the last edit or answer did not go through, beside the buttons. */
+    /** Why the last edit did not go through, under the rows. */
     readonly notice?: string;
-    /** An answer is on its way; both buttons wait. */
-    readonly answering?: "accept" | "decline";
-    readonly onAccept?: () => void;
-    readonly onDecline?: () => void;
     /** A row in the proposal was clicked; it may open what the row stands for. */
     readonly onItemSelect?: SidebarProps["onItemSelect"];
     /** Editing the proposal: the same moves, folds and names as the window's sidebar. */
@@ -38,19 +33,18 @@ export interface SidebarProposalProps {
 }
 
 const STATUS: Record<Exclude<SidebarProposalStatus, "open">, string> = {
-    accepted: "You use this sidebar now.",
+    accepted: "In your sidebar now.",
     declined: "You kept your own sidebar.",
     superseded: "Revised below.",
 };
 
 /**
- * C-311 SidebarProposal — a sidebar the focus agent proposes, shown in its chat
- * as the real `Sidebar`, live and editable, at its full height: the chat
- * scrolls, the proposal never does. While it is open every drag, fold and
- * rename edits the proposal, not the person's own sidebar; "Use this sidebar"
- * takes it and "Keep mine" leaves things as they are. Answered or revised, it
- * stays in the chat as it was, read-only, and the card keeps its size: only the
- * line under the rows changes. A read-only card still folds and unfolds for the
+ * C-311 SidebarProposal — a sidebar Focus proposes, previewed in a chat as the
+ * real `Sidebar` at its full height: the chat scrolls, the proposal never does.
+ * It is a preview: the decision is the chat's own button, and a change is
+ * asked for in words. While it is open a drag, fold or rename the owner allows
+ * edits the proposal, never the person's own sidebar. Answered or revised, it
+ * stays in the chat as it was, read-only, with one line saying where it stands. A read-only card still folds and unfolds for the
  * reader, in this card alone, so a folded section can be looked into.
  */
 export function SidebarProposal(props: SidebarProposalProps): ReactNode {
@@ -114,46 +108,27 @@ export function SidebarProposal(props: SidebarProposalProps): ReactNode {
                         : { onItemCollapseToggle: turn })}
                 />
             </div>
-            <footer className="happy-sidebar-proposal__footer">
-                {open ? (
-                    <>
-                        {props.notice ? (
-                            <span
-                                className="happy-sidebar-proposal__notice"
-                                data-happy-desktop-ui="sidebar-proposal-notice"
-                                role="alert"
-                            >
-                                {props.notice}
-                            </span>
-                        ) : null}
-                        <Button
-                            disabled={props.answering !== undefined}
-                            loading={props.answering === "decline"}
-                            onClick={props.onDecline}
-                            size="small"
-                            variant="secondary"
+            {props.notice || !open ? (
+                <footer className="happy-sidebar-proposal__footer">
+                    {props.notice ? (
+                        <span
+                            className="happy-sidebar-proposal__notice"
+                            data-happy-desktop-ui="sidebar-proposal-notice"
+                            role="alert"
                         >
-                            Keep mine
-                        </Button>
-                        <Button
-                            disabled={props.answering !== undefined}
-                            loading={props.answering === "accept"}
-                            onClick={props.onAccept}
-                            size="small"
-                            variant="primary"
+                            {props.notice}
+                        </span>
+                    ) : null}
+                    {open ? null : (
+                        <span
+                            className="happy-sidebar-proposal__status"
+                            data-happy-desktop-ui="sidebar-proposal-status"
                         >
-                            Use this sidebar
-                        </Button>
-                    </>
-                ) : (
-                    <span
-                        className="happy-sidebar-proposal__status"
-                        data-happy-desktop-ui="sidebar-proposal-status"
-                    >
-                        {STATUS[props.status]}
-                    </span>
-                )}
-            </footer>
+                            {STATUS[props.status]}
+                        </span>
+                    )}
+                </footer>
+            ) : null}
         </section>
     );
 }

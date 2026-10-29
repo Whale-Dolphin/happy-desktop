@@ -1,3 +1,4 @@
+import type { ChatActionChoice, ChatActionInvocation } from "happy-desktop-state";
 import { type CSSProperties, type ReactNode, useRef, useState, useSyncExternalStore } from "react";
 import type { FileLinkOpenHandler, FileOpenHandler } from "./fileReference";
 import {
@@ -23,6 +24,7 @@ import {
     type AgentWaitStatus,
     type AgentWorkingPhase,
 } from "./AgentWorkingStatus";
+import type { ChatActionFigures } from "./ChatActionBlock";
 import { ChannelHeader } from "./ChannelHeader";
 import {
     ConversationEntryView,
@@ -97,6 +99,11 @@ import {
     mediaVideoFramesSubscribe,
     mediaVideoFramesVersion,
 } from "./mediaVideoFrames";
+import {
+    chatActionFigureHeightsSubscribe,
+    chatActionFigureHeightsVersion,
+    chatActionFigureSignature,
+} from "./chatActionFigureHeights";
 
 /** The transcript's first row: what it shows, and how tall it is at a row width. */
 export type ConversationLeadingHeader = {
@@ -122,6 +129,11 @@ export type ConversationViewProps = {
     subtitle?: string;
     /** True while the agent is working; drives the live activity line. */
     running?: boolean;
+    /**
+     * The running turn is no model's work, such as messages Happy Agent writes
+     * itself: it still runs, but no working line reports it.
+     */
+    runningQuiet?: boolean;
     /** True while the addressed conversation is hydrating its transcript. */
     loading?: boolean;
     /** Elapsed run time in ms, supplied by the owner (no timers live in the UI). */
@@ -317,6 +329,15 @@ export type ConversationViewProps = {
      * draw them. Absent, every such call keeps its card.
      */
     inlinePages?: ConversationInlinePages;
+    /**
+     * What the reader chose in each inline action block an agent wrote, by
+     * `chatActionBlockKey`. A block with a choice shows it and is locked.
+     */
+    actionChoices?: ReadonlyMap<string, ChatActionChoice>;
+    /** Runs a press in an inline action block. Absent, every block is shown locked. */
+    onChatAction?: (invocation: ChatActionInvocation) => void;
+    /** What a reply's live figures show: the phone pairing, a provider CLI, a setting. */
+    chatActionFigures?: ChatActionFigures;
     onRequestAnswer?: (requestId: string, answers: HappyAgentUserInputAnswerMap) => void;
     /** Request-id-scoped local answer submission lifecycles. */
     requestSubmissions?: readonly ConversationRequestSubmission[];
@@ -645,6 +666,12 @@ export function ConversationView(props: ConversationViewProps) {
         mediaVideoFramesVersion,
         mediaVideoFramesVersion,
     );
+    /* A figure whose height is learned resizes its reply once it has drawn. */
+    const figuresAt = useSyncExternalStore(
+        chatActionFigureHeightsSubscribe,
+        chatActionFigureHeightsVersion,
+        chatActionFigureHeightsVersion,
+    );
     const conversationCacheKey =
         props.conversationId === undefined ? "anonymous" : `conversation:${props.conversationId}`;
     const [rowExpansion, setRowExpansion] = useState(() => new Map<string, boolean>());
@@ -833,6 +860,8 @@ export function ConversationView(props: ConversationViewProps) {
         conversationId: props.conversationId,
         sentKey,
         liftKey: undefined as string | undefined,
+        /** The lift is an inline answer: its message is lifted by its end. */
+        liftEnd: false,
         followKey: undefined as string | undefined,
     }));
     if (sendLift.conversationId !== props.conversationId)
@@ -840,6 +869,7 @@ export function ConversationView(props: ConversationViewProps) {
             conversationId: props.conversationId,
             sentKey,
             liftKey: undefined,
+            liftEnd: false,
             followKey: undefined,
         });
     else if (sendLift.sentKey !== sentKey)
@@ -847,9 +877,20 @@ export function ConversationView(props: ConversationViewProps) {
             conversationId: props.conversationId,
             sentKey,
             liftKey: sentKey !== undefined && props.running !== true ? sentKey : sendLift.liftKey,
+            liftEnd: sentKey !== undefined && props.running !== true ? false : sendLift.liftEnd,
             followKey:
                 sentKey !== undefined && props.running === true ? sentKey : sendLift.followKey,
         });
+    /* An answer given with an inline action sends no message of its own, so the
+       message that asked is lifted by its end, where the chosen control
+       stands, with the same room for the reply a typed send gets. */
+    const chatActionRun = props.onChatAction
+        ? (invocation: ChatActionInvocation) => {
+              if (props.running !== true)
+                  setSendLift({ ...sendLift, liftKey: invocation.messageId, liftEnd: true });
+              props.onChatAction?.(invocation);
+          }
+        : undefined;
     /*
      * The turn ended and the agents it delegated to did not. That is a state of
      * its own rather than a continuation of the turn: the conversation is still
@@ -876,7 +917,11 @@ export function ConversationView(props: ConversationViewProps) {
      * line that reports what this conversation is doing is the place that says
      * so, rather than leaving the transcript looking finished.
      */
-    const statusVisible = props.running === true || awaitingInput || delegating || awaitingReply;
+    const statusVisible =
+        (props.running === true && props.runningQuiet !== true) ||
+        awaitingInput ||
+        delegating ||
+        awaitingReply;
     const workingStatusStartsGroup =
         statusVisible &&
         !delegating &&
@@ -1143,10 +1188,16 @@ export function ConversationView(props: ConversationViewProps) {
                                 if (layouts === undefined) return fold;
                                 let frames = "";
                                 for (const layout of layouts.layouts.values())
-                                    frames += mediaVideoFramesSignature(
-                                        layout.members.map((member) => member.item),
-                                        framesAt,
-                                    );
+                                    if (layout.kind === "media")
+                                        frames += mediaVideoFramesSignature(
+                                            layout.members.map((member) => member.item),
+                                            framesAt,
+                                        );
+                                    else if (layout.kind === "actions")
+                                        frames += chatActionFigureSignature(
+                                            layout.block,
+                                            figuresAt,
+                                        );
                                 return `${fold}|${layouts.signature}|${frames}`;
                             }
                             const placed = [
@@ -1173,6 +1224,7 @@ export function ConversationView(props: ConversationViewProps) {
                         footerFollowed={sendPending || replyNext}
                         footerReserveHeight={queuedStatusHeight}
                         liftKey={sendLift.liftKey}
+                        liftEnd={sendLift.liftEnd}
                         followKey={sendLift.followKey}
                         {...(props.leadingHeader
                             ? {
@@ -1302,6 +1354,13 @@ export function ConversationView(props: ConversationViewProps) {
                                         mediaRuns.get(entryKey(entry)),
                                     )}
                                     {...placedOf(entry)}
+                                    {...(props.actionChoices
+                                        ? { actionChoices: props.actionChoices }
+                                        : {})}
+                                    {...(chatActionRun ? { onChatAction: chatActionRun } : {})}
+                                    {...(props.chatActionFigures
+                                        ? { chatActionFigures: props.chatActionFigures }
+                                        : {})}
                                     onDelegationSelect={props.onDelegationSelect}
                                     now={props.now}
                                     {...(props.onFileOpen ? { onFileOpen: props.onFileOpen } : {})}

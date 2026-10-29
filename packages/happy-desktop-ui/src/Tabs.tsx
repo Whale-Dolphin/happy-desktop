@@ -1,3 +1,4 @@
+import { HappyMark } from "./HappyMark";
 import { partitionComponentProps } from "./componentProps";
 import { Avatar } from "./Avatar";
 import {
@@ -79,6 +80,8 @@ export type TabItem = {
     imageUrl?: string;
     /** Identity for an item that has not taken shape yet, in the same 20px lane. */
     stemCell?: StemCellMark;
+    /** Happy's own mark (`HappyMark`) in the 20px lane, as its sidebar row wears it. */
+    happyMark?: true;
     /**
      * The tab is what a voice call is pointing at. Its own ring and microphone,
      * never the active or unread treatment.
@@ -99,21 +102,22 @@ export type TabItem = {
  * reader was most likely to be looking for it.
  */
 function tabLeadingMark(tab: TabItem, iconSize: 14 | 16 | 18) {
-    const mark =
-        tab.stemCell || tab.imageMark ? (
-            <StemCellGrowth
-                imageClassName="happy-tabs__image-mark"
-                imageMark={tab.imageMark}
-                size={20}
-                stemCell={tab.stemCell}
-            />
-        ) : tab.imageUrl !== undefined ? (
-            <Avatar imageUrl={tab.imageUrl} initials="" size="xs" type="agent" />
-        ) : tab.filePath !== undefined ? (
-            <FileKindIcon path={tab.filePath} size={iconSize === 14 ? 14 : 16} />
-        ) : tab.icon ? (
-            <Icon name={tab.icon} size={iconSize} />
-        ) : null;
+    const mark = tab.happyMark ? (
+        <HappyMark size={20} />
+    ) : tab.stemCell || tab.imageMark ? (
+        <StemCellGrowth
+            imageClassName="happy-tabs__image-mark"
+            imageMark={tab.imageMark}
+            size={20}
+            stemCell={tab.stemCell}
+        />
+    ) : tab.imageUrl !== undefined ? (
+        <Avatar imageUrl={tab.imageUrl} initials="" size="xs" type="agent" />
+    ) : tab.filePath !== undefined ? (
+        <FileKindIcon path={tab.filePath} size={iconSize === 14 ? 14 : 16} />
+    ) : tab.icon ? (
+        <Icon name={tab.icon} size={iconSize} />
+    ) : null;
     if (mark === null)
         return tab.unread ? (
             <span

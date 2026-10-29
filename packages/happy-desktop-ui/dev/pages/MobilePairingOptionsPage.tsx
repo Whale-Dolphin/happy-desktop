@@ -31,9 +31,12 @@ function options(variant: Variant) {
 }
 
 /** Settings' content column: 720px less its 24px gutters. */
-function column(children: ReactNode) {
+function column(children: ReactNode, screen: string) {
     return (
-        <div style={{ background: "var(--surface)", padding: "16px 24px", width: "672px" }}>
+        <div
+            data-screen={screen}
+            style={{ background: "var(--surface)", padding: "16px 24px", width: "672px" }}
+        >
             {children}
         </div>
     );
@@ -148,7 +151,7 @@ export function MobilePairingOptionsPage() {
                     number={state.id}
                     stage="surface"
                 >
-                    {column(options(state.variant))}
+                    {column(options(state.variant), `settings-${state.id}`)}
                 </Specimen>
             ))}
         </ComponentPage>

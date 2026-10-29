@@ -1,4 +1,4 @@
-type Point = readonly [number, number];
+export type Point = readonly [number, number];
 type Harmonic = { k: number; a: number; phase: number };
 const TAU = Math.PI * 2;
 
@@ -30,8 +30,41 @@ function radial(harmonics: readonly Harmonic[], drift: number): (theta: number) 
     };
 }
 
+/** A closed shape as a radius around a centre, in the unit box. */
+export interface StemCellRadial {
+    readonly centre: Point;
+    readonly radius: (theta: number) => number;
+}
+
+/**
+ * The same cell as continuous functions rather than samples: the membrane and
+ * core as radii around their centres. Sampled at the model's 32 angles, they
+ * are `stemCellGeometry`'s points, so a shape drawn from them ends exactly
+ * where a `StemCell` begins.
+ */
+export function stemCellModel(
+    id: string,
+    drift = 0,
+): { membrane: StemCellRadial; core: StemCellRadial } {
+    const { core, membraneShape, scale, fit, cx, cy } = stemCellParts(id, drift);
+    const centre: Point = [0.5 - cx * fit, 0.5 - cy * fit];
+    return {
+        membrane: { centre, radius: (theta) => scale * membraneShape(theta) * fit },
+        core: {
+            centre: [centre[0] + core.x * fit, centre[1] + core.y * fit],
+            radius: (theta) => core.r * core.shape(theta) * fit,
+        },
+    };
+}
+
 /** The user-tuned stemCell.mjs model, with its SVG sampling and parameters intact. */
 export function stemCellGeometry(id: string, drift = 0) {
+    const { membranePoints, corePoints, fit, cx, cy } = stemCellParts(id, drift);
+    const place = ([x, y]: Point): Point => [0.5 + (x - cx) * fit, 0.5 + (y - cy) * fit];
+    return { membrane: membranePoints.map(place), core: corePoints.map(place) };
+}
+
+function stemCellParts(id: string, drift: number) {
     const samples = 32;
     const padding = 0.06;
     const coreOffset = 0.11;
@@ -100,8 +133,7 @@ export function stemCellGeometry(id: string, drift = 0) {
     const fit = (1 - 2 * padding) / Math.max(maxX - minX, maxY - minY);
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    const place = ([x, y]: Point): Point => [0.5 + (x - cx) * fit, 0.5 + (y - cy) * fit];
-    return { membrane: membranePoints.map(place), core: corePoints.map(place) };
+    return { core, membraneShape, scale, membranePoints, corePoints, fit, cx, cy };
 }
 
 /** Closed Catmull–Rom spline through the model's fixed 32 samples. */

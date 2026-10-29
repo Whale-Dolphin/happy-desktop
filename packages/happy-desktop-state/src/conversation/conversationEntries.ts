@@ -4,6 +4,7 @@ import {
     type ConversationActivity,
     type ConversationActivityFailure,
     type ConversationActivityPresentation,
+    type ConversationAgentIdentity,
     type ConversationActivityReview,
     type ConversationAttachment,
     type ConversationDelegationChild,
@@ -618,6 +619,28 @@ function reviewEqual(
     );
 }
 
+function agentIdentityEqual(
+    left: ConversationAgentIdentity | undefined,
+    right: ConversationAgentIdentity | undefined,
+): boolean {
+    if (left === right) return true;
+    if (!left || !right) return false;
+    const face = left.face;
+    const other = right.face;
+    return (
+        left.name === right.name &&
+        left.working === right.working &&
+        face.kind === other.kind &&
+        (face.kind === "image" && other.kind === "image"
+            ? face.url === other.url
+            : face.kind === "initials" && other.kind === "initials"
+              ? face.initials === other.initials
+              : face.kind === "library" && other.kind === "library"
+                ? face.slug === other.slug
+                : true)
+    );
+}
+
 function presentationEqual(
     left: ConversationActivityPresentation | undefined,
     right: ConversationActivityPresentation | undefined,
@@ -630,7 +653,8 @@ function presentationEqual(
             left.agentId === right.agentId &&
             left.model?.modelId === right.model?.modelId &&
             left.model?.providerId === right.model?.providerId &&
-            left.model?.name === right.model?.name
+            left.model?.name === right.model?.name &&
+            agentIdentityEqual(left.agent, right.agent)
         );
     if (left.type === "exploration" && right.type === "exploration")
         return (

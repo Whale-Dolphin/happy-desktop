@@ -150,6 +150,8 @@ it("keeps a pending Ask User request inside its turn, replacing the tool row", (
             id: "request:ask-1",
             sequence: "00000001",
             traceFoldTargetId: "g1",
+            // The reply's first row opens its author line.
+            opensGroup: true,
             request: {
                 kind: "userInput",
                 requestId: "ask-1",
