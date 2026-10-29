@@ -66,6 +66,7 @@ const modelCatalog: HappyAgentModelCatalog = {
         {
             enabled: true,
             hidden: false,
+            hiddenModels: [],
             id: "happy",
             type: "claude",
             models: [

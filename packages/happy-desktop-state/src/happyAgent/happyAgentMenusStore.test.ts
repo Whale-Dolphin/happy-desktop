@@ -108,6 +108,57 @@ describe("hidden and unavailable accounts in the pickers", () => {
     });
 });
 
+describe("hidden models in the pickers", () => {
+    /** One account offering the test model and a second, `sol`, marked as `hidden`. */
+    function catalogWithSol(hidden: boolean | undefined) {
+        const config = fakeHappyAgentDaemonCreate().configGet();
+        const base = Object.values(config.providers)[0]!;
+        return happyAgentModelCatalogProject({
+            ...config,
+            models: { ...config.models, sol: { ...config.models["test-model"]!, name: "Sol" } },
+            providers: {
+                main: {
+                    ...base,
+                    models: [
+                        { enabled: true, id: "test-model" },
+                        { enabled: true, id: "sol", ...(hidden === undefined ? {} : { hidden }) },
+                    ],
+                },
+            },
+        });
+    }
+    const on = (modelId: string): HappyAgentSelection => ({ ...selectionOn("main"), modelId });
+
+    it("offers a model the daemon does not mark hidden", () => {
+        for (const hidden of [undefined, false]) {
+            const menus = happyAgentMenusDerive(catalogWithSol(hidden), on("test-model"));
+            expect(menus.modelOptions.map((option) => option.modelId)).toEqual([
+                "test-model",
+                "sol",
+            ]);
+        }
+    });
+
+    it("leaves a hidden model out of the choices", () => {
+        const catalog = catalogWithSol(true);
+        expect(catalog.providers[0]!.hiddenModels).toEqual(["sol"]);
+        const menus = happyAgentMenusDerive(catalog, on("test-model"));
+        expect(menus.modelOptions.map((option) => option.modelId)).toEqual(["test-model"]);
+    });
+
+    it("keeps a hidden model offered while it is the current selection", () => {
+        const menus = happyAgentMenusDerive(catalogWithSol(true), on("sol"));
+        expect(menus.modelOptions.map((option) => option.modelId)).toEqual(["test-model", "sol"]);
+        expect(menus.currentOption).toMatchObject({ modelId: "sol", current: true });
+        expect(menus.currentAccount).toBe("available");
+        expect(menus.effortOptions.map((option) => option.level)).toEqual([
+            "low",
+            "medium",
+            "high",
+        ]);
+    });
+});
+
 describe("pools in the pickers", () => {
     it("names a pool's accounts in its failover order, hidden ones included", () => {
         const catalog = catalogWith((base) => ({

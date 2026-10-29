@@ -281,6 +281,12 @@ export interface HappyAgentModelProvider {
     readonly type: string;
     readonly models: readonly HappyAgentModel[];
     /**
+     * The IDs of this account's models kept out of the pickers. A hidden model
+     * still works, and a conversation already on it keeps it; it is just not
+     * offered as a choice. A model the daemon does not mark is offered.
+     */
+    readonly hiddenModels: readonly string[];
+    /**
      * Whether the machine will use this provider at all, as its own
      * configuration states it. Stated rather than read back out of
      * `disabledReason`, which also covers a provider that is switched on and

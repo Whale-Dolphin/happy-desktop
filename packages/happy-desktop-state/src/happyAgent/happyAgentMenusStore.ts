@@ -84,8 +84,10 @@ export function happyAgentMenusDerive(
         for (const model of provider.models) {
             const option = optionOf(provider, model, provider.disabledReason !== undefined);
             if (option.current) currentOption = option;
-            // A hidden account is not offered, though the selection on it stays.
-            if (!provider.hidden) modelOptions.push(option);
+            // A hidden account or model is not offered, though the selection on it stays,
+            // and a hidden model the conversation is already on stays in its own list.
+            if (!provider.hidden && (option.current || !provider.hiddenModels.includes(model.id)))
+                modelOptions.push(option);
         }
     }
     const currentAccount: HappyAgentCurrentAccount =

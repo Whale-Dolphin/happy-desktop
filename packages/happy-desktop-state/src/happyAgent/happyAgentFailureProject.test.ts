@@ -17,6 +17,7 @@ const provider = (id: string, type: string, name?: string): HappyAgentModelProvi
     type,
     ...(name === undefined ? {} : { name }),
     models: [],
+    hiddenModels: [],
     enabled: true,
     hidden: false,
 });

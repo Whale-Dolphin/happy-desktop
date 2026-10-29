@@ -51,21 +51,12 @@ function placeholderView(reference: HappyReference): MessageReferenceView {
     return { type: "text", label: happyReferencePlaceholder(reference) };
 }
 
-/**
- * A person a message mentions, `<happy-user id="…"/>`. Newer than the grammar
- * this build's client package knows, so it is admitted here by name.
- */
-const USER_REFERENCE_KIND = "user";
-
 /** What one reference reads as: a kind this build does not know is never asked about. */
 function referenceView(
     reference: HappyReference,
     references: MessageReferences | undefined,
 ): MessageReferenceView {
-    if (
-        references === undefined ||
-        (!isKnownHappyReferenceKind(reference.kind) && reference.kind !== USER_REFERENCE_KIND)
-    )
+    if (references === undefined || !isKnownHappyReferenceKind(reference.kind))
         return placeholderView(reference);
     return references.view(reference);
 }
@@ -136,7 +127,7 @@ export function messageReferencesResolve(
                 labelEscape(view.label) || labelEscape(happyReferencePlaceholder(reference));
             const shown = view.type === "link" ? `[${label}](${referenceHref(reference)})` : label;
             // A person a message mentions stands out from the words around them.
-            return reference.kind === USER_REFERENCE_KIND ? `**${shown}**` : shown;
+            return reference.kind === "user" ? `**${shown}**` : shown;
         },
         { streaming },
     );
