@@ -33,6 +33,7 @@ import { ShimmerText } from "./ShimmerText";
 import { Spinner } from "./Spinner";
 import { type StemCellMark } from "./StemCell";
 import { StemCellGrowth, type ImageMark } from "./StemCellGrowth";
+import { StoryRing, type StoryRingSegments } from "./StoryRing";
 import { ScrollArea } from "./Scrollbar";
 import { SidebarSectionContext, SidebarSectionTail } from "./SidebarSectionDetails";
 import { TextField } from "./TextField";
@@ -221,6 +222,27 @@ export type SidebarItem = {
      * column scrolls as usual, and pointing at the separator says why. That measure is never part of the item.
      */
     pin?: SidebarSeparatorPinEdge;
+    /**
+     * Draws the row as an agent's story row: two lines, the row's mark enlarged
+     * inside the ring of its stories, the agent's own status under its name,
+     * and at most one signal in the row's bottom-right corner. Such a row
+     * reports only through these: it has no title shimmer, no activity glyph
+     * and no unread dot, and an unread row says so by its heavier name alone.
+     */
+    story?: SidebarItemStory;
+};
+/** What a story row shows besides its name. See `SidebarItem.story`. */
+export type SidebarItemStory = {
+    /** The agent's own status, as it last set it; absent leaves the line empty. */
+    subtitle?: string;
+    /** The agent's stories, one segment each; absent draws no ring. */
+    ring?: StoryRingSegments;
+    /**
+     * The one thing the corner says: `waiting` is a dot, the agent is waiting
+     * on the reader; `working` is a quiet bar while a run is going. Absent
+     * says nothing — the agent is idle, or inside a wait it chose.
+     */
+    signal?: "waiting" | "working";
 };
 /**
  * What a proposed change does to one row. A move is drawn twice: `move` where
@@ -590,6 +612,8 @@ export type SidebarProps = Omit<HTMLAttributes<HTMLElement>, "style"> & {
     onItemChangeAccept?: (id: string) => void;
     /** The person declined one row's proposed `change`, from the ✕ beside its explanation. */
     onItemChangeReject?: (id: string) => void;
+    /** The person pressed a story row's ring: open its stories rather than the row. */
+    onItemStoryOpen?: (id: string) => void;
     /**
      * Floats over the foot of the rows, above the footer, inside the column:
      * the answer to everything proposed at once. The rows keep room under
@@ -1690,6 +1714,7 @@ interface SidebarRowHandlers {
     readonly secondaryAction: (key: string) => void;
     readonly changeAccept: (key: string) => void;
     readonly changeReject: (key: string) => void;
+    readonly storyOpen: (key: string) => void;
     readonly select: (id: string) => void;
 }
 
@@ -1704,6 +1729,7 @@ const SidebarListRow = memo(function SidebarListRow({
     canSecondaryAction,
     canChangeAccept,
     canChangeReject,
+    canStoryOpen,
     ...rest
 }: {
     handlers: SidebarRowHandlers;
@@ -1717,6 +1743,7 @@ const SidebarListRow = memo(function SidebarListRow({
     canSecondaryAction: boolean;
     canChangeAccept: boolean;
     canChangeReject: boolean;
+    canStoryOpen: boolean;
     active: boolean;
     /** See `SidebarRow.pinArea`. */
     pinArea?: SidebarSeparatorPinEdge;
@@ -1765,6 +1792,7 @@ const SidebarListRow = memo(function SidebarListRow({
             }
             onChangeAccept={canChangeAccept ? () => handlers.changeAccept(rowId) : undefined}
             onChangeReject={canChangeReject ? () => handlers.changeReject(rowId) : undefined}
+            onStoryOpen={canStoryOpen ? () => handlers.storyOpen(rowId) : undefined}
             nodeRef={(node) => handlers.node(rowId, node)}
             onSelect={handlers.select}
         />
@@ -1811,6 +1839,8 @@ function SidebarRow({
     onChangeAccept?: () => void;
     /** Declines the row's proposed change, from the ✕ beside its explanation. */
     onChangeReject?: () => void;
+    /** Opens the stories of a story row from its ring; absent, the ring only reports. */
+    onStoryOpen?: () => void;
     /**
      * The block of a pinned separator the row stands in, the separator
      * included: it holds still at that edge whenever the pin holds.
@@ -1856,8 +1886,12 @@ function SidebarRow({
     // An editing row hosts an editable label, so it must not be a native button.
     const Row = props.rename ? "div" : "button";
     const unread = () => item().unread === true;
+    /* A story row reports through its ring, its status line and its one
+       corner signal only; everything the plain row reports otherwise steps
+       aside, so the row never shows two dots or a dot and a spinner. */
+    const story = () => item().story;
     // A muted row keeps the unread weight on its name and gives up only the dot.
-    const unreadDot = () => unread() && item().muted !== true;
+    const unreadDot = () => unread() && item().muted !== true && story() === undefined;
     const unreadOnLeading = () =>
         props.itemMarkPresentation !== "none" &&
         unreadDot() &&
@@ -1910,6 +1944,7 @@ function SidebarRow({
     const depth = () => Math.max(0, item().depth ?? 0);
     const lifecycle = () => item().lifecycle;
     const showStatus = () =>
+        story() === undefined &&
         item().kind === "agent" &&
         item().activityIndicator !== "glyph" &&
         item().status !== undefined &&
@@ -1920,9 +1955,19 @@ function SidebarRow({
     // count of what is inside it: the reader is being told the row's own news.
     const showLifecycle = () => lifecycle() !== undefined && item().lifecycleLabel !== undefined;
     const showMeta = () =>
-        item().meta !== undefined && !unread() && !mentioned() && !showStatus() && !showLifecycle();
+        story() === undefined &&
+        item().meta !== undefined &&
+        !unread() &&
+        !mentioned() &&
+        !showStatus() &&
+        !showLifecycle();
     const showCount = () =>
-        (item().count ?? 0) > 0 && !unread() && !mentioned() && !showStatus() && !showLifecycle();
+        story() === undefined &&
+        (item().count ?? 0) > 0 &&
+        !unread() &&
+        !mentioned() &&
+        !showStatus() &&
+        !showLifecycle();
     /*
      * A place that is being made, or has work running inside it, says so in its
      * own name: the name shimmers for as long as that lasts. It is the same
@@ -1935,6 +1980,7 @@ function SidebarRow({
      * names would leave the sidebar permanently in motion and say nothing.
      */
     const shimmerLabel = () =>
+        story() === undefined &&
         item().labelShimmer !== false &&
         (item().kind === "project" || item().kind === "workspace") &&
         (lifecycle() === "creating" || (lifecycle() === undefined && item().status === "working"));
@@ -1954,6 +2000,7 @@ function SidebarRow({
         | { kind: "spinner"; tone: "accent" | "muted"; label: string }
         | { kind: "glyph"; icon: IconName; label: string; lifecycle: string }
         | undefined => {
+        if (story() !== undefined) return undefined;
         if (lifecycle() === "creating")
             return {
                 kind: "spinner",
@@ -2300,6 +2347,7 @@ function SidebarRow({
             data-unread={unread() ? "" : undefined}
             data-muted={item().muted ? "" : undefined}
             data-voice-focus={item().voiceFocus ? "" : undefined}
+            data-story={story() ? "" : undefined}
             data-dragging={props.dragging ? "" : undefined}
             data-grabbed={props.grabbed ? "" : undefined}
             onClick={() => {
@@ -2371,7 +2419,8 @@ function SidebarRow({
                 </span>
             ) : null}
             {(props.itemMarkPresentation !== "none" || item().kind === "action") &&
-            (props.itemMarkPresentation === "glyph" ||
+            (story() !== undefined ||
+                props.itemMarkPresentation === "glyph" ||
                 item().stemCell ||
                 item().imageMark ||
                 showsLeadingSlot(item()) ||
@@ -2380,6 +2429,7 @@ function SidebarRow({
                     className="happy-sidebar__item-leading"
                     data-happy-desktop-ui="sidebar-item-leading"
                     data-context={item().contextAvatars?.length ? "" : undefined}
+                    data-story={story() ? "" : undefined}
                 >
                     {/* Identity, unless the window asked for work to be reported
                         here. By default it is not: what the row is doing is
@@ -2394,62 +2444,78 @@ function SidebarRow({
                         none when it folds: the branch line beside it already says
                         what it is, and opening the lane for the chevron must not
                         put back the glyph that line replaced. */}
-                    {item().stemCell || item().imageMark ? (
-                        <StemCellGrowth
-                            imageClassName="happy-sidebar__image-mark"
-                            imageMark={item().imageMark}
-                            size={20}
-                            stemCell={item().stemCell}
-                        />
-                    ) : props.itemMarkPresentation === "glyph" ? (
-                        <Icon name={leadingIcon(item())} size={16} />
-                    ) : activityLeading() ? (
-                        activityMark()
-                    ) : item().contextAvatars?.length ? (
-                        item().contextAvatars?.map((avatar) => (
-                            <span
-                                key={avatar.id}
-                                aria-label={avatar.label}
-                                role="img"
-                                title={avatar.label}
-                                className="happy-sidebar__item-context-avatar"
-                                data-happy-desktop-ui="sidebar-item-context-avatar"
+                    {((mark: ReactNode) =>
+                        /* A story row's mark grows inside the ring of its stories,
+                           which opens them; the rest of the row opens its chat. */
+                        story() ? (
+                            <StoryRing
+                                label={`Watch ${item().label}'s stories`}
+                                onOpen={props.onStoryOpen}
+                                segments={story()?.ring}
                             >
-                                <Avatar
-                                    imageUrl={avatar.imageUrl}
-                                    initials={
-                                        avatar.initials ?? avatar.label.slice(0, 1).toUpperCase()
-                                    }
-                                    icon={avatar.icon}
-                                    size="xs"
-                                    style={{ width: 16, height: 16, borderRadius: 4 }}
-                                    type="agent"
-                                />
-                            </span>
-                        ))
-                    ) : !showsLeadingSlot(item()) ? null : item().kind === "person" ||
-                      item().kind === "agent" ||
-                      item().kind === "project" ? (
-                        identityMark()
-                    ) : item().emoji !== undefined ? (
-                        /* The character the reader chose, in a fixed square the
+                                {mark}
+                            </StoryRing>
+                        ) : (
+                            mark
+                        ))(
+                        item().stemCell || item().imageMark ? (
+                            <StemCellGrowth
+                                imageClassName="happy-sidebar__image-mark"
+                                imageMark={item().imageMark}
+                                size={20}
+                                stemCell={item().stemCell}
+                            />
+                        ) : props.itemMarkPresentation === "glyph" ? (
+                            <Icon name={leadingIcon(item())} size={16} />
+                        ) : activityLeading() ? (
+                            activityMark()
+                        ) : item().contextAvatars?.length ? (
+                            item().contextAvatars?.map((avatar) => (
+                                <span
+                                    key={avatar.id}
+                                    aria-label={avatar.label}
+                                    role="img"
+                                    title={avatar.label}
+                                    className="happy-sidebar__item-context-avatar"
+                                    data-happy-desktop-ui="sidebar-item-context-avatar"
+                                >
+                                    <Avatar
+                                        imageUrl={avatar.imageUrl}
+                                        initials={
+                                            avatar.initials ??
+                                            avatar.label.slice(0, 1).toUpperCase()
+                                        }
+                                        icon={avatar.icon}
+                                        size="xs"
+                                        style={{ width: 16, height: 16, borderRadius: 4 }}
+                                        type="agent"
+                                    />
+                                </span>
+                            ))
+                        ) : !showsLeadingSlot(item()) ? null : item().kind === "person" ||
+                          item().kind === "agent" ||
+                          item().kind === "project" ? (
+                            identityMark()
+                        ) : item().emoji !== undefined ? (
+                            /* The character the reader chose, in a fixed square the
                            same size as the glyph lane beside it, so a row whose
                            emoji is wide or tall still occupies exactly one lane
                            and the column of names below it never shifts. */
-                        <span
-                            aria-hidden="true"
-                            className="happy-sidebar__item-emoji"
-                            data-happy-desktop-ui="sidebar-item-emoji"
-                        >
                             <span
-                                className="happy-sidebar__item-emoji-glyph"
-                                data-happy-desktop-ui="sidebar-item-emoji-glyph"
+                                aria-hidden="true"
+                                className="happy-sidebar__item-emoji"
+                                data-happy-desktop-ui="sidebar-item-emoji"
                             >
-                                {item().emoji}
+                                <span
+                                    className="happy-sidebar__item-emoji-glyph"
+                                    data-happy-desktop-ui="sidebar-item-emoji-glyph"
+                                >
+                                    {item().emoji}
+                                </span>
                             </span>
-                        </span>
-                    ) : (
-                        <Icon name={leadingIcon(item())} size={16} />
+                        ) : (
+                            <Icon name={leadingIcon(item())} size={16} />
+                        ),
                     )}
                     {unreadOnLeading() ? (
                         <span
@@ -2488,84 +2554,106 @@ function SidebarRow({
                     marks
                 ))(
                 <>
-                    <span
-                        aria-label={
-                            props.rename ? `Rename ${props.rename.initialValue}` : undefined
-                        }
-                        aria-multiline={props.rename ? false : undefined}
-                        className={
-                            props.rename
-                                ? "happy-sidebar__item-label happy-sidebar__item-rename"
-                                : "happy-sidebar__item-label"
-                        }
-                        contentEditable={props.rename ? "plaintext-only" : undefined}
-                        data-happy-desktop-ui="sidebar-item-label"
-                        onBlur={
-                            props.rename
-                                ? (event) => renameFinish(event.currentTarget.textContent ?? "")
-                                : undefined
-                        }
-                        onClick={props.rename ? (event) => event.stopPropagation() : undefined}
-                        onContextMenu={
-                            props.rename ? (event) => event.stopPropagation() : undefined
-                        }
-                        onPointerDown={
-                            props.rename ? (event) => event.stopPropagation() : undefined
-                        }
-                        onPaste={
-                            props.rename
-                                ? (event) => {
-                                      event.preventDefault();
-                                      // insertText preserves the browser's undo history for single-line paste.
-                                      document.execCommand(
-                                          "insertText",
-                                          false,
-                                          event.clipboardData
-                                              .getData("text/plain")
-                                              .replace(/[\r\n]+/g, " "),
-                                      );
-                                  }
-                                : undefined
-                        }
-                        onKeyDown={
-                            props.rename
-                                ? (event) => {
-                                      event.stopPropagation();
-                                      if (event.nativeEvent.isComposing) return;
-                                      if (event.key === "Enter" || event.key === "Escape") {
+                    {((label: ReactNode) =>
+                        /* A story row reads as two lines: its name, and under it
+                           the status its agent last set. An agent that set none
+                           leaves the line empty rather than the client making one
+                           up, and the row keeps its height either way. */
+                        story() ? (
+                            <span
+                                className="happy-sidebar__item-text"
+                                data-happy-desktop-ui="sidebar-item-text"
+                            >
+                                {label}
+                                <span
+                                    className="happy-sidebar__item-subtitle"
+                                    data-happy-desktop-ui="sidebar-item-subtitle"
+                                >
+                                    {story()?.subtitle ?? ""}
+                                </span>
+                            </span>
+                        ) : (
+                            label
+                        ))(
+                        <span
+                            aria-label={
+                                props.rename ? `Rename ${props.rename.initialValue}` : undefined
+                            }
+                            aria-multiline={props.rename ? false : undefined}
+                            className={
+                                props.rename
+                                    ? "happy-sidebar__item-label happy-sidebar__item-rename"
+                                    : "happy-sidebar__item-label"
+                            }
+                            contentEditable={props.rename ? "plaintext-only" : undefined}
+                            data-happy-desktop-ui="sidebar-item-label"
+                            onBlur={
+                                props.rename
+                                    ? (event) => renameFinish(event.currentTarget.textContent ?? "")
+                                    : undefined
+                            }
+                            onClick={props.rename ? (event) => event.stopPropagation() : undefined}
+                            onContextMenu={
+                                props.rename ? (event) => event.stopPropagation() : undefined
+                            }
+                            onPointerDown={
+                                props.rename ? (event) => event.stopPropagation() : undefined
+                            }
+                            onPaste={
+                                props.rename
+                                    ? (event) => {
                                           event.preventDefault();
-                                          if (event.repeat) return;
-                                          renameRestoreFocus.current = true;
-                                          renameFinish(
-                                              event.key === "Enter"
-                                                  ? (event.currentTarget.textContent ?? "")
-                                                  : undefined,
+                                          // insertText preserves the browser's undo history for single-line paste.
+                                          document.execCommand(
+                                              "insertText",
+                                              false,
+                                              event.clipboardData
+                                                  .getData("text/plain")
+                                                  .replace(/[\r\n]+/g, " "),
                                           );
                                       }
-                                  }
-                                : undefined
-                        }
-                        ref={props.rename ? renameLabelRef : undefined}
-                        role={props.rename ? "textbox" : undefined}
-                        suppressContentEditableWarning={props.rename !== undefined}
-                        tabIndex={props.rename ? 0 : undefined}
-                    >
-                        {/* The row's own colour, with a near-white band wiping through
+                                    : undefined
+                            }
+                            onKeyDown={
+                                props.rename
+                                    ? (event) => {
+                                          event.stopPropagation();
+                                          if (event.nativeEvent.isComposing) return;
+                                          if (event.key === "Enter" || event.key === "Escape") {
+                                              event.preventDefault();
+                                              if (event.repeat) return;
+                                              renameRestoreFocus.current = true;
+                                              renameFinish(
+                                                  event.key === "Enter"
+                                                      ? (event.currentTarget.textContent ?? "")
+                                                      : undefined,
+                                              );
+                                          }
+                                      }
+                                    : undefined
+                            }
+                            ref={props.rename ? renameLabelRef : undefined}
+                            role={props.rename ? "textbox" : undefined}
+                            suppressContentEditableWarning={props.rename !== undefined}
+                            tabIndex={props.rename ? 0 : undefined}
+                        >
+                            {/* The row's own colour, with a near-white band wiping through
                         it. Busy is a passing state, so it may not restyle the name:
                         an unread row is already heavier and darker than its
                         neighbours, and painting the name again here would stack a
                         second emphasis on top of one the row had already earned.
                         Only the travelling band is new. */}
-                        {props.rename ? (
-                            props.rename.initialValue
-                        ) : shimmerLabel() ? (
-                            <ShimmerText sweep="sheen" tone="inherit">
-                                {item().label}
-                            </ShimmerText>
-                        ) : (
-                            item().label
-                        )}
-                    </span>
+                            {props.rename ? (
+                                props.rename.initialValue
+                            ) : shimmerLabel() ? (
+                                <ShimmerText sweep="sheen" tone="inherit">
+                                    {item().label}
+                                </ShimmerText>
+                            ) : (
+                                item().label
+                            )}
+                        </span>,
+                    )}
                     {item().voiceFocus ? (
                         <span
                             aria-label="Voice focus"
@@ -2713,6 +2801,22 @@ function SidebarRow({
                 column: what it reports ends at the row's edge. */}
             {changeMark()}
             {lanes ? foldControl() : null}
+            {/* One signal, always in the row's bottom-right corner, where a
+                messenger puts its unread dot: a dot while the agent waits on
+                the reader, a quiet bar while it works, nothing otherwise. */}
+            {story()?.signal ? (
+                <span
+                    aria-label={
+                        story()?.signal === "waiting"
+                            ? `${item().label} is waiting for you`
+                            : `${item().label} is working`
+                    }
+                    className="happy-sidebar__item-corner"
+                    data-happy-desktop-ui="sidebar-item-corner"
+                    data-signal={story()?.signal}
+                    role="img"
+                />
+            ) : null}
         </Row>
     );
 }
@@ -2828,6 +2932,7 @@ export function Sidebar(props: SidebarProps) {
         "onItemSecondaryAction",
         "onItemChangeAccept",
         "onItemChangeReject",
+        "onItemStoryOpen",
         "bodyFloat",
         "onItemMenuSelect",
         "onItemCollapseToggle",
@@ -4465,6 +4570,8 @@ export function Sidebar(props: SidebarProps) {
                 void latest().act(key, ({ item }) => latest().local.onItemChangeAccept?.(item.id)),
             changeReject: (key) =>
                 void latest().act(key, ({ item }) => latest().local.onItemChangeReject?.(item.id)),
+            storyOpen: (key) =>
+                void latest().act(key, ({ item }) => latest().local.onItemStoryOpen?.(item.id)),
             select: (id) => {
                 if (dragClick.current) {
                     dragClick.current = false;
@@ -5290,6 +5397,10 @@ export function Sidebar(props: SidebarProps) {
                                                     canChangeReject={
                                                         local.onItemChangeReject !== undefined &&
                                                         item.change !== undefined
+                                                    }
+                                                    canStoryOpen={
+                                                        local.onItemStoryOpen !== undefined &&
+                                                        (item.story?.ring?.total ?? 0) > 0
                                                     }
                                                     pinArea={pinAreaOf(index)}
                                                     active={item.id === local.activeItemId}

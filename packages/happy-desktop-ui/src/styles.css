@@ -181,6 +181,8 @@
 @import "./styles/work-story.css";
 @import "./styles/work-floaty.css";
 @import "./styles/stories-row.css";
+@import "./styles/story-ring.css";
 @import "./styles/story-canvas.css";
 @import "./styles/story-viewer.css";
+@import "./styles/story-editor.css";
 @import "./styles/story-inline.css";

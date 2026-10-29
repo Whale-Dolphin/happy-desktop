@@ -12,6 +12,9 @@ export type StoryLinkOverlay = happyAgentProtocol.StoryLinkOverlay;
 export type StoryStickerOverlay = happyAgentProtocol.StoryStickerOverlay;
 export type StoryEmojiOverlay = happyAgentProtocol.StoryEmojiOverlay;
 export type StoryReactionOverlay = happyAgentProtocol.StoryReactionOverlay;
+export type StoryArtifactOverlay = happyAgentProtocol.StoryArtifactOverlay;
+export type StoryRoundVideoOverlay = happyAgentProtocol.StoryRoundVideoOverlay;
+export type StoryRepostOf = happyAgentProtocol.StoryRepostOf;
 export type StoryTransform = happyAgentProtocol.StoryTransform;
 export type StoryTextFont = happyAgentProtocol.StoryTextFont;
 export type StoryTextFill = happyAgentProtocol.StoryTextFill;
@@ -31,3 +34,8 @@ export const STORY_CANVAS_HEIGHT = 1920;
 /** An image's time on screen; a video plays its length, at most a minute. */
 export const STORY_IMAGE_MS = 5000;
 export const STORY_VIDEO_MAX_MS = 60_000;
+/** The CSS viewport a live artifact lays out in, scaled uniformly to its frame or window. */
+export const STORY_ARTIFACT_VIEWPORT_WIDTH = 360;
+export const STORY_ARTIFACT_VIEWPORT_HEIGHT = 640;
+/** How long an artifact frame shows while nobody points into it. */
+export const STORY_ARTIFACT_MS = 10_000;

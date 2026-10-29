@@ -12,6 +12,8 @@ export interface ConversationSummary {
     readonly id: string;
     readonly title: string;
     readonly subtitle?: string;
+    /** The line the agent last wrote about where its work stands; absent while it has none. */
+    readonly statusLine?: string;
     readonly activity: "running" | "awaitingInput" | "waiting" | "idle";
     /** Epoch milliseconds of the newest content, for relative timestamps. */
     readonly updatedAt: number;

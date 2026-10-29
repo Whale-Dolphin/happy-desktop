@@ -307,3 +307,58 @@ export function fixturePostedLabel(story: Story): string {
     const hours = Math.round((FIXTURE_NOW - story.postedAt) / HOUR);
     return hours < 1 ? "just now" : `${String(hours)}h ago`;
 }
+
+/** The artifact pages an agent's fixture story shows live, drawn here in place of a guest. */
+export const FIXTURE_ARTIFACTS = {
+    board: "art-board",
+    chart: "art-chart",
+} as const;
+
+function artifactFrame(id: string, artifactId: string): StoryFrame {
+    return {
+        id,
+        kind: "artifact",
+        width: null,
+        height: null,
+        thumbhash: null,
+        durationMs: null,
+        asset: { type: "artifact", artifactId },
+        available: true,
+        placement: at(0.5, 0.5, 1),
+        background: ["#14161f", "#0b0c12"],
+        overlays: [],
+    };
+}
+
+/** An agent's story in its ring: its release board as a live page, then a photo with a chart window. */
+export const STORY_AGENT: Story = {
+    ...fixtureStory(
+        "story-agent",
+        [
+            artifactFrame("f-agent-board", FIXTURE_ARTIFACTS.board),
+            photoFrame("f-agent-photo", 1, [
+                {
+                    id: "agent-w",
+                    type: "artifact",
+                    artifactId: FIXTURE_ARTIFACTS.chart,
+                    aspectRatio: 1.25,
+                    transform: at(0.5, 0.42, 0.82),
+                },
+            ]),
+        ],
+        { author: "agent", hoursAgo: 1, caption: "Release 2.4 is green: three fixes landed." },
+    ),
+    author: { kind: "agent", agentId: "agent-focus" },
+    ringAgentId: "agent-focus",
+};
+
+/** The person's repost of the agent's story, as the editor opens it. */
+export const STORY_REPOST: Story = {
+    ...fixtureStory("story-repost", STORY_AGENT.frames, { status: "draft" }),
+    repostOf: {
+        storyId: STORY_AGENT.id,
+        agentId: "agent-focus",
+        title: "Release 2.4",
+        canOpen: true,
+    },
+};

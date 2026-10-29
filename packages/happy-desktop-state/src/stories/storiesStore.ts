@@ -4,7 +4,11 @@ import {
     type HappyAgentEvent,
     type Story,
     type StoryFeedAuthor,
+    type StoryFrameInput,
+    type StoryOverlayInput,
     type StoryReactionCount,
+    type StoryRing,
+    type StoryTransform,
     type StoryViewer,
 } from "@slopus/happy-agent-client";
 import type { HappyAgentSync } from "../happyAgentConnection/happyAgentSync.js";
@@ -34,9 +38,35 @@ export type HappyAgentStoriesFeed =
     | {
           readonly status: "ready";
           readonly authors: readonly StoryFeedAuthor[];
+          /**
+           * Agents' rings with a live story for the person, newest first: one
+           * per sidebar row, keyed by the row's agent. An agent's stories are
+           * never in `authors`.
+           */
+          readonly rings: readonly StoryRing[];
           /** Why the last read failed, while the row shows the one before it. */
           readonly error?: UserError;
       };
+
+/** A round video the person recorded for their story, before it is uploaded. */
+export interface HappyAgentStoryRoundVideoRecording {
+    readonly data: Blob;
+    /** The file's name, whose extension says what kind of video it is. */
+    readonly name: string;
+    readonly durationMs: number;
+    readonly mirrored: boolean;
+}
+
+/** What the person changed on a draft before posting it from the repost editor. */
+export interface HappyAgentStoryPublishEdit {
+    readonly caption: string | null;
+    /** A round video laid on one frame; absent leaves the frames' overlays as they are. */
+    readonly roundVideo?: {
+        readonly frameId: string;
+        readonly transform: StoryTransform;
+        readonly recording: HappyAgentStoryRoundVideoRecording;
+    };
+}
 
 /** Who saw the author's own story, with their reactions. */
 export type HappyAgentStoryViewers =
@@ -73,6 +103,21 @@ export interface HappyAgentStoriesStore {
     storyDelete(storyId: string): Promise<void>;
     /** Reads who saw the author's own story. */
     storyViewersRequest(storyId: string): void;
+    /**
+     * Sends the person's words about an agent's story to the agent that posted
+     * it, quoting `frameId`. Rejects with a displayable `UserError`.
+     */
+    storyFeedbackSend(storyId: string, frameId: string | undefined, text: string): Promise<void>;
+    /**
+     * Starts the person's own draft from an agent's story and resolves with
+     * its ID, once the draft is held. Rejects with a displayable `UserError`.
+     */
+    storyRepost(storyId: string): Promise<string>;
+    /**
+     * Saves the person's edit of their draft and posts it at the version that
+     * edit made. Rejects with a displayable `UserError`.
+     */
+    storyPublish(storyId: string, edit: HappyAgentStoryPublishEdit): Promise<void>;
     [Symbol.dispose](): void;
 }
 
@@ -87,6 +132,10 @@ export interface HappyAgentStoriesDeps {
         | "postStory"
         | "deleteStory"
         | "listStoryViewers"
+        | "repostStory"
+        | "sendStoryFeedback"
+        | "updateStory"
+        | "uploadArtifactFile"
     >;
     readonly sync: HappyAgentSync;
     readonly now?: () => number;
@@ -99,6 +148,7 @@ const STORY_EVENT_TYPES = [
     "story.deleted",
     "story.seen",
     "story.reacted",
+    "story.ended",
 ] as const satisfies readonly HappyAgentEvent["type"][];
 
 const LOADING_FEED: HappyAgentStoriesFeed = { status: "loading" };
@@ -165,6 +215,11 @@ export function happyAgentStoriesStoreCreate(deps: HappyAgentStoriesDeps): Happy
      */
     const seenApply = (storyId: string): void => {
         const feed = snapshot.feed;
+        const ring =
+            feed.status === "ready"
+                ? feed.rings.find((each) => each.storyIds.includes(storyId))
+                : undefined;
+        if (ring) return ringSeenApply(ring, storyId);
         const author =
             feed.status === "ready"
                 ? feed.authors.find((each) => each.storyIds.includes(storyId))
@@ -197,6 +252,41 @@ export function happyAgentStoriesStoreCreate(deps: HappyAgentStoriesDeps): Happy
             ...snapshot,
             stories: held,
             ...(authors && feed.status === "ready" ? { feed: { ...feed, authors } } : {}),
+        });
+    };
+
+    /**
+     * The same for an agent's ring: the mark is per ring, and covers the
+     * story and every one before it in the ring, whichever agent of the task
+     * posted it.
+     */
+    const ringSeenApply = (ring: StoryRing, storyId: string): void => {
+        const feed = snapshot.feed;
+        if (feed.status !== "ready") return;
+        const covered = ring.storyIds.slice(0, ring.storyIds.indexOf(storyId) + 1);
+        let stories: Map<string, HappyAgentStoryEntry> | undefined;
+        for (const id of covered) {
+            const held = (stories ?? snapshot.stories).get(id);
+            if (held?.type !== "ready" || held.story.seen) continue;
+            stories ??= new Map(snapshot.stories);
+            stories.set(id, { ...held, story: { ...held.story, seen: true } });
+        }
+        const held = stories ?? snapshot.stories;
+        const unseen = ring.storyIds.filter((id) => {
+            const entry = held.get(id);
+            return entry?.type !== "ready" || !entry.story.seen;
+        }).length;
+        const rings =
+            ring.unseenCount !== unseen
+                ? feed.rings.map((each) =>
+                      each === ring ? { ...each, unseenCount: unseen } : each,
+                  )
+                : undefined;
+        if (!stories && !rings) return;
+        publish({
+            ...snapshot,
+            stories: held,
+            ...(rings ? { feed: { ...feed, rings } } : {}),
         });
     };
 
@@ -234,8 +324,19 @@ export function happyAgentStoriesStoreCreate(deps: HappyAgentStoriesDeps): Happy
                     current.status === "ready" && deepEqual(current.authors, answer.authors)
                         ? current.authors
                         : answer.authors;
-                if (current.status !== "ready" || current.authors !== authors || current.error)
-                    feedSet({ status: "ready", authors });
+                // A daemon without agent stories answers with no rings.
+                const answered = answer.rings ?? [];
+                const rings =
+                    current.status === "ready" && deepEqual(current.rings, answered)
+                        ? current.rings
+                        : answered;
+                if (
+                    current.status !== "ready" ||
+                    current.authors !== authors ||
+                    current.rings !== rings ||
+                    current.error
+                )
+                    feedSet({ status: "ready", authors, rings });
                 expiryArm(authors);
             })
             .catch((error: unknown) => {
@@ -316,6 +417,31 @@ export function happyAgentStoriesStoreCreate(deps: HappyAgentStoriesDeps): Happy
                 seenApply(event.payload.storyId);
                 feedRead();
                 return;
+            case "story.ended": {
+                // It leaves its ring at once; the read after it confirms the ring.
+                const payload = event.payload;
+                storiesPut([payload.story]);
+                const feed = snapshot.feed;
+                if (feed.status === "ready") {
+                    const rings = feed.rings.flatMap((ring) => {
+                        if (!ring.storyIds.includes(payload.storyId)) return [ring];
+                        const storyIds = ring.storyIds.filter((id) => id !== payload.storyId);
+                        if (storyIds.length === 0) return [];
+                        const entry = snapshot.stories.get(payload.storyId);
+                        const wasUnseen = entry?.type !== "ready" || !entry.story.seen;
+                        return [
+                            {
+                                ...ring,
+                                storyIds,
+                                unseenCount: Math.max(0, ring.unseenCount - (wasUnseen ? 1 : 0)),
+                            },
+                        ];
+                    });
+                    feedSet({ ...feed, rings });
+                }
+                feedRead();
+                return;
+            }
             case "story.reacted": {
                 const payload = event.payload;
                 storyChange(payload.storyId, (story) => ({
@@ -495,6 +621,99 @@ export function happyAgentStoriesStoreCreate(deps: HappyAgentStoriesDeps): Happy
         },
         storyViewersRequest(storyId) {
             viewersRead(storyId);
+        },
+        async storyFeedbackSend(storyId, frameId, text) {
+            const trimmed = text.trim();
+            if (trimmed === "") throw happyAgentUserError("Write something to send.");
+            try {
+                await deps.client.sendStoryFeedback(storyId, {
+                    id: idCreate(),
+                    ...(frameId === undefined ? {} : { frameId }),
+                    text: trimmed,
+                    mutationId: idCreate(),
+                });
+            } catch (error) {
+                throw happyAgentUserError(error);
+            }
+        },
+        async storyRepost(storyId) {
+            try {
+                const answer = await deps.client.repostStory(storyId, {
+                    id: idCreate(),
+                    mutationId: idCreate(),
+                });
+                storiesPut([answer.story]);
+                wanted.add(answer.story.id);
+                return answer.story.id;
+            } catch (error) {
+                throw happyAgentUserError(error);
+            }
+        },
+        async storyPublish(storyId, edit) {
+            const held = snapshot.stories.get(storyId);
+            if (held?.type !== "ready") throw happyAgentUserError("This story is not loaded.");
+            const story = held.story;
+            entrySet(storyId, { ...held, posting: true });
+            try {
+                const recording = edit.roundVideo?.recording;
+                const upload = recording
+                    ? (
+                          await deps.client.uploadArtifactFile({
+                              data: new Uint8Array(await recording.data.arrayBuffer()),
+                          })
+                      ).upload
+                    : undefined;
+                const frames: StoryFrameInput[] = story.frames.map((frame) => {
+                    // A frame's own round video is replaced by the one recorded for it.
+                    const overlays: StoryOverlayInput[] =
+                        edit.roundVideo &&
+                        upload &&
+                        recording &&
+                        frame.id === edit.roundVideo.frameId
+                            ? [
+                                  ...frame.overlays.filter(
+                                      (overlay) => overlay.type !== "round_video",
+                                  ),
+                                  {
+                                      id: idCreate(),
+                                      type: "round_video",
+                                      media: {
+                                          type: "upload",
+                                          uploadId: upload.id,
+                                          name: recording.name,
+                                      },
+                                      durationMs: Math.max(1, Math.round(recording.durationMs)),
+                                      ...(recording.mirrored ? { mirrored: true } : {}),
+                                      transform: edit.roundVideo.transform,
+                                  },
+                              ]
+                            : [...frame.overlays];
+                    return {
+                        id: frame.id,
+                        placement: frame.placement,
+                        background: frame.background,
+                        overlays,
+                    };
+                });
+                const caption = edit.caption?.trim() ? edit.caption.trim() : null;
+                const saved = await deps.client.updateStory(
+                    storyId,
+                    { caption, frames, mutationId: idCreate() },
+                    { ifMatch: story.version },
+                );
+                const answer = await deps.client.postStory(storyId, {
+                    artifactVersion: saved.story.artifactVersion,
+                    mutationId: idCreate(),
+                });
+                entrySet(storyId, { type: "ready", story: answer.story });
+                feedRead();
+            } catch (error) {
+                const failure = happyAgentUserError(error);
+                const current = snapshot.stories.get(storyId);
+                if (current?.type === "ready")
+                    entrySet(storyId, { type: "ready", story: current.story, postError: failure });
+                throw failure;
+            }
         },
         [Symbol.dispose]() {
             if (disposed) return;

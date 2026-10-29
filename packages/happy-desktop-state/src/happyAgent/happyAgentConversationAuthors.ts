@@ -95,6 +95,7 @@ export function happyAgentConversationSummaryProject(
         activity,
         updatedAt: session.lastMessageAt ?? session.updatedAt,
         ...(session.unreadReason === undefined ? {} : { unread: true }),
+        ...(session.statusLine === undefined ? {} : { statusLine: session.statusLine }),
         participants: [happyAgentOwnerAuthor, agentAuthor],
     };
     summaryCache.set(session, value);

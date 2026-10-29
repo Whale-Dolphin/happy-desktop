@@ -1,0 +1,53 @@
+/*
+ * StoryRing — a mark inside the ring of its stories. The box is 40px whether
+ * or not there is a ring, so a story arriving never moves anything beside it.
+ */
+.happy-story-ring {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+}
+
+.happy-story-ring[data-opens] {
+    cursor: pointer;
+}
+
+.happy-story-ring__ring {
+    /* Laid over the mark rather than beside it: the ring and the mark share one centre. */
+    position: absolute;
+    inset: 0;
+    display: flex;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.happy-story-ring__top {
+    stop-color: var(--story-ring-unseen-top);
+}
+
+.happy-story-ring__bottom {
+    stop-color: var(--story-ring-unseen-bottom);
+}
+
+.happy-story-ring__mark {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+}
+
+/*
+ * The row's own 20px mark, laid out at 20 and drawn at 28, so a clay icon, a
+ * stem cell, an avatar and a glyph all grow by the same factor and keep the
+ * proportions they were drawn at. Zoom rather than a transform: the mark is
+ * laid out and rasterized at its drawn size, so its edges stay sharp.
+ */
+.happy-story-ring__mark > * {
+    zoom: 1.4;
+}

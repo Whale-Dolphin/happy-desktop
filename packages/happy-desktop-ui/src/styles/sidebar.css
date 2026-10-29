@@ -2362,3 +2362,104 @@
         --happy-sidebar-chevron-optical-y: 0.5px;
     }
 }
+
+/* ---- Story rows ------------------------------------------------------- */
+
+/*
+ * An agent's row while Stories are on: two lines beside its mark grown into
+ * a 40px story ring, and one signal in the bottom-right corner. The row is
+ * 52px whether or not it has a ring, a status or a signal, so none of them
+ * arriving ever moves a row.
+ */
+.happy-sidebar__item[data-story] {
+    height: 52px;
+    gap: 10px;
+}
+
+.happy-sidebar__item-leading[data-story] {
+    width: 40px;
+    height: 40px;
+}
+
+.happy-sidebar__item-text,
+.happy-sidebar__item-main > .happy-sidebar__item-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    /* Clear of the corner signal, so neither line ever runs under it. */
+    padding-right: 14px;
+}
+
+.happy-sidebar__item-text > .happy-sidebar__item-label {
+    flex: none;
+    color: var(--text);
+}
+
+.happy-sidebar__item-subtitle {
+    display: block;
+    flex: none;
+    height: 16px;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transform: translateY(var(--happy-sidebar-label-optical-y, 0px));
+}
+
+.happy-sidebar__item-corner {
+    /* Out of the row's flow on purpose: the corner is a badge on the row, so
+       a signal coming and going never takes width from the name. */
+    position: absolute;
+    right: var(--happy-panel-row-padding);
+    bottom: 10px;
+    pointer-events: none;
+}
+
+.happy-sidebar__item-corner[data-signal="waiting"] {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--happy-radius-pill);
+    background: var(--text-link);
+}
+
+/* Work is a quiet track with a short fill sliding through it. It only moves;
+   it never shimmers and never changes the row around it. */
+.happy-sidebar__item-corner[data-signal="working"] {
+    width: 18px;
+    height: 3px;
+    overflow: hidden;
+    border-radius: var(--happy-radius-pill);
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.happy-sidebar__item-corner[data-signal="working"]::after {
+    content: "";
+    display: block;
+    width: 40%;
+    height: 100%;
+    border-radius: var(--happy-radius-pill);
+    background: var(--text-secondary);
+    animation: happy-sidebar-corner-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes happy-sidebar-corner-slide {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(250%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .happy-sidebar__item-corner[data-signal="working"]::after {
+        width: 100%;
+        animation: none;
+        opacity: 0.5;
+    }
+}

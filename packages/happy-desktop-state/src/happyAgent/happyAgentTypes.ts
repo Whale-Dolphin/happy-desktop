@@ -784,6 +784,8 @@ export interface HappyAgentSessionSummary {
     readonly pendingQuestion: boolean;
     /** Why this chat is waiting for the person, as durably tracked by Happy Agent. */
     readonly unreadReason?: "attention_needed" | "turn_finished";
+    /** The line the agent last wrote about where its work stands, with `set_status`. */
+    readonly statusLine?: string;
     readonly title?: string;
     readonly recap?: string;
     /** Chronological sort key: when the session was first created. */

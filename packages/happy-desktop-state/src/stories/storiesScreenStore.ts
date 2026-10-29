@@ -3,15 +3,17 @@ export type HappyAgentStoriesViewerTarget =
     /** An author's circle in the row; the walk goes on through the row's order. */
     | { readonly kind: "row"; readonly authorId: string }
     /** One story, opened from its chat. */
-    | { readonly kind: "story"; readonly storyId: string };
+    | { readonly kind: "story"; readonly storyId: string }
+    /** An agent's ring, from its sidebar row: its stories oldest first, then the viewer closes. */
+    | { readonly kind: "ring"; readonly agentId: string };
 
 export interface HappyAgentStoriesScreenSnapshot {
     readonly viewer?: HappyAgentStoriesViewerTarget;
 }
 
 /**
- * Whether the window shows the full-window story viewer. Stories are not
- * edited on desktop, so the viewer is the only Stories screen.
+ * Whether the window shows the full-window story viewer. The one story a
+ * person edits on desktop, a repost, has its own editor store.
  */
 export interface HappyAgentStoriesScreenStore {
     get(): HappyAgentStoriesScreenSnapshot;

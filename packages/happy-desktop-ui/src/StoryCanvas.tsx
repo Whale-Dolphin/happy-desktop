@@ -1,16 +1,191 @@
 import { useCallback, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import { StickerView, type StorySticker } from "./StickerView";
-import type {
-    StoryFrame,
-    StoryLinkOverlay,
-    StoryOverlay,
-    StoryReactionCount,
-    StoryReactionOverlay,
-    StoryTextFont,
-    StoryTextOverlay,
-    StoryTransform,
+import {
+    STORY_ARTIFACT_VIEWPORT_HEIGHT,
+    STORY_ARTIFACT_VIEWPORT_WIDTH,
+    type StoryArtifactOverlay,
+    type StoryFrame,
+    type StoryLinkOverlay,
+    type StoryOverlay,
+    type StoryReactionCount,
+    type StoryReactionOverlay,
+    type StoryRoundVideoOverlay,
+    type StoryTextFont,
+    type StoryTextOverlay,
+    type StoryTransform,
 } from "./storyTypes";
+
+/** The artifact a live frame or window shows: absent `version` is always the latest. */
+export interface StoryArtifactTarget {
+    readonly artifactId: string;
+    readonly version?: number;
+}
+
+/**
+ * What the host has for an artifact: still being read, never drawable here
+ * (deleted, not a page, or not this reader's), or its live page.
+ */
+export type StoryArtifactPage =
+    | { readonly type: "loading" }
+    | { readonly type: "unavailable" }
+    | { readonly type: "page"; readonly page: ReactNode };
+
+/**
+ * Draws one artifact as a live page filling the box it is given. The host owns
+ * the engine — an isolated guest in the desktop app — so the canvas takes the
+ * page as a slot and only lays it out and scales it.
+ */
+export type StoryArtifactRender = (target: StoryArtifactTarget) => StoryArtifactPage;
+
+/**
+ * A live page laid out at `width` × `height` CSS pixels and scaled uniformly to
+ * the box around it, so it looks the same at every canvas size. The page takes
+ * the pointer for itself: a press inside it never reaches the story under it.
+ */
+function StoryArtifactViewport(props: {
+    readonly width: number;
+    readonly height: number;
+    readonly children: ReactNode;
+    onPointerInside?(inside: boolean): void;
+}) {
+    const { width } = props;
+    // Identity contract: one observer per viewport size, not one per render.
+    const scaledRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            const box = node?.parentElement;
+            if (!node || !box) return;
+            const fit = () => {
+                node.style.transform = `scale(${String(box.getBoundingClientRect().width / width)})`;
+            };
+            const observer = new ResizeObserver(fit);
+            observer.observe(box);
+            fit();
+            return () => observer.disconnect();
+        },
+        [width],
+    );
+    return (
+        <div
+            className="happy-story-artifact"
+            data-happy-desktop-ui="story-artifact"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerEnter={() => props.onPointerInside?.(true)}
+            onPointerLeave={() => props.onPointerInside?.(false)}
+            onPointerUp={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+        >
+            <div
+                className="happy-story-artifact__page"
+                ref={scaledRef}
+                style={{ width: `${String(width)}px`, height: `${String(props.height)}px` }}
+            >
+                {props.children}
+            </div>
+        </div>
+    );
+}
+
+/** A page that cannot be drawn here: its background, saying so. */
+function StoryArtifactUnavailable() {
+    return (
+        <span className="happy-story-canvas__unavailable">This page is no longer available</span>
+    );
+}
+
+/** An artifact's page at its layout size, or why it is not there. */
+function StoryArtifactSlot(props: {
+    readonly target: StoryArtifactTarget;
+    readonly render?: StoryArtifactRender;
+    readonly width: number;
+    readonly height: number;
+    onPointerInside?(inside: boolean): void;
+}) {
+    const page = props.render?.(props.target) ?? { type: "unavailable" };
+    if (page.type === "loading") return null;
+    if (page.type === "unavailable") return <StoryArtifactUnavailable />;
+    return (
+        <StoryArtifactViewport
+            height={props.height}
+            width={props.width}
+            {...(props.onPointerInside ? { onPointerInside: props.onPointerInside } : {})}
+        >
+            {page.page}
+        </StoryArtifactViewport>
+    );
+}
+
+/** A live window onto an artifact, its width `scale` of the canvas's, at its own aspect ratio. */
+function ArtifactOverlay(props: {
+    readonly overlay: StoryArtifactOverlay;
+    readonly render?: StoryArtifactRender;
+    onPointerInside?(inside: boolean): void;
+}) {
+    const { overlay } = props;
+    const height = STORY_ARTIFACT_VIEWPORT_WIDTH / overlay.aspectRatio;
+    return (
+        <span
+            className="happy-story-window"
+            data-happy-desktop-ui="story-window"
+            style={{
+                width: `${String(overlay.transform.scale * 100)}cqw`,
+                aspectRatio: String(overlay.aspectRatio),
+            }}
+        >
+            <StoryArtifactSlot
+                height={height}
+                target={{
+                    artifactId: overlay.artifactId,
+                    ...(overlay.version === undefined ? {} : { version: overlay.version }),
+                }}
+                width={STORY_ARTIFACT_VIEWPORT_WIDTH}
+                {...(props.render ? { render: props.render } : {})}
+                {...(props.onPointerInside ? { onPointerInside: props.onPointerInside } : {})}
+            />
+        </span>
+    );
+}
+
+/**
+ * A round video: a circle `scale` of the canvas wide, the video centre-cropped
+ * into it with a thin white rim. It plays from its start while the frame shows
+ * and holds its last picture after.
+ */
+export function StoryRoundVideo(props: {
+    readonly url: string;
+    readonly mirrored?: boolean;
+    readonly playing: boolean;
+    readonly muted: boolean;
+    readonly className?: string;
+}) {
+    const { playing } = props;
+    // Identity contract: told to play or pause only when that or its file changes.
+    const videoRef = useCallback(
+        (video: HTMLVideoElement | null) => {
+            if (!video) return;
+            if (playing) void video.play().catch(() => undefined);
+            else video.pause();
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [playing, props.url],
+    );
+    return (
+        <span
+            className={["happy-story-round-video", props.className].filter(Boolean).join(" ")}
+            data-happy-desktop-ui="story-round-video"
+        >
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption -- a round video is a spoken aside with no caption track */}
+            <video
+                className="happy-story-round-video__video"
+                data-mirrored={props.mirrored ? "" : undefined}
+                muted={props.muted}
+                playsInline
+                ref={videoRef}
+                src={props.url}
+            />
+        </span>
+    );
+}
 
 /**
  * The system font each story font names, as every client draws it; a Mac has
@@ -143,6 +318,14 @@ export interface StoryOverlayViewProps {
     readonly reactions?: readonly StoryReactionCount[];
     readonly myReaction?: string | null;
     readonly animate?: boolean;
+    /** Draws a live artifact window; without it the window is left out. */
+    readonly artifactRender?: StoryArtifactRender;
+    /** Where a round video's file is read; without it the circle is left out. */
+    readonly roundVideoUrl?: (overlay: StoryRoundVideoOverlay) => string | undefined;
+    readonly playing?: boolean;
+    readonly muted?: boolean;
+    /** The pointer entered or left a live artifact window. */
+    onArtifactPointer?(inside: boolean): void;
     readonly attributes?: HTMLAttributes<HTMLElement> & {
         readonly [data: `data-${string}`]: string | undefined;
     };
@@ -194,6 +377,34 @@ export function StoryOverlayView(props: StoryOverlayViewProps) {
                         overlay={overlay}
                     />
                 );
+            case "artifact":
+                return (
+                    <ArtifactOverlay
+                        overlay={overlay}
+                        {...(props.artifactRender ? { render: props.artifactRender } : {})}
+                        {...(props.onArtifactPointer
+                            ? { onPointerInside: props.onArtifactPointer }
+                            : {})}
+                    />
+                );
+            case "round_video": {
+                const url = props.roundVideoUrl?.(overlay);
+                return url ? (
+                    <span
+                        style={{
+                            display: "flex",
+                            width: `${String(transform.scale * 100)}cqw`,
+                        }}
+                    >
+                        <StoryRoundVideo
+                            muted={props.muted ?? true}
+                            playing={props.playing ?? true}
+                            url={url}
+                            {...(overlay.mirrored ? { mirrored: true } : {})}
+                        />
+                    </span>
+                ) : null;
+            }
             default:
                 return null;
         }
@@ -233,6 +444,17 @@ export interface StoryCanvasProps {
     readonly onVideoEnded?: () => void;
     /** A link or reaction overlay was pressed, in the viewer. */
     readonly onOverlayActivate?: (overlay: StoryLinkOverlay | StoryReactionOverlay) => void;
+    /** Draws live artifact frames and windows; without it they show their background. */
+    readonly artifactRender?: StoryArtifactRender;
+    /** Where a round video's file is read. */
+    readonly roundVideoUrl?: (overlay: StoryRoundVideoOverlay) => string | undefined;
+    /** The pointer entered or left a live page, which holds the frame while it is there. */
+    onArtifactPointer?(inside: boolean): void;
+    /**
+     * The chip a repost wears on every frame, "Reposted from <session>",
+     * which opens that session when `onOpen` is given.
+     */
+    readonly repost?: { readonly label: string; onOpen?(): void };
     /** Drawn above the overlays: the viewer's progress, header and controls. */
     readonly children?: ReactNode;
     readonly className?: string;
@@ -271,7 +493,28 @@ export function StoryCanvas(props: StoryCanvasProps) {
             data-testid={props["data-testid"]}
             style={{ background: `linear-gradient(to bottom, ${top}, ${bottom})`, ...props.style }}
         >
-            {media ? (
+            {frame.kind === "artifact" ? (
+                frame.asset.type === "artifact" ? (
+                    <div className="happy-story-canvas__page">
+                        <StoryArtifactSlot
+                            height={STORY_ARTIFACT_VIEWPORT_HEIGHT}
+                            target={{
+                                artifactId: frame.asset.artifactId,
+                                ...(frame.asset.version === undefined
+                                    ? {}
+                                    : { version: frame.asset.version }),
+                            }}
+                            width={STORY_ARTIFACT_VIEWPORT_WIDTH}
+                            {...(props.artifactRender ? { render: props.artifactRender } : {})}
+                            {...(props.onArtifactPointer
+                                ? { onPointerInside: props.onArtifactPointer }
+                                : {})}
+                        />
+                    </div>
+                ) : (
+                    <StoryArtifactUnavailable />
+                )
+            ) : media ? (
                 <div className="happy-story-canvas__media" style={placed(placement, true)}>
                     {frame.kind === "video" ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption -- a story's video has no caption track; its caption is drawn over it
@@ -310,6 +553,13 @@ export function StoryCanvas(props: StoryCanvasProps) {
                     overlay={overlay}
                     sticker={props.sticker}
                     {...(props.animate === undefined ? {} : { animate: props.animate })}
+                    {...(props.artifactRender ? { artifactRender: props.artifactRender } : {})}
+                    {...(props.roundVideoUrl ? { roundVideoUrl: props.roundVideoUrl } : {})}
+                    {...(props.onArtifactPointer
+                        ? { onArtifactPointer: props.onArtifactPointer }
+                        : {})}
+                    playing={playing}
+                    muted={props.muted ?? true}
                     {...(props.reactions ? { reactions: props.reactions } : {})}
                     {...(props.myReaction === undefined ? {} : { myReaction: props.myReaction })}
                     {...(props.onOverlayActivate &&
@@ -340,6 +590,12 @@ export function StoryCanvas(props: StoryCanvasProps) {
                         : {})}
                 />
             ))}
+            {props.repost ? (
+                <StoryRepostChip
+                    label={props.repost.label}
+                    {...(props.repost.onOpen ? { onOpen: props.repost.onOpen } : {})}
+                />
+            ) : null}
             {props.caption ? (
                 <div className="happy-story-canvas__caption">
                     <span className="happy-story-canvas__caption-text">{props.caption}</span>
@@ -347,5 +603,40 @@ export function StoryCanvas(props: StoryCanvasProps) {
             ) : null}
             {props.children}
         </div>
+    );
+}
+
+/** "↻ Reposted from <session> ›": where a repost came from, opening it when it can. */
+function StoryRepostChip(props: { readonly label: string; onOpen?(): void }) {
+    const content = (
+        <>
+            <Icon name="repeat" size={14} />
+            <span className="happy-story-repost__label">{props.label}</span>
+            {props.onOpen ? <Icon name="chevron-right" size={12} /> : null}
+        </>
+    );
+    return props.onOpen ? (
+        <button
+            className="happy-story-repost"
+            data-happy-desktop-ui="story-repost"
+            data-testid="story-repost-chip"
+            onClick={(event) => {
+                event.stopPropagation();
+                props.onOpen?.();
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            type="button"
+        >
+            {content}
+        </button>
+    ) : (
+        <span
+            className="happy-story-repost"
+            data-happy-desktop-ui="story-repost"
+            data-testid="story-repost-chip"
+        >
+            {content}
+        </span>
     );
 }

@@ -339,6 +339,7 @@ export {
     type SidebarItem,
     type SidebarItemAction,
     type SidebarItemChange,
+    type SidebarItemStory,
     type SidebarItemChangeKind,
     type SidebarSeparatorPinEdge,
     type SidebarNumberShortcutTarget,
@@ -1087,15 +1088,21 @@ export {
     type HappyAgentStoriesSettingsProps,
 } from "./pages/settings/HappyAgentStoriesSettings";
 export { StoriesRow, type StoriesRowAuthor, type StoriesRowProps } from "./StoriesRow";
+export { StoryRing, type StoryRingProps, type StoryRingSegments } from "./StoryRing";
 export {
     StoryCanvas,
     StoryOverlayView,
+    StoryRoundVideo,
     STORY_FONTS,
     storyContrastInk,
     storyLinkHost,
+    type StoryArtifactPage,
+    type StoryArtifactRender,
+    type StoryArtifactTarget,
     type StoryCanvasProps,
     type StoryOverlayViewProps,
 } from "./StoryCanvas";
+export { StoryEditor, type StoryEditorProps, type StoryEditorRecording } from "./StoryEditor";
 export {
     StoryViewer,
     STORY_QUICK_REACTIONS,

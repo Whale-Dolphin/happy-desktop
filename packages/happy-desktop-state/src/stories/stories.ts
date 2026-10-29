@@ -15,10 +15,16 @@ import {
     happyAgentStoriesScreenStoreCreate,
     type HappyAgentStoriesScreenStore,
 } from "./storiesScreenStore.js";
+import {
+    happyAgentStoryEditorStoreCreate,
+    type HappyAgentStoryEditorStore,
+} from "./storyEditorStore.js";
 
 /** Where the bytes of a story's media and stickers are read, through the connection's transport. */
 export interface HappyAgentStoryUrls {
     frame(storyId: string, frameId: string): string;
+    /** A round video overlay's file. */
+    overlayMedia(storyId: string, overlayId: string): string;
     /** A sticker's file; `lottie` reads a `tgs` sticker as plain Lottie JSON. */
     sticker(packId: string, stickerId: string, lottie: boolean): string;
     /** An author's photo, from the daemon-relative path the feed names. */
@@ -38,6 +44,8 @@ export interface HappyAgentStories {
     stickers(): HappyAgentStickersStore;
     /** Whether the full-window viewer is open. */
     screen(): HappyAgentStoriesScreenStore;
+    /** The person's draft in the story editor: a repost being made their own. */
+    editor(): HappyAgentStoryEditorStore;
     readonly urls: HappyAgentStoryUrls;
     [Symbol.dispose](): void;
 }
@@ -55,6 +63,7 @@ export function happyAgentStoriesCreate(deps: HappyAgentStoriesCreateDeps): Happ
     let stickers: HappyAgentStickersStore | undefined;
     let row: HappyAgentStoriesRowStore | undefined;
     let screen: HappyAgentStoriesScreenStore | undefined;
+    let editor: HappyAgentStoryEditorStore | undefined;
     let screenRelease: (() => void) | undefined;
     const settingsGet = (): HappyAgentStoriesSettingsStore => {
         settings ??= happyAgentStoriesSettingsStoreCreate(
@@ -78,6 +87,7 @@ export function happyAgentStoriesCreate(deps: HappyAgentStoriesCreateDeps): Happ
             const current = setting.get();
             if (current.status === "ready" && !current.storiesEnabled) {
                 created.viewerClose();
+                editor?.editorClose();
                 row?.rowCollapse();
             }
         });
@@ -95,8 +105,14 @@ export function happyAgentStoriesCreate(deps: HappyAgentStoriesCreateDeps): Happ
             return stickers;
         },
         screen: screenGet,
+        editor() {
+            screenGet();
+            editor ??= happyAgentStoryEditorStoreCreate({ stories: storiesGet() });
+            return editor;
+        },
         urls: {
             frame: (storyId, frameId) => client.storyFrameUrl(storyId, frameId),
+            overlayMedia: (storyId, overlayId) => client.storyOverlayMediaUrl(storyId, overlayId),
             sticker: (packId, stickerId, lottie) =>
                 client.stickerFileUrl(packId, stickerId, lottie),
             photo: (path) => endpointUrl(client.endpoint, path),
@@ -109,7 +125,8 @@ export function happyAgentStoriesCreate(deps: HappyAgentStoriesCreateDeps): Happ
             stories?.[Symbol.dispose]();
             stickers?.[Symbol.dispose]();
             screen?.[Symbol.dispose]();
-            settings = stories = stickers = screen = row = undefined;
+            editor?.[Symbol.dispose]();
+            settings = stories = stickers = screen = row = editor = undefined;
         },
     };
 }

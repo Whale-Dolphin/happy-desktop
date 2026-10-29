@@ -250,3 +250,110 @@
     object-fit: contain;
     pointer-events: none;
 }
+
+/* ---- Agent stories: live pages, round videos, reposts ------------------ */
+
+/* An artifact frame: the page fills the canvas. */
+.happy-story-canvas__page {
+    /* Laid over its parent rather than in its flow: it is the whole canvas. */
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The box a live page is scaled into; the page inside lays out at its own
+   viewport and is scaled from its top-left corner to fill it. */
+.happy-story-artifact {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-self: stretch;
+    overflow: hidden;
+}
+
+.happy-story-artifact__page {
+    /* Out of flow and scaled from the corner, so its own viewport never
+       resizes the box it is drawn into. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    transform-origin: 0 0;
+}
+
+/* A live window: rounded at 1/27 of the canvas's width. */
+.happy-story-window {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: calc(100cqw / 27);
+    background: var(--story-stage);
+    box-shadow: 0 0.6cqw 2cqw var(--story-scrim);
+}
+
+/* A round video: a circle with a thin white rim, the video cropped into it. */
+.happy-story-round-video {
+    display: flex;
+    flex: 1;
+    box-sizing: border-box;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: max(2px, 0.6cqw) solid var(--story-ink);
+    border-radius: var(--happy-radius-pill);
+    background: var(--story-stage);
+    box-shadow: 0 0.6cqw 2cqw var(--story-scrim);
+}
+
+.happy-story-round-video__video {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.happy-story-round-video__video[data-mirrored] {
+    transform: scaleX(-1);
+}
+
+/* "Reposted from …": a dark pill at the canvas's lower left. */
+.happy-story-repost {
+    /* Laid over the canvas at a fixed corner rather than in its flow. */
+    position: absolute;
+    bottom: 4cqw;
+    left: 4cqw;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100% - 8cqw);
+    box-sizing: border-box;
+    padding: 6px 12px;
+    border: none;
+    border-radius: var(--happy-radius-pill);
+    background: var(--story-scrim);
+    color: var(--story-ink);
+    font-family: var(--happy-font-ui);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: left;
+}
+
+button.happy-story-repost {
+    cursor: pointer;
+}
+
+button.happy-story-repost:hover {
+    background: var(--story-control-hover);
+}
+
+.happy-story-repost__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

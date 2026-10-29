@@ -370,6 +370,7 @@ function conversationProject(session: GroupSession): HappyAgentConversationSumma
             : { wait: { startedAt: session.wait.startedAt, dueAt: session.wait.dueAt } }),
         ...(session.unread === undefined ? {} : { unreadReason: session.unread.reason }),
         ...(session.title === undefined ? {} : { title: session.title }),
+        ...(session.statusLine === undefined ? {} : { statusLine: session.statusLine }),
         ...(session.recap === undefined ? {} : { recap: session.recap }),
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,

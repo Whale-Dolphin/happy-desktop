@@ -1,20 +1,30 @@
-import type {
-    HappyAgentStickersSnapshot,
-    HappyAgentStickersStore,
-    HappyAgentStories,
-    HappyAgentStoriesSnapshot,
+import {
     happyAgentProtocol,
+    type HappyAgentArtifactId,
+    type HappyAgentInlineArtifactsStore,
+    type HappyAgentStickersSnapshot,
+    type HappyAgentStickersStore,
+    type HappyAgentStories,
+    type HappyAgentStoriesSnapshot,
+    type HappyAgentStoryEditorSnapshot,
 } from "happy-desktop-state";
 import {
+    Icon,
+    StemCellGrowth,
     StoriesRow,
+    StoryEditor,
     StoryInlineCard,
     StoryViewer,
+    type HtmlPreviewRenderer,
     type InlinePageFit,
+    type SidebarItem,
     type StoriesRowAuthor,
+    type StoryArtifactRender,
     type StorySticker,
     type StoryViewerAuthor,
 } from "happy-desktop-ui";
 import { useCallback, useSyncExternalStore } from "react";
+import { inlineArtifactsStoreNoop } from "../conversationInlinePages";
 
 type Story = happyAgentProtocol.Story;
 type StoryFeedAuthor = happyAgentProtocol.StoryFeedAuthor;
@@ -147,36 +157,132 @@ function viewerAuthors(
     }));
 }
 
+/** The name and picture an agent's stories are watched under: its row's. */
+export interface HappyAgentStoryAgent {
+    readonly name: string;
+    readonly mark?: Pick<SidebarItem, "icon" | "imageMark" | "imageUrl" | "stemCell">;
+}
+
+/** An agent's row picture as the viewer's avatar wears it. */
+function agentAvatar(
+    agent: HappyAgentStoryAgent | undefined,
+): Pick<StoryViewerAuthor, "photoUrl" | "mark"> {
+    const mark = agent?.mark;
+    if (!mark) return {};
+    if (mark.imageMark || mark.stemCell)
+        return {
+            mark: (
+                <StemCellGrowth
+                    imageClassName="happy-story-viewer__mark"
+                    imageMark={mark.imageMark}
+                    size={20}
+                    stemCell={mark.stemCell}
+                />
+            ),
+        };
+    if (mark.imageUrl) return { photoUrl: mark.imageUrl };
+    return mark.icon ? { mark: <Icon name={mark.icon} size={18} /> } : {};
+}
+
 export interface HappyAgentStoriesScreensProps {
     readonly hub: HappyAgentStories;
+    /** Who an agent is, from the window's lists; absent until they know it. */
+    readonly agentOf: (agentId: string) => HappyAgentStoryAgent | undefined;
+    /** The artifacts live frames and windows show, each at its latest version. */
+    readonly artifacts?: HappyAgentInlineArtifactsStore;
+    /** The host's isolated page engine; without one a live page shows its background. */
+    readonly artifactPage?: HtmlPreviewRenderer;
     onLinkOpen(url: string): void;
     onSourceOpen(agentId: string): void;
 }
 
-/** The viewer, mounted once beside whatever the window shows. */
+/** The viewer and the editor, mounted once beside whatever the window shows. */
 export function HappyAgentStoriesScreens(props: HappyAgentStoriesScreensProps) {
     const screenStore = props.hub.screen();
     const screen = useSyncExternalStore(screenStore.subscribe, screenStore.get, screenStore.get);
-    if (screen.viewer)
-        return (
-            <HappyAgentStoryViewerScreen
-                hub={props.hub}
-                onLinkOpen={props.onLinkOpen}
-                onSourceOpen={props.onSourceOpen}
-                target={screen.viewer}
-            />
-        );
+    const editorStore = props.hub.editor();
+    const editor = useSyncExternalStore(editorStore.subscribe, editorStore.get, editorStore.get);
+    if (screen.viewer) return <HappyAgentStoryViewerScreen {...props} target={screen.viewer} />;
+    if (editor.status === "open") return <HappyAgentStoryEditorScreen {...props} editor={editor} />;
     return null;
 }
 
-function HappyAgentStoryViewerScreen(props: {
-    readonly hub: HappyAgentStories;
-    readonly target: NonNullable<
-        ReturnType<ReturnType<HappyAgentStories["screen"]>["get"]>["viewer"]
-    >;
-    onLinkOpen(url: string): void;
-    onSourceOpen(agentId: string): void;
-}) {
+const ignore = (): void => undefined;
+
+/**
+ * Live frames and windows as isolated pages: an HTML artifact served as its
+ * own site. An artifact being read draws nothing yet; one that is gone, or is
+ * not a page this host can serve, says so.
+ */
+function useStoryArtifactRender(
+    props: Pick<HappyAgentStoriesScreensProps, "artifacts" | "artifactPage">,
+): StoryArtifactRender | undefined {
+    const store = props.artifacts ?? inlineArtifactsStoreNoop;
+    const artifacts = useSyncExternalStore(store.subscribe, store.get, store.get);
+    const page = props.artifactPage;
+    if (!props.artifacts || !page) return undefined;
+    return (target) => {
+        const artifactId = target.artifactId as HappyAgentArtifactId;
+        // Records what is wanted; the read starts after this render.
+        store.request([artifactId]);
+        const entry = artifacts.get(artifactId);
+        if (entry === undefined) return { type: "loading" };
+        if (entry.type === "missing" || entry.status === "deleted") return { type: "unavailable" };
+        const site = entry.site;
+        if (site?.type === "opening") return { type: "loading" };
+        if (site?.type !== "opened") return { type: "unavailable" };
+        return {
+            type: "page",
+            page: page({ source: site.url, previewFailed: ignore, previewLoaded: ignore }),
+        };
+    };
+}
+
+/** The repost chip's words, and where it leads when the person may open the session. */
+function repostChipOf(
+    story: Story,
+    open: (agentId: string) => void,
+): { readonly label: string; onOpen?(): void } | undefined {
+    const from = story.repostOf;
+    if (!from) return undefined;
+    return {
+        label: `Reposted from ${from.title ?? "an agent"}`,
+        ...(from.canOpen ? { onOpen: () => open(from.agentId) } : {}),
+    };
+}
+
+/** Every agent with a story up, each under its own name and picture, newest first. */
+function ringAuthors(
+    snapshot: HappyAgentStoriesSnapshot,
+    agentOf: (agentId: string) => HappyAgentStoryAgent | undefined,
+): StoryViewerAuthor[] {
+    if (snapshot.feed.status !== "ready") return [];
+    return snapshot.feed.rings.map((ring) => {
+        const agent = agentOf(ring.agentId);
+        const name = agent?.name ?? "Agent";
+        return {
+            id: `agent:${ring.agentId}`,
+            name,
+            ...agentAvatar(agent),
+            initials: initialsOf(name),
+            self: false,
+            stories: ring.storyIds.flatMap((storyId) => {
+                const entry = snapshot.stories.get(storyId);
+                return entry?.type === "ready" && entry.story.status === "posted"
+                    ? [entry.story]
+                    : [];
+            }),
+        };
+    });
+}
+
+function HappyAgentStoryViewerScreen(
+    props: HappyAgentStoriesScreensProps & {
+        readonly target: NonNullable<
+            ReturnType<ReturnType<HappyAgentStories["screen"]>["get"]>["viewer"]
+        >;
+    },
+) {
     const { hub, target } = props;
     const store = hub.stories();
     const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get);
@@ -187,13 +293,18 @@ function HappyAgentStoryViewerScreen(props: {
         stickersStore.get,
     );
     const source = stickerSourceOf(hub, stickersStore, stickers);
+    const artifactRender = useStoryArtifactRender(props);
     const screen = hub.screen();
+    const editor = hub.editor();
     let authors: StoryViewerAuthor[];
     let startAuthorId: string;
     let startStoryId: string | undefined;
     if (target.kind === "row") {
         authors = viewerAuthors(hub, snapshot);
         startAuthorId = target.authorId;
+    } else if (target.kind === "ring") {
+        authors = ringAuthors(snapshot, props.agentOf);
+        startAuthorId = `agent:${target.agentId}`;
     } else {
         const entry = snapshot.stories.get(target.storyId);
         const story = entry?.type === "ready" ? entry.story : undefined;
@@ -201,15 +312,22 @@ function HappyAgentStoryViewerScreen(props: {
             story && snapshot.feed.status === "ready"
                 ? snapshot.feed.authors.find((author) => author.userId === story.authorUserId)
                 : undefined;
+        const agent =
+            story?.author?.kind === "agent" ? props.agentOf(story.author.agentId) : undefined;
+        const name = agent?.name ?? feedAuthor?.name ?? "Story";
         startAuthorId = "story";
         startStoryId = target.storyId;
         authors = story
             ? [
                   {
                       id: "story",
-                      name: feedAuthor?.name ?? "Story",
-                      ...(feedAuthor?.photo ? { photoUrl: hub.urls.photo(feedAuthor.photo) } : {}),
-                      initials: initialsOf(feedAuthor?.name ?? "Story"),
+                      name,
+                      ...(agent
+                          ? agentAvatar(agent)
+                          : feedAuthor?.photo
+                            ? { photoUrl: hub.urls.photo(feedAuthor.photo) }
+                            : {}),
+                      initials: initialsOf(name),
                       // Only its author reads a draft or a story's view count.
                       self:
                           feedAuthor?.isSelf ??
@@ -219,22 +337,41 @@ function HappyAgentStoryViewerScreen(props: {
               ]
             : [];
     }
+    const sourceOpen = (agentId: string) => {
+        screen.viewerClose();
+        props.onSourceOpen(agentId);
+    };
     return (
         <StoryViewer
+            {...(artifactRender ? { artifactRender } : {})}
             authors={authors}
             frameUrl={hub.urls.frame}
             onClose={() => screen.viewerClose()}
             onDelete={(storyId) => store.storyDelete(storyId)}
+            onFeedback={(story, frameId, text) => store.storyFeedbackSend(story.id, frameId, text)}
             onLinkOpen={props.onLinkOpen}
             onOwnStoryShown={(storyId) => store.storyRefresh(storyId)}
             onReact={(storyId, emoji) => store.storyReactionToggle(storyId, emoji)}
+            onRepost={(story) => {
+                // The draft opens in the editor once the daemon has made it;
+                // a refusal leaves the person watching.
+                void store.storyRepost(story.id).then(
+                    (draftId) => {
+                        screen.viewerClose();
+                        editor.editorOpen(draftId);
+                    },
+                    () => undefined,
+                );
+            }}
+            onRepostSourceOpen={(story) => {
+                if (story.repostOf?.canOpen) sourceOpen(story.repostOf.agentId);
+            }}
             onSeen={(storyId) => store.storySeen(storyId)}
             onSourceOpen={(story) => {
-                if (!story.source) return;
-                screen.viewerClose();
-                props.onSourceOpen(story.source.agentId);
+                if (story.source) sourceOpen(story.source.agentId);
             }}
             onViewersRequest={(storyId) => store.storyViewersRequest(storyId)}
+            overlayMediaUrl={hub.urls.overlayMedia}
             postedLabel={postedLabel}
             startAuthorId={startAuthorId}
             {...(startStoryId ? { startStoryId } : {})}
@@ -246,6 +383,70 @@ function HappyAgentStoryViewerScreen(props: {
                     ? { status: "failed", message: entry.error.message }
                     : entry;
             }}
+        />
+    );
+}
+
+/** The person's draft — a repost — in the editor, until it is posted or closed. */
+function HappyAgentStoryEditorScreen(
+    props: HappyAgentStoriesScreensProps & {
+        readonly editor: Extract<HappyAgentStoryEditorSnapshot, { status: "open" }>;
+    },
+) {
+    const { hub, editor } = props;
+    const store = hub.stories();
+    const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get);
+    const stickersStore = hub.stickers();
+    const stickers = useSyncExternalStore(
+        stickersStore.subscribe,
+        stickersStore.get,
+        stickersStore.get,
+    );
+    const source = stickerSourceOf(hub, stickersStore, stickers);
+    const artifactRender = useStoryArtifactRender(props);
+    const editorStore = hub.editor();
+    // Records what is wanted; the read starts after this render.
+    store.storiesRequest([editor.storyId]);
+    const entry = snapshot.stories.get(editor.storyId);
+    const story = entry?.type === "ready" ? entry.story : undefined;
+    if (!story || story.frames.length === 0) return null;
+    const repost = repostChipOf(story, (agentId) => {
+        editorStore.editorClose();
+        props.onSourceOpen(agentId);
+    });
+    return (
+        <StoryEditor
+            {...(artifactRender ? { artifactRender } : {})}
+            caption={editor.caption}
+            {...(editor.error ? { error: editor.error.message } : {})}
+            frameIndex={editor.frameIndex}
+            frameUrl={hub.urls.frame}
+            onCaptionChange={editorStore.captionUpdate}
+            onClose={editorStore.editorClose}
+            onFrameShow={editorStore.frameShow}
+            onPost={() => {
+                // A refusal shows in the editor, which stays open.
+                void editorStore.storyPost().catch(() => undefined);
+            }}
+            onRoundVideoRecorded={editorStore.roundVideoRecord}
+            onRoundVideoRemove={editorStore.roundVideoRemove}
+            onRoundVideoTransform={editorStore.roundVideoTransformUpdate}
+            overlayMediaUrl={hub.urls.overlayMedia}
+            posting={editor.posting}
+            {...(repost ? { repost } : {})}
+            {...(editor.roundVideo
+                ? {
+                      roundVideo: {
+                          frameId: editor.roundVideo.frameId,
+                          url: editor.roundVideo.url,
+                          mirrored: editor.roundVideo.recording.mirrored,
+                          transform: editor.roundVideo.transform,
+                      },
+                  }
+                : {})}
+            roundVideoMaxMs={happyAgentProtocol.MAX_STORY_ROUND_VIDEO_DURATION_MS}
+            sticker={source.byId}
+            story={story}
         />
     );
 }

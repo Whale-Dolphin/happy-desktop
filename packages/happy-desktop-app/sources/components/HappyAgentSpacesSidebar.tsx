@@ -50,6 +50,7 @@ import {
     type MenuItem,
     type SidebarItem,
     type SidebarItemChange,
+    type StoryRingSegments,
     type TabItem,
 } from "happy-desktop-ui";
 import { useMemo, useSyncExternalStore, type ReactNode } from "react";
@@ -634,6 +635,84 @@ export interface HappyAgentSpacesSidebarProps {
      * draws it on its own rows and answers it there.
      */
     readonly proposals?: HappyAgentSidebarProposalsStore;
+    /**
+     * Stories, while the person has them on: every conversation's row is
+     * drawn two lines tall, its agent's status under its title and its story
+     * ring around its picture, and the ring opens the agent's stories.
+     */
+    readonly stories?: HappyAgentSpacesStories;
+}
+
+/** What Stories add to the sidebar's rows. */
+export interface HappyAgentSpacesStories {
+    /** Each agent's ring, by its agent ID; an agent with no stories up has none. */
+    readonly rings: ReadonlyMap<string, StoryRingSegments>;
+    onRingOpen(agentId: string): void;
+}
+
+/** The conversation an agent's row stands for, from the window's lists. */
+function conversationOf(agentId: string, places: HappyAgentSpacesPlaces) {
+    return (
+        places.tasks.find((task) => task.conversation.id === agentId)?.conversation ??
+        places.bots.find((bot) => bot.conversation.id === agentId)?.conversation ??
+        subtaskWhere(
+            [...places.tasks, ...places.bots],
+            (subtask) => subtask.conversation.id === agentId,
+        )?.conversation
+    );
+}
+
+/**
+ * The name and picture an agent goes by where its stories are watched: its
+ * space's, as its row wears them, else its conversation's title alone.
+ */
+export function happyAgentSpacesAgentIdentity(
+    agentId: string,
+    snapshot: HappyAgentSpacesSnapshot,
+    places: HappyAgentSpacesPlaces,
+):
+    | {
+          readonly label: string;
+          readonly mark?: Pick<SidebarItem, "icon" | "imageMark" | "imageUrl" | "stemCell">;
+      }
+    | undefined {
+    for (const space of snapshot.spaces.values())
+        if (spaceAgentId(space) === agentId)
+            return {
+                label: happyAgentSpaceLabel(space),
+                mark: happyAgentSpaceMark(space, places, false),
+            };
+    const conversation = conversationOf(agentId, places);
+    return conversation ? { label: conversation.title } : undefined;
+}
+
+/**
+ * A conversation's row as Stories draw it: the agent's status line under the
+ * title, its ring, and one corner signal: a dot while it waits on the person,
+ * a bar while it works.
+ */
+function storyRow(
+    item: SidebarItem,
+    agentId: string,
+    places: HappyAgentSpacesPlaces,
+    stories: HappyAgentSpacesStories,
+): SidebarItem {
+    const statusLine = conversationOf(agentId, places)?.statusLine;
+    const ring = stories.rings.get(agentId);
+    const signal =
+        item.status === "awaitingInput" || item.unread
+            ? ("waiting" as const)
+            : item.status === "working"
+              ? ("working" as const)
+              : undefined;
+    return {
+        ...item,
+        story: {
+            ...(statusLine ? { subtitle: statusLine } : {}),
+            ...(ring ? { ring } : {}),
+            ...(signal ? { signal } : {}),
+        },
+    };
 }
 
 /** The document as items, or nothing when there is none or it is not one the window will draw. */
@@ -1221,7 +1300,22 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                   proposal.declined,
               )
             : { items: standing.items, changeOf: new Map<string, SidebarProposalChange>() };
-    const items = drawn.items;
+    /** The conversation a drawn row opens, when it opens one. */
+    const rowAgentId = (id: string): string | undefined => {
+        const subject = happyAgentSpacesRowSubject(id, snapshot, places);
+        return subject?.kind === "space"
+            ? spaceAgentId(subject.space)
+            : subject?.kind === "subtask"
+              ? subject.agentId
+              : undefined;
+    };
+    const stories = props.stories;
+    const items = stories
+        ? drawn.items.map((item) => {
+              const agentId = item.kind === "separator" ? undefined : rowAgentId(item.id);
+              return agentId === undefined ? item : storyRow(item, agentId, places, stories);
+          })
+        : drawn.items;
     const pending = changes.some((change) => !proposal?.declined.has(change.id));
     /** Takes one change, as the person's own edit; an archive archives what it names. */
     const changeAccept = (change: SidebarProposalChange) => {
@@ -1444,6 +1538,14 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
             foldControlPlacement="trailing"
             foldControlReveal="hover"
             onItemSelect={open}
+            {...(stories
+                ? {
+                      onItemStoryOpen: (id: string) => {
+                          const agentId = rowAgentId(id);
+                          if (agentId !== undefined) stories.onRingOpen(agentId);
+                      },
+                  }
+                : {})}
             onItemAction={(id) => {
                 const node = view.items.find(
                     (entry) => sidebarDocumentKey(entry) === anchorOf.get(id),

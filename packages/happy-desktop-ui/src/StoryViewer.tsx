@@ -1,11 +1,19 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+    useCallback,
+    useRef,
+    useState,
+    type PointerEvent as ReactPointerEvent,
+    type ReactNode,
+    type WheelEvent as ReactWheelEvent,
+} from "react";
 import { Icon } from "./Icon";
 import { Ionicon } from "./vectorIcons/VectorIcon";
 import { ModalOverlay } from "./ModalOverlay";
 import { ScrollArea } from "./Scrollbar";
-import { StoryCanvas } from "./StoryCanvas";
+import { StoryCanvas, type StoryArtifactRender } from "./StoryCanvas";
 import type { StorySticker } from "./StickerView";
 import {
+    STORY_ARTIFACT_MS,
     STORY_IMAGE_MS,
     STORY_VIDEO_MAX_MS,
     type Story,
@@ -19,6 +27,8 @@ export interface StoryViewerAuthor {
     readonly id: string;
     readonly name: string;
     readonly photoUrl?: string;
+    /** The author's own mark in place of a photo: an agent wears its row's icon. */
+    readonly mark?: ReactNode;
     readonly initials: string;
     readonly self: boolean;
     /** Posted stories in viewing order, oldest first. */
@@ -53,6 +63,19 @@ export interface StoryViewerProps {
     onDelete?(storyId: string): Promise<void>;
     /** Opens the conversation a story was drafted in, where the person may read it. */
     onSourceOpen?(story: Story): void;
+    /** Draws live artifact frames and windows; without it they show their background. */
+    readonly artifactRender?: StoryArtifactRender;
+    /** Where a round video overlay's file is read. */
+    readonly overlayMediaUrl?: (storyId: string, overlayId: string) => string;
+    /** Opens the session a repost came from, from its chip, when the person may. */
+    onRepostSourceOpen?(story: Story): void;
+    /**
+     * An agent's story takes the person's words for the agent that posted it,
+     * quoting the frame on screen. Rejects with a displayable error.
+     */
+    onFeedback?(story: Story, frameId: string, text: string): Promise<void>;
+    /** Starts the person's own story from an agent's, in the editor. */
+    onRepost?(story: Story): void;
     onClose(): void;
 }
 
@@ -61,6 +84,18 @@ export const STORY_QUICK_REACTIONS = ["❤️", "👍", "🔥", "🎉", "😂", 
 
 const HOLD_MS = 200;
 const SWIPE_CLOSE_PX = 120;
+/** Shift-scrolling moves through a frame this many milliseconds per pixel. */
+const SCRUB_MS_PER_PX = 12;
+/** Scrolling this far past a frame's start or end moves to the one beside it. */
+const SCRUB_STEP_PX = 120;
+/** How long "Sent" stays in the field after feedback is sent. */
+const FEEDBACK_SENT_MS = 1800;
+
+type Feedback =
+    | { readonly phase: "idle" }
+    | { readonly phase: "sending" }
+    | { readonly phase: "sent" }
+    | { readonly phase: "failed"; readonly message: string };
 
 type Sheet =
     | { readonly kind: "link"; readonly overlay: StoryLinkOverlay }
@@ -76,9 +111,17 @@ interface Position {
 }
 
 function frameMs(frame: StoryFrame, measured: number | undefined): number | undefined {
-    if (frame.kind === "image") return STORY_IMAGE_MS;
+    // A round video keeps its frame up for at least as long as it plays.
+    const roundVideo = Math.max(
+        0,
+        ...frame.overlays.map((overlay) =>
+            overlay.type === "round_video" ? overlay.durationMs : 0,
+        ),
+    );
+    if (frame.kind === "image") return Math.max(STORY_IMAGE_MS, roundVideo);
+    if (frame.kind === "artifact") return Math.max(STORY_ARTIFACT_MS, roundVideo);
     const ms = measured ?? frame.durationMs ?? undefined;
-    return ms === undefined ? undefined : Math.min(ms, STORY_VIDEO_MAX_MS);
+    return ms === undefined ? undefined : Math.max(Math.min(ms, STORY_VIDEO_MAX_MS), roundVideo);
 }
 
 function initialsOf(name: string): string {
@@ -118,6 +161,17 @@ export function StoryViewer(props: StoryViewerProps) {
     const [sheet, setSheet] = useState<Sheet | undefined>();
     const [muted, setMuted] = useState(true);
     const [measured, setMeasured] = useState<ReadonlyMap<string, number>>(new Map());
+    /** The feedback field has the keyboard: the story holds while the person writes. */
+    const [typing, setTyping] = useState(false);
+    /** The pointer is inside a live page: the story holds while the person tries it. */
+    const [inPage, setInPage] = useState(false);
+    const [feedbackText, setFeedbackText] = useState("");
+    const [feedback, setFeedback] = useState<Feedback>({ phase: "idle" });
+    /** The playing segment's fill, whose animation is the frame's clock. */
+    const clock = useRef<HTMLSpanElement | null>(null);
+    const stage = useRef<HTMLDivElement | null>(null);
+    /** How far the scroll has gone past the frame's start (negative) or end. */
+    const overshoot = useRef(0);
     const press = useRef<{
         readonly x: number;
         readonly y: number;
@@ -148,6 +202,8 @@ export function StoryViewer(props: StoryViewerProps) {
 
     const go = (next: Position | undefined): void => {
         ended.current = undefined;
+        overshoot.current = 0;
+        setInPage(false);
         // A heart held as the frame ends offers nothing on the next one.
         if (heartPress.current) clearTimeout(heartPress.current.timer);
         heartPress.current = null;
@@ -205,6 +261,16 @@ export function StoryViewer(props: StoryViewerProps) {
         [storyId, storySelf],
     );
 
+    // Identity contract: the stage is the same node for the walk, so the seen
+    // report still fires once per story rather than on every render.
+    const stageRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            stage.current = node;
+            shownRef(node);
+        },
+        [shownRef],
+    );
+
     const frameKey = story && frame ? `${story.id}:${frame.id}` : undefined;
     // A video ends twice, by its own end and by its bar's; the first one counts.
     const frameEnd = (): void => {
@@ -218,7 +284,7 @@ export function StoryViewer(props: StoryViewerProps) {
         node?.focus();
     }, []);
 
-    const paused = held || sheet !== undefined;
+    const paused = held || sheet !== undefined || typing || inPage;
     const duration = frame ? frameMs(frame, measured.get(frame.id)) : undefined;
     const segments = author?.stories.flatMap((each) =>
         each.frames.map((eachFrame, index) => ({ story: each, frame: eachFrame, index })),
@@ -248,6 +314,40 @@ export function StoryViewer(props: StoryViewerProps) {
         if (event.clientX - box.left < box.width / 3) previous();
         else next();
     };
+    /*
+     * Shift and a horizontal scroll scrub through the frame on screen: its
+     * clock, its video and its round video move together. Scrolling on past the
+     * frame's start or end moves to the frame before or after it.
+     */
+    const stageWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
+        if (!event.shiftKey || sheet || duration === undefined) return;
+        // A wheel held with Shift turns its vertical scroll horizontal in some engines.
+        const delta =
+            Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+        if (delta === 0) return;
+        const animation = clock.current?.getAnimations()[0];
+        if (!animation) return;
+        const now = Number(animation.currentTime ?? 0);
+        const target = now + delta * SCRUB_MS_PER_PX;
+        if (target <= 0 && now <= 0) {
+            overshoot.current = Math.min(0, overshoot.current) + delta;
+            if (overshoot.current <= -SCRUB_STEP_PX) previous();
+            return;
+        }
+        // A scrub stops a millisecond short of the end, so that is the end.
+        if (target >= duration - 1 && now >= duration - 1) {
+            overshoot.current = Math.max(0, overshoot.current) + delta;
+            if (overshoot.current >= SCRUB_STEP_PX) next();
+            return;
+        }
+        overshoot.current = 0;
+        // Short of the end, so the clock never finishes the frame by itself.
+        const at = Math.max(0, Math.min(duration - 1, target));
+        animation.currentTime = at;
+        for (const video of stage.current?.querySelectorAll("video") ?? [])
+            if (Number.isFinite(video.duration))
+                video.currentTime = Math.min(video.duration, at / 1000);
+    };
     const stagePointerCancel = (): void => {
         if (press.current) clearTimeout(press.current.timer);
         press.current = null;
@@ -274,6 +374,10 @@ export function StoryViewer(props: StoryViewerProps) {
     const sourceOffered = story?.source != null && props.onSourceOpen !== undefined;
     const deleteOffered = author?.self === true && props.onDelete !== undefined;
     const menuOffered = sourceOffered || deleteOffered;
+    // Only an agent's story takes feedback or is reposted; the person's own never.
+    const agentStory = story?.author?.kind === "agent" && author?.self !== true;
+    const feedbackOffered = agentStory && props.onFeedback !== undefined;
+    const repostOffered = agentStory && props.onRepost !== undefined;
     /** A press inside a sheet or the bar is its own, never the frame's. */
     const own = {
         onPointerDown: (event: ReactPointerEvent) => event.stopPropagation(),
@@ -331,7 +435,8 @@ export function StoryViewer(props: StoryViewerProps) {
                             onPointerCancel={stagePointerCancel}
                             onPointerDown={stagePointerDown}
                             onPointerUp={stagePointerUp}
-                            ref={shownRef}
+                            onWheel={stageWheel}
+                            ref={stageRef}
                         >
                             <StoryCanvas
                                 caption={story.caption}
@@ -353,7 +458,43 @@ export function StoryViewer(props: StoryViewerProps) {
                                 playing={!paused}
                                 reactions={story.reactions}
                                 sticker={props.sticker}
+                                {...(props.artifactRender
+                                    ? { artifactRender: props.artifactRender }
+                                    : {})}
+                                onArtifactPointer={setInPage}
+                                roundVideoUrl={(overlay) =>
+                                    props.overlayMediaUrl?.(story.id, overlay.id)
+                                }
+                                {...(story.repostOf
+                                    ? {
+                                          repost: {
+                                              label: `Reposted from ${story.repostOf.title ?? "an agent"}`,
+                                              ...(story.repostOf.canOpen && props.onRepostSourceOpen
+                                                  ? {
+                                                        onOpen: () =>
+                                                            props.onRepostSourceOpen?.(story),
+                                                    }
+                                                  : {}),
+                                          },
+                                      }
+                                    : {})}
                             >
+                                {frame.kind === "artifact" ? (
+                                    /* The page takes every press but the canvas's
+                                       outer tenths, which still step between frames. */
+                                    <>
+                                        <span
+                                            aria-hidden="true"
+                                            className="happy-story-viewer__edge"
+                                            data-side="previous"
+                                        />
+                                        <span
+                                            aria-hidden="true"
+                                            className="happy-story-viewer__edge"
+                                            data-side="next"
+                                        />
+                                    </>
+                                ) : null}
                                 <div className="happy-story-viewer__chrome">
                                     <div
                                         className="happy-story-viewer__progress"
@@ -383,6 +524,13 @@ export function StoryViewer(props: StoryViewerProps) {
                                                     onAnimationEnd={
                                                         index === current ? frameEnd : undefined
                                                     }
+                                                    ref={
+                                                        index === current
+                                                            ? (node) => {
+                                                                  clock.current = node;
+                                                              }
+                                                            : undefined
+                                                    }
                                                     style={
                                                         index === current
                                                             ? {
@@ -403,8 +551,11 @@ export function StoryViewer(props: StoryViewerProps) {
                                         <span
                                             className="happy-story-viewer__avatar"
                                             aria-hidden="true"
+                                            data-mark={author.mark ? "" : undefined}
                                         >
-                                            {author.photoUrl ? (
+                                            {author.mark ? (
+                                                author.mark
+                                            ) : author.photoUrl ? (
                                                 <img
                                                     alt=""
                                                     draggable={false}
@@ -734,52 +885,141 @@ export function StoryViewer(props: StoryViewerProps) {
                                     <span>{viewsLabel(story.viewCount)}</span>
                                 </button>
                             ) : (
-                                <button
-                                    aria-label={
-                                        reactedEmoji ? `Reacted ${reactedEmoji}` : "React with ❤️"
-                                    }
-                                    aria-pressed={reactedEmoji !== null}
-                                    className="happy-story-viewer__heart"
-                                    data-testid="story-viewer-heart"
-                                    onClick={() => {
-                                        const pressed = heartPress.current;
-                                        heartPress.current = null;
-                                        if (pressed) clearTimeout(pressed.timer);
-                                        if (!pressed?.offered) react(reactedEmoji ?? "❤️");
-                                    }}
-                                    onContextMenu={(event) => {
-                                        event.preventDefault();
-                                        heartRelease();
-                                        setSheet({ kind: "reactions" });
-                                    }}
-                                    onPointerCancel={heartRelease}
-                                    onPointerDown={(event) => {
-                                        event.stopPropagation();
-                                        if (event.button !== 0) return;
-                                        heartRelease();
-                                        const timer = setTimeout(() => {
-                                            if (heartPress.current)
-                                                heartPress.current.offered = true;
-                                            setSheet({ kind: "reactions" });
-                                        }, 400);
-                                        heartPress.current = { timer, offered: false };
-                                    }}
-                                    onPointerLeave={() => {
-                                        // Leaving before the hold completes is no hold.
-                                        if (heartPress.current && !heartPress.current.offered)
+                                <>
+                                    {feedbackOffered ? (
+                                        <form
+                                            className="happy-story-viewer__feedback"
+                                            data-phase={feedback.phase}
+                                            data-testid="story-viewer-feedback"
+                                            onSubmit={(event) => {
+                                                event.preventDefault();
+                                                const text = feedbackText.trim();
+                                                if (text === "" || feedback.phase === "sending")
+                                                    return;
+                                                setFeedback({ phase: "sending" });
+                                                void props.onFeedback?.(story, frame.id, text).then(
+                                                    () => {
+                                                        setFeedbackText("");
+                                                        setFeedback({ phase: "sent" });
+                                                        setTimeout(
+                                                            () =>
+                                                                setFeedback((now) =>
+                                                                    now.phase === "sent"
+                                                                        ? { phase: "idle" }
+                                                                        : now,
+                                                                ),
+                                                            FEEDBACK_SENT_MS,
+                                                        );
+                                                    },
+                                                    (error: unknown) =>
+                                                        setFeedback({
+                                                            phase: "failed",
+                                                            message:
+                                                                error instanceof Error
+                                                                    ? error.message
+                                                                    : String(error),
+                                                        }),
+                                                );
+                                            }}
+                                        >
+                                            <input
+                                                aria-label="Tell the agent what to change"
+                                                className="happy-story-viewer__feedback-input"
+                                                data-testid="story-viewer-feedback-input"
+                                                // Held, not disabled: a disabled field drops its
+                                                // focus without a blur, which would leave the story paused.
+                                                readOnly={feedback.phase === "sending"}
+                                                onBlur={() => setTyping(false)}
+                                                onChange={(event) => {
+                                                    setFeedbackText(event.currentTarget.value);
+                                                    if (
+                                                        feedback.phase === "failed" ||
+                                                        feedback.phase === "sent"
+                                                    )
+                                                        setFeedback({ phase: "idle" });
+                                                }}
+                                                onFocus={() => setTyping(true)}
+                                                onKeyDown={(event) => {
+                                                    // The keys a field uses never step through
+                                                    // the story; Escape leaves the field first.
+                                                    event.stopPropagation();
+                                                    if (event.key === "Escape") {
+                                                        event.preventDefault();
+                                                        event.currentTarget.blur();
+                                                    }
+                                                }}
+                                                placeholder={
+                                                    feedback.phase === "sent"
+                                                        ? "Sent"
+                                                        : feedback.phase === "failed"
+                                                          ? feedback.message
+                                                          : "Tell the agent what to change…"
+                                                }
+                                                value={feedbackText}
+                                            />
+                                        </form>
+                                    ) : null}
+                                    <button
+                                        aria-label={
+                                            reactedEmoji
+                                                ? `Reacted ${reactedEmoji}`
+                                                : "React with ❤️"
+                                        }
+                                        aria-pressed={reactedEmoji !== null}
+                                        className="happy-story-viewer__heart"
+                                        data-testid="story-viewer-heart"
+                                        onClick={() => {
+                                            const pressed = heartPress.current;
+                                            heartPress.current = null;
+                                            if (pressed) clearTimeout(pressed.timer);
+                                            if (!pressed?.offered) react(reactedEmoji ?? "❤️");
+                                        }}
+                                        onContextMenu={(event) => {
+                                            event.preventDefault();
                                             heartRelease();
-                                    }}
-                                    title="React; hold or right-click for more"
-                                    type="button"
-                                >
-                                    {reactedEmoji ? (
-                                        <span className="happy-story-viewer__heart-emoji">
-                                            {reactedEmoji}
-                                        </span>
-                                    ) : (
-                                        <Ionicon name="heart-outline" size={26} />
-                                    )}
-                                </button>
+                                            setSheet({ kind: "reactions" });
+                                        }}
+                                        onPointerCancel={heartRelease}
+                                        onPointerDown={(event) => {
+                                            event.stopPropagation();
+                                            if (event.button !== 0) return;
+                                            heartRelease();
+                                            const timer = setTimeout(() => {
+                                                if (heartPress.current)
+                                                    heartPress.current.offered = true;
+                                                setSheet({ kind: "reactions" });
+                                            }, 400);
+                                            heartPress.current = { timer, offered: false };
+                                        }}
+                                        onPointerLeave={() => {
+                                            // Leaving before the hold completes is no hold.
+                                            if (heartPress.current && !heartPress.current.offered)
+                                                heartRelease();
+                                        }}
+                                        title="React; hold or right-click for more"
+                                        type="button"
+                                    >
+                                        {reactedEmoji ? (
+                                            <span className="happy-story-viewer__heart-emoji">
+                                                {reactedEmoji}
+                                            </span>
+                                        ) : (
+                                            <Ionicon name="heart-outline" size={26} />
+                                        )}
+                                    </button>
+                                    {repostOffered ? (
+                                        <button
+                                            aria-label="Repost"
+                                            className="happy-story-viewer__repost"
+                                            data-testid="story-viewer-repost"
+                                            onClick={() => props.onRepost?.(story)}
+                                            title="Repost to your team"
+                                            type="button"
+                                        >
+                                            <Ionicon name="repeat-outline" size={24} />
+                                        </button>
+                                    ) : null}
+                                </>
                             )}
                         </div>
                     </div>

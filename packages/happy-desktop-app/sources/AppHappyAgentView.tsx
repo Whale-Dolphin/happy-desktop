@@ -354,10 +354,12 @@ import {
     happyAgentSpacesNotes,
     happyAgentSessionMark,
     happyAgentSpacesChildDestination,
+    happyAgentSpacesAgentIdentity,
     happyAgentSpacesIntroHeader,
     HappyAgentSpacesSidebar,
     type HappyAgentSpacesNavigation,
     type HappyAgentSpacesPlaces,
+    type HappyAgentSpacesStories,
 } from "./components/HappyAgentSpacesSidebar";
 import { HappyAgentVersionProvider } from "./HappyAgentVersionProvider";
 import {
@@ -400,6 +402,7 @@ import { agentUpdateCardView, type AgentUpdateCatalog } from "./agentUpdateCardV
 const PEOPLE_NONE: ReadonlyMap<string, string> = new Map();
 const peopleNoop = () => PEOPLE_NONE;
 const peopleSubscribeNoop = () => () => undefined;
+const storiesFeedNone = () => undefined;
 
 const sidebarDaemonUnavailable: AppHappyAgentDaemonSnapshot = {
     install: { phase: "idle" },
@@ -3757,6 +3760,24 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             : storiesSettings.status === "loading" && storiesSettings.hint === true;
     const stories = storiesOn ? storiesHub : undefined;
     const storiesRow = stories ? <HappyAgentStoriesRow hub={stories} /> : undefined;
+    // Each agent's story ring, drawn around its row's picture.
+    const storiesFeedStore = stories?.stories();
+    const storiesFeed = useSyncExternalStore(
+        storiesFeedStore?.subscribe ?? peopleSubscribeNoop,
+        storiesFeedStore?.get ?? storiesFeedNone,
+        storiesFeedStore?.get ?? storiesFeedNone,
+    )?.feed;
+    const storiesSidebar: HappyAgentSpacesStories | undefined = stories
+        ? {
+              rings: new Map(
+                  (storiesFeed?.status === "ready" ? storiesFeed.rings : []).map((ring) => [
+                      ring.agentId,
+                      { total: ring.storyIds.length, unseen: ring.unseenCount },
+                  ]),
+              ),
+              onRingOpen: (agentId) => stories.screen().viewerOpen({ kind: "ring", agentId }),
+          }
+        : undefined;
     // Scrolling on through the sidebar's rows folds the stories row out of the way.
     const storiesBodyWheel = stories
         ? (deltaY: number) => {
@@ -3938,6 +3959,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
                 brand={false}
                 {...(storiesRow ? { topAccessory: storiesRow } : {})}
                 {...(storiesBodyWheel ? { onBodyWheel: storiesBodyWheel } : {})}
+                {...(storiesSidebar ? { stories: storiesSidebar } : {})}
                 {...(spaces.stemCellError
                     ? {
                           headerAccessory: (
@@ -5079,6 +5101,23 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             {/* Stories' viewer and editor fill the window over whatever it shows. */}
             {stories && active ? (
                 <HappyAgentStoriesScreens
+                    agentOf={(agentId) => {
+                        const identity = happyAgentSpacesAgentIdentity(
+                            agentId,
+                            spaces,
+                            spacesPlaces,
+                        );
+                        return identity
+                            ? {
+                                  name: identity.label,
+                                  ...(identity.mark ? { mark: identity.mark } : {}),
+                              }
+                            : undefined;
+                    }}
+                    {...(artifactsAvailable && active.session?.artifacts
+                        ? { artifacts: active.session.artifacts.inline() }
+                        : {})}
+                    {...(props.artifactPage ? { artifactPage: props.artifactPage } : {})}
                     hub={stories}
                     onLinkOpen={props.onExternalLinkOpen ?? openExternalLink}
                     onSourceOpen={(agentId) => {
