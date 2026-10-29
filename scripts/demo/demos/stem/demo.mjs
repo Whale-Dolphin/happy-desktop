@@ -832,26 +832,67 @@ export default {
                 10000,
             );
             await demo.hold(1800);
-            await phoneTypeAndSend(demo, phone, transcript, world.steveApproval, "approval");
+            await phoneTypeAndSend(demo, phone, transcript, world.steveFeedback, "feedback");
             cue("phone-sent", demo, phone);
         } else {
             await steve.sendMessage(recordedAgentId, {
-                text: world.steveApproval,
+                text: world.steveFeedback,
                 mode: { ...world.opusMode, permissionMode: "auto" },
             });
         }
-        steveSent = page.getByText(world.steveApproval, { exact: true }).last();
+        steveSent = page.getByText(world.steveFeedback, { exact: true }).last();
         await steveSent.waitFor({ timeout: 15000 });
-        cue("steve-approval-visible", demo, phone);
-        const approval = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
+        cue("steve-feedback-visible", demo, phone);
+        const feedback = (await gym.client.getMessages(recordedAgentId, { limit: 64 })).runs
             .flatMap((run) => run.messages)
             .findLast((message) => message.role === "user");
-        if (approval?.metadata?.userId !== loopInEvidence.teammate.userId)
-            throw new Error("Steve's approval must arrive as Steve.");
+        if (feedback?.metadata?.userId !== loopInEvidence.teammate.userId)
+            throw new Error("Steve's feedback must arrive as Steve.");
 
-        // ---- The agent ships; Steve's phone leaves as it does.
-        await until(demo, () => world.hasReached("ship", recordedAgentId), "the approval run");
-        await demo.hold(900);
+        // ---- The agent narrows the waveform in place: the same preview redraws.
+        await until(demo, () => world.hasReached("narrow", recordedAgentId), "the feedback run");
+        const preview = page
+            .locator('[data-happy-desktop-ui="inline-page"]')
+            .filter({ hasText: world.artifactTitle })
+            .last();
+        // The preview sits above Steve's reply, so the person scrolls up to it
+        // and the redraw happens where they are looking.
+        await demo.pointerVisible(true);
+        await demo.scroll(steveSent, (await preview.boundingBox()).y - 64, {
+            duration: 900,
+            after: 200,
+        });
+        await demo.pointerVisible(false);
+        await demo.hold(500);
+        world.release("narrow", recordedAgentId);
+        const bars = preview.locator("iframe").contentFrame().locator("#speaking i");
+        await until(
+            demo,
+            async () => (await bars.count().catch(() => 0)) === world.barsAfter,
+            "the preview to redraw narrower",
+            30000,
+        );
+        await demo.hold(600);
+        const narrowedBox = await preview.boundingBox();
+        if (narrowedBox.y < 40 || narrowedBox.y + narrowedBox.height > viewport.height - 150)
+            throw new Error(
+                `The preview is not in view as it redraws: ${JSON.stringify(narrowedBox)}`,
+            );
+        cue("narrowed", demo, phone, await rectOf(preview));
+        await page.screenshot({ path: join(output, "narrowed.png") });
+        if (phone) await phone.screenshot("check-narrowed");
+        await demo.hold(1400);
+        // Back down to where the conversation is going on.
+        await demo.pointerVisible(true);
+        await demo.scroll({ x: framing.sidebarWidth + 360, y: 320 }, 4000, {
+            duration: 900,
+            after: 200,
+        });
+        await demo.pointerVisible(false);
+
+        // ---- Then it ships; Steve's phone leaves as it does.
+        await until(demo, () => world.hasReached("ship", recordedAgentId), "the narrowing edit");
+        await demo.hold(1800);
         world.release("ship", recordedAgentId);
         const shell = page
             .locator('[data-happy-desktop-ui="agent-activity-call"]')
@@ -896,68 +937,11 @@ export default {
             before: world.logicBefore,
         });
         loopInEvidence.history = await gym.client.getMessages(recordedAgentId, { limit: 64 });
-        // Steve's approval woke the owner's Focus; it reads the conversation
-        // once the agent has answered him.
-        await until(demo, () => world.focusHasReached("read"), "Focus to hear Steve's approval");
+
+        // ---- Steve's message woke the owner's Focus. It reads the conversation
+        // now that it says Shipped, and archives the task as soon as it decides.
+        await until(demo, () => world.focusHasReached("read"), "Focus to hear Steve");
         world.focusRelease("read");
-        await demo.hold(1600);
-
-        // ---- The person moves on: Voice routing, and the architecture of voice.
-        const routing = page
-            .locator('[data-happy-desktop-ui="sidebar-item"]')
-            .filter({ hasText: world.seeds[0].title })
-            .first();
-        await demo.pointerVisible(true);
-        await demo.click(routing, { after: 300 });
-        await page.getByText(world.seeds[0].reply.slice(0, 40)).first().waitFor();
-        cue("routing-open", demo, phone);
-        const routingComposer = page
-            .locator('[data-happy-desktop-ui="composer-textarea"]')
-            .filter({ visible: true })
-            .first();
-        await demo.moveTo(routingComposer, { duration: 700 });
-        await demo.click(routingComposer, { after: 150 });
-        await demo.pointerVisible(false);
-        cue("routing-typing", demo, phone);
-        await demo.type(world.architecturePrompt, { perKey: 52, after: 0 });
-        await demo.hold(400);
-        await demo.press("Enter", { badge: 0, before: 0, after: 200 });
-        cue("routing-asked", demo, phone);
-        await until(demo, () => world.hasReached("diagram"), "the architecture request");
-        await demo.hold(900);
-        world.release("diagram");
-        const diagram = page
-            .locator('[data-happy-desktop-ui="inline-page"]')
-            .filter({ hasText: world.architectureTitle })
-            .last();
-        await diagram.waitFor({ timeout: 20000 });
-        const diagramContent = diagram.locator('[data-happy-desktop-ui="inline-page-content"]');
-        await until(
-            demo,
-            async () => ((await diagramContent.boundingBox())?.height ?? 0) > 200,
-            "the voice diagram to draw inline",
-            20000,
-        );
-        const line = page.getByText(world.architectureLine).filter({ visible: true }).last();
-        await line.waitFor({ timeout: 20000 });
-        await until(demo, () => settled(line), "the diagram's line to finish arriving");
-        cue("diagram-shown", demo, phone, await rectOf(diagramContent));
-        await demo.hold(1200);
-        // The diagram is taller than what stays in view above its line, so the
-        // person scrolls up until all of it is on screen, title included.
-        const diagramTop = (await diagram.boundingBox()).y;
-        await demo.pointerVisible(true);
-        await demo.scroll(diagramContent, diagramTop - 52, { duration: 900, after: 200 });
-        await demo.pointerVisible(false);
-        const shown = await diagram.boundingBox();
-        if (shown.y < 40 || shown.y + shown.height > viewport.height - 150)
-            throw new Error(`The diagram is not wholly in view: ${JSON.stringify(shown)}`);
-        cue("diagram-read", demo, phone, await rectOf(diagramContent));
-        await page.screenshot({ path: join(output, "diagram.png") });
-        // Time to read it.
-        await demo.hold(6000);
-
-        // ---- Focus archives the shipped work, and its row leaves the sidebar.
         await until(demo, () => world.focusHasReached("archive"), "Focus to read that it shipped");
         const rowPlace = await rectOf(row);
         cue("archiving", demo, phone, rowPlace);
@@ -977,7 +961,29 @@ export default {
         );
         cue("archived", demo, phone, rowPlace);
         await page.screenshot({ path: join(output, "archived.png") });
-        await demo.hold(2600);
+        await demo.hold(2400);
+
+        // ---- New work again: Create makes a fresh stem cell.
+        const create = page.getByText("Create", { exact: true }).first();
+        await demo.pointerVisible(true);
+        await demo.moveTo(create, { duration: 800 });
+        await demo.hold(250);
+        await demo.click(create, { after: 0 });
+        cue("create-clicked", demo, phone);
+        // The pointer leaves for the empty pane, clear of the new row and its cell.
+        await demo.moveTo(
+            { x: framing.sidebarWidth + 380, y: viewport.height - 70 },
+            { duration: 600 },
+        );
+        await demo.pointerVisible(false);
+        const fresh = page
+            .locator('[data-happy-desktop-ui="sidebar-item"]')
+            .filter({ hasText: /^\s*New\s*$/ })
+            .first();
+        await fresh.waitFor({ timeout: 15000 });
+        cue("stem-born", demo, phone, await rectOf(fresh));
+        await demo.hold(3200);
+        await page.screenshot({ path: join(output, "created.png") });
         cue("outro", demo, phone);
         await demo.hold(3600);
         cue("end", demo, phone);
@@ -1006,11 +1012,12 @@ export default {
                     "Fictional Steve is a real second member. The agent's real list_teammates and notify_teammate tools loop him in; his own Focus answers with its real join_task; his membership carries the looped_in unread mark. His messages are authored by his own token.",
                 steveSidebar:
                     "Steve's Design section and two rows were made off camera through his own client, filed by his Focus the same way.",
-                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera as Steve to this team daemon through its real direct mobile connector. It shows the looped-in row by live sync; Steve opens it and types his approval on the real iOS keyboard.",
+                phone: "The native Happy iOS app in an iPhone 17 Pro Simulator, paired off camera as Steve to this team daemon through its real direct mobile connector. It shows the looped-in row by live sync; Steve opens it and types his one reply on the real iOS keyboard.",
                 archive:
-                    "Steve's approval wakes the owner's Focus (a teammate wrote in their work). Once the agent has said Shipped, Focus reads the conversation with its real read_conversations and calls its real archive_shipped_task. The screenplay chooses both calls, gates the read until Shipped exists, and holds the archive until the architecture diagram has been read.",
-                architecture:
-                    "The person's message in Voice routing is real; the screenplay answers it with real create_artifact and write_artifact_file calls. The diagram (voice-architecture.html) was drawn from the happy-agent Live module and happy-desktop gptLive code and reviewed by Grok 4.7.",
+                    "Steve's message wakes the owner's Focus (a teammate wrote in their work). Once the agent has said Shipped, Focus reads the conversation with its real read_conversations and calls its real archive_shipped_task. The screenplay chooses both calls and gates the read until Shipped exists; the archive is released as soon as Focus reaches it.",
+                narrowing:
+                    "The agent narrows the published waveform with a real edit_artifact_file (28 bars to 16), making the artifact's next version; the same inline preview redraws it.",
+                create: "Create at the end is the real sidebar action; the new stem cell is the app's own.",
                 artifact:
                     "Real create_artifact and write_artifact_file through the daemon; the screenplay writes the page. Browser-local mode has no artifact page host, so the demo patch artifact-site.patch serves the daemon's own artifact files and renders them in an iframe, where Electron uses its own view.",
                 shipping:

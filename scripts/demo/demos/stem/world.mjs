@@ -6,7 +6,6 @@
 // who follows voice work. That teammate is a real second member of a team
 // daemon, with their own Focus, sidebar, and paired phone.
 export * from "../core/world.mjs";
-import { readFileSync } from "node:fs";
 import * as core from "../core/world.mjs";
 import { shipCommand } from "../core/shipping.mjs";
 
@@ -63,16 +62,11 @@ export const opusMode = {
 };
 export const artifactTitle = "Voice waveform";
 
-/** What Steve types on his phone, word for word. */
-export const steveApproval = "Looks great, ship it.";
-
-/** What the person asks in the Voice routing row, and the diagram the agent answers with. */
-export const architecturePrompt = "Show me the architecture of voice.";
-export const architectureTitle = "Voice architecture";
-export const architectureLine = "How a spoken request reaches the right conversation.";
-/** The diagram itself, drawn from Happy's voice code; see voice-architecture.html. */
-export const architecturePage = () =>
-    readFileSync(new URL("./voice-architecture.html", import.meta.url), "utf8");
+/** What Steve types on his phone, word for word: one review, one go-ahead. */
+export const steveFeedback = "Make it a bit narrower and ship it.";
+/** How many bars the waveform draws, before and after Steve's review. */
+export const barsBefore = 28;
+export const barsAfter = 16;
 
 /** The teammate's Happy user ID, read from the daemon before the take. */
 let steveUserId;
@@ -91,8 +85,7 @@ export const loopInReason =
 export const shippedText = "Shipped.";
 
 /** The page the agent publishes: the waveform itself, speaking and silent. */
-export function artifactPage(bars) {
-    const narrow = bars <= 8;
+export function artifactPage() {
     return `<!doctype html>
 <html>
 <head>
@@ -102,8 +95,8 @@ export function artifactPage(bars) {
 html, body { margin: 0; background: transparent; }
 body { font-family: var(--happy-host-font, system-ui); color: var(--happy-host-text, #eee); }
 .row { display: flex; align-items: center; gap: 18px; padding: 6px 0; }
-.bars { display: flex; align-items: center; gap: ${narrow ? 6 : 4}px; height: 56px; width: ${narrow ? 64 : 220}px; }
-.bars i { width: ${narrow ? 8 : 5}px; height: 6px; border-radius: 4px; background: #f0b85a; }
+.bars { --bars: ${barsBefore}; display: flex; align-items: center; gap: 4px; height: 56px; width: calc(var(--bars) * 9px - 4px); transition: width 0.4s ease; }
+.bars i { flex: none; width: 5px; height: 6px; border-radius: 4px; background: #f0b85a; }
 .speaking i { background: linear-gradient(#f3c26b, #e07aae); animation: wave 1s ease-in-out infinite; }
 @keyframes wave { 0%, 100% { height: 6px; } 50% { height: var(--h); } }
 .label { font-size: 13px; line-height: 18px; }
@@ -117,7 +110,8 @@ body { font-family: var(--happy-host-font, system-ui); color: var(--happy-host-t
 <script>
 for (const id of ["speaking", "silent"]) {
   const bars = document.getElementById(id);
-  for (let i = 0; i < ${bars}; i++) {
+  const count = Number(getComputedStyle(bars).getPropertyValue("--bars"));
+  for (let i = 0; i < count; i++) {
     const bar = document.createElement("i");
     bar.style.setProperty("--h", Math.round(14 + 40 * Math.abs(Math.sin(i * 0.9 + 0.6) * Math.cos(i * 0.37))) + "px");
     bar.style.animationDelay = (-(i * 83) % 1000) + "ms";
@@ -266,7 +260,7 @@ async function focusReply(payload) {
     // reading says the work shipped.
     const teammate = brief.match(/Conversation in (\w+): their teammate Steve wrote in/u);
     if (teammate) {
-        if (!brief.includes(`Steve: ${steveApproval}`))
+        if (!brief.includes(`Steve: ${steveFeedback}`))
             return focusPaced([text("Steve is reviewing Voice waveform.")]);
         if (answered === 0) {
             await focusGate("read");
@@ -380,11 +374,10 @@ export async function reply(payload, emitted) {
     const last = textOf(messages.findLast((message) => message.role === "user") ?? {}).trim();
     const seed = [...seeds, ...steveSeeds].find((candidate) => input.includes(candidate.message));
     if (seed && !input.includes(prompt)) {
-        if (last === architecturePrompt) return await architectureReply(payload, emitted);
         return focusPaced([text(seed.reply)], { textDeltaDelayMs: 0, completionDelayMs: 0 });
     }
     if (!input.includes(prompt)) return undefined;
-    if (last === steveApproval) return await approvalReply(payload, emitted);
+    if (last === steveFeedback) return await feedbackReply(payload, emitted);
     return await workReply(payload, emitted);
 }
 
@@ -467,7 +460,7 @@ async function workReply(payload, emitted) {
             tool("write_artifact_file", {
                 artifactId: artifactIdRead(messages),
                 path: "index.html",
-                content: artifactPage(28),
+                content: artifactPage(),
             }),
         ]);
     if (step === 5) {
@@ -482,14 +475,28 @@ async function workReply(payload, emitted) {
     return core.paced([text(loopInText())], { textDeltaDelayMs: 900, completionDelayMs: 600 });
 }
 
-/** Steve approves from his phone: the agent ships it and says so. */
-async function approvalReply(payload, emitted) {
+/** Steve's one message from his phone: narrow the waveform, then ship it, and say so. */
+async function feedbackReply(payload, emitted) {
     const sessionId = payload.options?.sessionId ?? "";
     const messages = payload.context?.messages ?? [];
-    const key = `approval:${sessionId}`;
+    const key = `feedback:${sessionId}`;
     const step = emitted.get(key) ?? 0;
     emitted.set(key, step + 1);
     if (step === 0) {
+        await core.gate(sessionId, "narrow");
+        return core.paced(
+            [
+                tool("edit_artifact_file", {
+                    artifactId: artifactIdRead(messages),
+                    path: "index.html",
+                    old_string: `--bars: ${barsBefore};`,
+                    new_string: `--bars: ${barsAfter};`,
+                }),
+            ],
+            { toolCallDeltaDelayMs: 400 },
+        );
+    }
+    if (step === 1) {
         await core.gate(sessionId, "ship");
         return core.paced(
             [
@@ -507,35 +514,4 @@ async function approvalReply(payload, emitted) {
         return core.paced([text(core.shipFailure)], { completionDelayMs: 800 });
     await core.gate(sessionId, "shipped");
     return core.paced([text(shippedText)], { textDeltaDelayMs: 500, completionDelayMs: 600 });
-}
-
-/**
- * The person asks in Voice routing for the architecture of voice: the agent
- * answers with the diagram and one line, through the real artifact tools.
- */
-async function architectureReply(payload, emitted) {
-    const sessionId = payload.options?.sessionId ?? "";
-    const messages = payload.context?.messages ?? [];
-    const key = `architecture:${sessionId}`;
-    const step = emitted.get(key) ?? 0;
-    emitted.set(key, step + 1);
-    if (step === 0) {
-        await core.gate(sessionId, "diagram");
-        return core.paced([
-            tool("create_artifact", {
-                type: "html",
-                title: architectureTitle,
-                display: "inline_expanded",
-            }),
-        ]);
-    }
-    if (step === 1)
-        return core.paced([
-            tool("write_artifact_file", {
-                artifactId: artifactIdRead(messages),
-                path: "index.html",
-                content: architecturePage(),
-            }),
-        ]);
-    return core.paced([text(architectureLine)], { textDeltaDelayMs: 400, completionDelayMs: 400 });
 }
