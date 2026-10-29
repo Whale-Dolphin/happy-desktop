@@ -4830,6 +4830,7 @@ export function happyAgentWorkspaceStoreCreate(
         revision: number,
         run: () => Promise<void>,
         submittedAttachments: readonly ComposerAttachment[] = [],
+        settled?: () => void,
     ): void => {
         void run().then(
             () => {
@@ -4840,13 +4841,16 @@ export function happyAgentWorkspaceStoreCreate(
                 for (const attachment of submittedAttachments)
                     if (!retained.has(attachment.id))
                         happyAgentComposerAttachmentPreviewRelease(attachment);
+                settled?.();
             },
-            (error: unknown) =>
+            (error: unknown) => {
                 target?.getState().composerInput({
                     type: "submissionFailed",
                     revision,
                     error: happyAgentUserError(error),
-                }),
+                });
+                settled?.();
+            },
         );
     };
 
@@ -4929,7 +4933,7 @@ export function happyAgentWorkspaceStoreCreate(
      */
     const attachmentsPlace = async (
         groupId: HappyAgentGroupId,
-        sessionId: HappyAgentSessionId,
+        sessionId: HappyAgentSessionId | undefined,
         text: string,
         attachments: readonly ComposerAttachment[],
     ): Promise<string> => {
@@ -4963,6 +4967,13 @@ export function happyAgentWorkspaceStoreCreate(
 
     /** The same, for a conversation whose composer is rebuilt when it is reopened. */
     const conversationAttachments = new Map<HappyAgentSessionId, readonly ComposerAttachment[]>();
+
+    // An upload belongs to this composer across navigation. Reopening its chat
+    // must show the same pending draft, rather than permit a duplicate send.
+    const composerSubmissions = new Map<
+        HappyAgentSessionId | HappyAgentGroupId,
+        { readonly composer: ComposerStore; pending: number }
+    >();
 
     /**
      * Words carried into a conversation this window has not opened yet, for
@@ -5105,6 +5116,8 @@ export function happyAgentWorkspaceStoreCreate(
     };
 
     const composerCreate = (conversationId: HappyAgentSessionId): ComposerStore => {
+        const submittingComposer = composerSubmissions.get(conversationId)?.composer;
+        if (submittingComposer) return submittingComposer;
         const retainedVoice = voiceComposers.get(conversationId);
         if (retainedVoice) {
             voiceComposers.delete(conversationId);
@@ -5134,7 +5147,7 @@ export function happyAgentWorkspaceStoreCreate(
                         return;
                     case "textUpdated":
                         if (created.getState().voiceDraft) return;
-                        void withChatStore((store) =>
+                        void withAddressedChat(conversationId, (store) =>
                             store.draftSet(event.text, nextDraftUpdatedAt(), draftOrigin),
                         ).catch(() => undefined);
                         return;
@@ -5168,64 +5181,102 @@ export function happyAgentWorkspaceStoreCreate(
                             });
                             return;
                         }
-                        void withChatStore((store) =>
-                            store.draftSet("", nextDraftUpdatedAt(), draftOrigin),
-                        ).catch(() => undefined);
+                        const submission = composerSubmissions.get(conversationId) ?? {
+                            composer: created,
+                            pending: 0,
+                        };
+                        const group = conversationGroupId(conversationId);
+                        submission.pending += 1;
+                        composerSubmissions.set(conversationId, submission);
                         submitting(
                             created,
                             event.revision,
-                            async () => {
-                                const group = conversationGroupId(conversationId);
-                                if (!group)
-                                    throw new Error("That conversation is no longer in a project.");
-                                const refusal = groupConversationRefusalFind(group, conversationId);
-                                if (refusal) throw new Error(refusal);
-                                const images = await happyAgentImageInputsOf(event.attachments);
-                                const text = await attachmentsPlace(
-                                    group,
-                                    conversationId,
-                                    event.text,
-                                    event.attachments,
-                                );
-                                const session = await withChatStore(async (store) => {
+                            () =>
+                                withLeasedChat(conversationId, async (store) => {
+                                    if (!group)
+                                        throw new Error(
+                                            "That conversation is no longer in a project.",
+                                        );
+                                    const refusal = groupConversationRefusalFind(
+                                        group,
+                                        conversationId,
+                                    );
+                                    if (refusal) throw new Error(refusal);
+                                    const images = await happyAgentImageInputsOf(event.attachments);
+                                    const text = await attachmentsPlace(
+                                        group,
+                                        conversationId,
+                                        event.text,
+                                        event.attachments,
+                                    );
                                     await store.messageSend(text, images, () => {
                                         // Refused after it left the composer,
                                         // as a send racing the start of a drain
                                         // is: the words come back, unless
                                         // something newer has been written.
-                                        if (created.getState().text.length > 0) return;
-                                        created.getState().composerInput({
+                                        const returnedComposer =
+                                            (openId === conversationId ? composer : undefined) ??
+                                            composerSubmissions.get(conversationId)?.composer ??
+                                            created;
+                                        const returnedDraft = returnedComposer.getState();
+                                        if (
+                                            returnedDraft.text.length > 0 ||
+                                            returnedDraft.attachments.length > 0 ||
+                                            returnedDraft.submission.status === "pending" ||
+                                            returnedDraft.voiceDraft
+                                        )
+                                            return;
+                                        returnedComposer.getState().composerInput({
                                             type: "submissionReturned",
                                             text: event.text,
                                             attachments: event.attachments.map(
                                                 happyAgentComposerAttachmentPreviewRenew,
                                             ),
                                         });
-                                        if (created.getState().text !== event.text) return;
+                                        if (returnedComposer.getState().text !== event.text) return;
                                         attachmentsRemember(
                                             conversationAttachments,
                                             conversationId,
-                                            created,
+                                            returnedComposer,
                                         );
-                                        void store
-                                            .draftSet(event.text, nextDraftUpdatedAt(), draftOrigin)
-                                            .catch(() => undefined);
+                                        void withAddressedChat(conversationId, (returnedStore) =>
+                                            returnedStore.draftSet(
+                                                event.text,
+                                                nextDraftUpdatedAt(),
+                                                draftOrigin,
+                                            ),
+                                        ).catch(() => undefined);
                                     });
-                                    return store.get().session;
-                                });
-                                activityRecord({
-                                    kind: "messageSent",
-                                    ...activityAddress(conversationId),
-                                    source: "chat",
-                                    model:
-                                        session.type === "ready"
-                                            ? activityModel(session.value)
-                                            : {},
-                                });
-                                conversationAttachments.delete(conversationId);
-                                fileCommentsSpend(event.attachments);
-                            },
+                                    // Keep the persisted draft until every attachment
+                                    // has arrived and this conversation accepts the send.
+                                    // A draft edited during the upload owns its own text.
+                                    if (created.getState().revision === event.revision)
+                                        await store
+                                            .draftSet("", nextDraftUpdatedAt(), draftOrigin)
+                                            .catch(() => undefined);
+                                    const session = store.get().session;
+                                    activityRecord({
+                                        kind: "messageSent",
+                                        ...activityAddress(conversationId),
+                                        source: "chat",
+                                        model:
+                                            session.type === "ready"
+                                                ? activityModel(session.value)
+                                                : {},
+                                    });
+                                    fileCommentsSpend(event.attachments);
+                                }),
                             event.attachments,
+                            () => {
+                                attachmentsRemember(
+                                    conversationAttachments,
+                                    conversationId,
+                                    created,
+                                );
+                                submission.pending -= 1;
+                                if (submission.pending === 0)
+                                    composerSubmissions.delete(conversationId);
+                            },
                         );
                         return;
                     case "commandInvoked":
@@ -5659,7 +5710,11 @@ export function happyAgentWorkspaceStoreCreate(
         // the workspace itself, so by the time anything can be typed at this
         // group that conversation already has its tab and its own composer.
         // A group submit therefore always means a further conversation here.
-        return happyAgentImageInputsOf(attachments).then((images) => {
+        return happyAgentImageInputsOf(attachments).then(async (images) => {
+            // Transfer failures belong to the draft that initiated the send.
+            // Finish transfers before creating or navigating to a conversation,
+            // so a failed video upload leaves that draft and its error visible.
+            const placed = await attachmentsPlace(groupId, undefined, text, attachments);
             const started = start.worktreeId
                 ? Promise.resolve(list.worktreeSessionStart(start.worktreeId, create))
                 : list.sessionCreate(create);
@@ -5668,12 +5723,6 @@ export function happyAgentWorkspaceStoreCreate(
                 const model = activityModel(create);
                 activityRecord({ kind: "conversationCreated", source: "workspace", model });
                 output({ type: "conversationOpenRequested", location });
-                const placed = await attachmentsPlace(
-                    location.groupId,
-                    location.sessionId,
-                    text,
-                    attachments,
-                );
                 const acquired = await client.chat(location.sessionId);
                 try {
                     await acquired.store.messageSend(placed, images);
@@ -6734,11 +6783,12 @@ export function happyAgentWorkspaceStoreCreate(
     const withChat = <T>(run: (store: HappyAgentChatStore) => Promise<T>): Promise<T> =>
         chatStore ? run(chatStore) : noOpenConversation();
 
-    const withAddressedChat = async <T>(
+    const withLeasedChat = async <T>(
         sessionId: HappyAgentSessionId,
         run: (store: HappyAgentChatStore) => Promise<T>,
     ): Promise<T> => {
-        if (sessionId === openId && chatStore) return run(chatStore);
+        // Hold a lease for the entire action, including uploads. Navigation
+        // releases the visible chat's lease while this action still needs it.
         const acquired = await client.chat(sessionId);
         try {
             return await run(acquired.store);
@@ -6746,6 +6796,12 @@ export function happyAgentWorkspaceStoreCreate(
             acquired[Symbol.dispose]();
         }
     };
+
+    const withAddressedChat = <T>(
+        sessionId: HappyAgentSessionId,
+        run: (store: HappyAgentChatStore) => Promise<T>,
+    ): Promise<T> =>
+        sessionId === openId && chatStore ? run(chatStore) : withLeasedChat(sessionId, run);
 
     const draftAppendRun = (
         sessionId: HappyAgentSessionId,
@@ -7075,6 +7131,13 @@ export function happyAgentWorkspaceStoreCreate(
             if (openGroupId === groupId) return;
             releaseGroup();
             openGroupId = groupId;
+            const submittingComposer = composerSubmissions.get(groupId)?.composer;
+            if (submittingComposer) {
+                groupComposer = submittingComposer;
+                groupDraftEnsure(groupId);
+                recompute();
+                return;
+            }
             const created: ComposerStore = composerStoreCreate(groupId, {
                 capabilities: { shellMode: false, commands: [], mentions: false },
                 text: client.memory.groupRead(groupId)?.draft ?? "",
@@ -7099,6 +7162,12 @@ export function happyAgentWorkspaceStoreCreate(
                             // session has been created: creation navigates,
                             // which releases this group and its draft with it.
                             const selection = groupDraft?.get().selection;
+                            const submission = composerSubmissions.get(groupId) ?? {
+                                composer: created,
+                                pending: 0,
+                            };
+                            submission.pending += 1;
+                            composerSubmissions.set(groupId, submission);
                             submitting(
                                 created,
                                 event.revision,
@@ -7109,15 +7178,16 @@ export function happyAgentWorkspaceStoreCreate(
                                         event.attachments,
                                         selection,
                                     );
-                                    // Sent, so there is nothing left to come back
-                                    // to. Navigation releases this composer before
-                                    // it can clear itself, which is why the group's
-                                    // own record of the draft is cleared here.
-                                    client.memory.groupDraftWrite(groupId, "");
-                                    groupAttachments.delete(groupId);
                                     fileCommentsSpend(event.attachments);
                                 },
                                 event.attachments,
+                                () => {
+                                    client.memory.groupDraftWrite(groupId, created.getState().text);
+                                    attachmentsRemember(groupAttachments, groupId, created);
+                                    submission.pending -= 1;
+                                    if (submission.pending === 0)
+                                        composerSubmissions.delete(groupId);
+                                },
                             );
                             return;
                         }
