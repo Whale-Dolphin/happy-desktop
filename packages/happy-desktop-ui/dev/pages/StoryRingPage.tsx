@@ -274,7 +274,7 @@ export function StoryRingPage() {
                     <DaySidebar />
                 </Specimen>
                 <Specimen
-                    detail="Status none, one line, past two lines × idle, working, unread · and a Surface · all 64"
+                    detail="Status none, one line, past two lines × idle, working, unread · and a Surface · all 60"
                     label="Every state, one height"
                     number="RG-03"
                     stage="app"

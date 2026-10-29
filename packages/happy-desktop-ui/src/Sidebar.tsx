@@ -293,17 +293,13 @@ export type SidebarItemChange = {
 export const SIDEBAR_ROW_PADDING_X = 6;
 /** Additional left inset applied per nesting level so children sit under their parent. */
 export const SIDEBAR_ROW_INDENT = 16;
-/** The fixed row geometry used by the sidebar's reorder and connector layers. */
+/**
+ * A plain row's height, which the drag surface and the tree connectors assume.
+ * Story rows state their own heights in `sidebar.css`, hide their connectors,
+ * and are measured by the drag.
+ */
 export const SIDEBAR_ROW_HEIGHT = 32;
 export const SIDEBAR_ROW_GAP = 2;
-/**
- * Where a top-level story row's text column starts: its 8px inset, its 44px
- * ring and the 10px gap after it, as `sidebar.css` lays them out. A nested
- * story row puts its mark there, and each deeper one under the name above
- * it, one 20px mark and an 8px gap further in.
- */
-const SIDEBAR_STORY_TEXT_INSET = 62;
-const SIDEBAR_STORY_NESTED_STEP = 28;
 /** Width of the leading lane whose centre carries a tree stem. */
 export const SIDEBAR_LEADING_SLOT = 20;
 /**
@@ -1778,6 +1774,7 @@ const SidebarListRow = memo(function SidebarListRow({
     itemMarkPresentation?: "default" | "glyph" | "none";
     treeConnectors?: boolean;
     dragging: boolean;
+    expandable: boolean;
     grabbed: boolean;
     item: SidebarItem;
     reorderable: boolean;
@@ -1870,8 +1867,13 @@ function SidebarRow({
      * included: it holds still at that edge whenever the pin holds.
      */
     pinArea?: SidebarSeparatorPinEdge;
-    /** Folds or unfolds this row; absent when the row has nothing to fold. */
+    /** Folds or unfolds this row; absent when the row draws no fold control. */
     onCollapseToggle?: () => void;
+    /**
+     * The row holds rows under it that its `collapsed` shows or hides, whether
+     * or not it draws a fold control: it says so to assistive technology.
+     */
+    expandable?: boolean;
     foldControlPlacement?: "leading" | "trailing";
     itemMarkPresentation?: "default" | "glyph" | "none";
     treeConnectors?: boolean;
@@ -2342,7 +2344,9 @@ function SidebarRow({
     return (
         <Row
             aria-current={props.active ? "page" : undefined}
-            aria-expanded={props.onCollapseToggle ? item().collapsed !== true : undefined}
+            aria-expanded={
+                props.onCollapseToggle || props.expandable ? item().collapsed !== true : undefined
+            }
             aria-keyshortcuts={
                 ariaKeyShortcuts().length > 0 ? ariaKeyShortcuts().join(" ") : undefined
             }
@@ -2423,12 +2427,12 @@ function SidebarRow({
                 }
             }}
             style={{
+                /* A story row's indent is laid out in `sidebar.css` from the
+                   story geometry; the row says only how deep it stands. */
                 ...(depth() > 0
-                    ? {
-                          paddingLeft: story()
-                              ? SIDEBAR_STORY_TEXT_INSET + (depth() - 1) * SIDEBAR_STORY_NESTED_STEP
-                              : SIDEBAR_ROW_PADDING_X + depth() * SIDEBAR_ROW_INDENT,
-                      }
+                    ? story()
+                        ? { "--happy-sidebar-story-depth": depth() - 1 }
+                        : { paddingLeft: SIDEBAR_ROW_PADDING_X + depth() * SIDEBAR_ROW_INDENT }
                     : {}),
                 ...(props.shift ? { top: props.shift } : {}),
             }}
@@ -5448,6 +5452,9 @@ export function Sidebar(props: SidebarProps) {
                                                         foldable &&
                                                         (item.kind === "section" ||
                                                             local.itemFoldControls !== false)
+                                                    }
+                                                    expandable={
+                                                        foldable && item.collapsed !== undefined
                                                     }
                                                     canRename={local.itemRename !== undefined}
                                                     tabStop={

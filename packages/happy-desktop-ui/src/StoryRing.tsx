@@ -7,7 +7,10 @@ export interface StoryRingSegments {
 }
 
 export interface StoryRingProps {
-    /** Sidebar rows use 44px. */
+    /**
+     * Sidebar rows use 44px: the mark is a 44px disc, or 36px inside a ring,
+     * so every row's mark starts on one edge.
+     */
     readonly size?: 44 | 48;
     /** One segment per story; absent draws no ring and keeps the box. */
     readonly segments?: StoryRingSegments;
@@ -115,6 +118,7 @@ export function StoryRing(props: StoryRingProps) {
                 className={className}
                 data-happy-desktop-ui="story-ring"
                 data-opens=""
+                data-ring=""
                 data-size={size}
                 data-unseen={unseen > 0 ? "" : undefined}
                 onClick={(event) => {
@@ -140,6 +144,7 @@ export function StoryRing(props: StoryRingProps) {
         <span
             className={className}
             data-happy-desktop-ui="story-ring"
+            data-ring={total > 0 ? "" : undefined}
             data-size={size}
             data-unseen={unseen > 0 ? "" : undefined}
         >

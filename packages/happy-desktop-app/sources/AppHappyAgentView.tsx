@@ -1170,19 +1170,17 @@ function agentWorktreeSidebarItems(
                     depth: 1,
                     label: worktree.name,
                     labelShimmer: titleShimmerEnabled,
-                    // The project's own picture says whose checkout it is; a
-                    // project without one falls back to the worktree glyph.
-                    ...(project.avatar
-                        ? {
-                              contextAvatars: [
-                                  {
-                                      id: project.id,
-                                      label: `Project: ${project.name}`,
-                                      imageUrl: project.avatar.url,
-                                  },
-                              ],
-                          }
-                        : { icon: "branch" as const }),
+                    // The project says whose checkout it is: its picture, or
+                    // its initials or home glyph where it has none.
+                    contextAvatars: [
+                        {
+                            id: project.id,
+                            label: `Project: ${project.name}`,
+                            initials: project.name.slice(0, 1).toUpperCase(),
+                            ...(project.kind === "home" ? { icon: "home" as const } : {}),
+                            ...(project.avatar ? { imageUrl: project.avatar.url } : {}),
+                        },
+                    ],
                     ...sidebarLifecycle(worktree.lifecycle),
                     ...sidebarActivity(worktree.activity),
                     ...(worktree.conversations.some((conversation) => conversation.unread)
@@ -3736,9 +3734,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             ) ?? spacesPlaces.tasks.find((task) => task.conversation.id === agentId);
         if (!subtask) return undefined;
         // A subtask with a checkout of its own is that checkout's
-        // row, and wears its project's picture like the task's
-        // other worktrees, or the worktree glyph where the project
-        // has none.
+        // row, and names its project like the task's other worktrees.
         const [row] = botSubtaskSidebarItems(
             [
                 {
@@ -3751,13 +3747,7 @@ export function AppHappyAgentView(props: AppHappyAgentViewProps) {
             active?.projects ?? NO_PROJECTS,
             titleShimmerEnabled,
         );
-        if (!row) return undefined;
-        const { contextAvatars, ...rest } = row;
-        return contextAvatars?.some((avatar) => avatar.imageUrl !== undefined)
-            ? { ...rest, contextAvatars }
-            : contextAvatars?.length
-              ? { ...rest, icon: "branch" as const }
-              : rest;
+        return row;
     };
     // Stories are an experiment each person turns on. Until the daemon answers,
     // the device's last answer decides, so the row's band is there (or not)

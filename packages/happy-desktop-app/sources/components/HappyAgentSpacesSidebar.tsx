@@ -44,6 +44,7 @@ import {
     clayIconSlugIs,
     happyIconMark,
     localAgoTime,
+    localAgoTimeChangedAt,
     makeStuffIntroHeader,
     Sidebar,
     SidebarChanges,
@@ -686,21 +687,25 @@ export function happyAgentSpacesAgentIdentity(
 
 /**
  * When a conversation last did something the person would want to know about,
- * which its row's time counts from. Until the client carries the daemon's own
- * last activity, the agent's last status says it, then the conversation's
- * newest content.
+ * which its row's time counts from: the daemon's own last activity once the
+ * conversation carries it, else the later of the agent's last status and the
+ * conversation's newest content.
  */
 function conversationActivityAt(conversation: ConversationSummary): number {
-    return conversation.statusLine?.updatedAt ?? conversation.updatedAt;
+    return (
+        conversation.lastActivityAt ??
+        Math.max(conversation.statusLine?.updatedAt ?? 0, conversation.updatedAt)
+    );
 }
 
 /**
  * The one signal a story row's corner shows: the chat's spinner while its
- * agent works, else a dot while something in it waits on the person.
+ * agent works, else a dot while it has something unread. A question waiting
+ * on the person is said by its status line.
  */
 function storySignal(item: SidebarItem): SidebarItemStory["signal"] {
     if (item.status === "working") return "working";
-    if (item.unread || item.status === "awaitingInput") return "unread";
+    if (item.unread) return "unread";
     return undefined;
 }
 
@@ -714,7 +719,7 @@ function storyRow(
     agentId: string,
     places: HappyAgentSpacesPlaces,
     stories: HappyAgentSpacesStories,
-    now: number,
+    time: string | undefined,
 ): SidebarItem {
     const conversation = conversationOf(agentId, places);
     const ring = stories.rings.get(agentId);
@@ -723,9 +728,7 @@ function storyRow(
         ...item,
         story: {
             ...(conversation?.statusLine ? { subtitle: conversation.statusLine.text } : {}),
-            ...(conversation
-                ? { time: localAgoTime(conversationActivityAt(conversation), now) }
-                : {}),
+            ...(time === undefined ? {} : { time }),
             ...(ring ? { ring } : {}),
             ...(signal ? { signal } : {}),
         },
@@ -734,8 +737,9 @@ function storyRow(
 
 /**
  * A row nested under another, as Stories draw it: one compact line with its
- * project's picture when it works in a project's checkout, else the agent
- * glyph, then its name, its delta and its one corner signal.
+ * project's picture, initials or home glyph when it works in a project's
+ * checkout, else the agent glyph, then its name, its delta and its one
+ * corner signal.
  */
 function storyNestedRow(item: SidebarItem): SidebarItem {
     const {
@@ -747,14 +751,31 @@ function storyNestedRow(item: SidebarItem): SidebarItem {
         icon: _icon,
         ...rest
     } = item;
-    const projectImage = contextAvatars?.find((avatar) => avatar.imageUrl !== undefined)?.imageUrl;
+    const project = contextAvatars?.[0];
     const signal = storySignal(item);
     return {
         ...rest,
         kind: "agent",
-        ...(projectImage === undefined ? { icon: "agents" as const } : { imageUrl: projectImage }),
+        ...(project === undefined
+            ? { icon: "agents" as const }
+            : project.imageUrl !== undefined
+              ? { imageUrl: project.imageUrl }
+              : project.icon !== undefined
+                ? { icon: project.icon }
+                : { initials: project.initials ?? project.label.slice(0, 1).toUpperCase() }),
         story: signal ? { signal } : {},
     };
+}
+
+/**
+ * A nested row without Stories: a project with no picture is said by the
+ * worktree glyph rather than its initials, beside the row's tree stem.
+ */
+function nestedClassicRow(item: SidebarItem): SidebarItem {
+    const { contextAvatars, ...rest } = item;
+    if (!contextAvatars?.length || contextAvatars.some((avatar) => avatar.imageUrl !== undefined))
+        return item;
+    return { ...rest, icon: "branch" };
 }
 
 /** The document as items, or nothing when there is none or it is not one the window will draw. */
@@ -845,6 +866,8 @@ export interface HappyAgentSpacesItemsInput {
     readonly sectionCreate?: boolean;
     readonly sessionRow: (agentId: string) => SidebarItem | undefined;
     readonly worktreeRows: (agentId: string) => readonly SidebarItem[];
+    /** Whether Stories draw the rows, which name a nested row's project themselves. */
+    readonly stories?: boolean;
 }
 
 /**
@@ -896,8 +919,9 @@ export function happyAgentSpacesItems(input: HappyAgentSpacesItemsInput): {
                 );
                 continue;
             }
-            const row = input.sessionRow(session.id);
-            if (row === undefined) continue;
+            const own = input.sessionRow(session.id);
+            if (own === undefined) continue;
+            const row = input.stories ? own : nestedClassicRow(own);
             const key = sidebarDocumentKey(session);
             anchorOf.set(key, key);
             last = key;
@@ -923,7 +947,8 @@ export function happyAgentSpacesItems(input: HappyAgentSpacesItemsInput): {
             );
         }
         if (agentId !== undefined)
-            for (const worktree of input.worktreeRows(agentId)) {
+            for (const own of input.worktreeRows(agentId)) {
+                const worktree = input.stories ? own : nestedClassicRow(own);
                 const id = `${WORKTREE_PREFIX}${worktree.id}`;
                 anchorOf.set(id, last);
                 rows.push({
@@ -1223,7 +1248,8 @@ export function happyAgentSpacesProposalItems(
             const drawn =
                 node.kind === "session" && !input.snapshot.spaces.has(node.id as HappyAgentSpaceId)
                     ? (() => {
-                          const row = input.sessionRow(node.id);
+                          const own = input.sessionRow(node.id);
+                          const row = own && (input.stories ? own : nestedClassicRow(own));
                           return row
                               ? [
                                     {
@@ -1279,11 +1305,6 @@ export function happyAgentSpacesProposalItems(
     return { items, changeOf };
 }
 
-/** The minute a clock is in, so the rows' times redraw once a minute rather than every tick. */
-function clockMinuteOf(clock: HappyAgentClockStore): number {
-    return Math.floor(clock.get() / 60_000) * 60_000;
-}
-
 const clockSubscribeNone = () => () => undefined;
 
 /** A drawn row's ID and those of the rows it stands under, from its top-level row down. */
@@ -1328,6 +1349,7 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
         ...(props.onSectionCreate ? { sectionCreate: true } : {}),
         sessionRow: props.sessionRow,
         worktreeRows: props.worktreeRows,
+        stories: props.stories !== undefined,
     };
     const standing = happyAgentSpacesItems(itemsInput);
     const anchorOf = standing.anchorOf;
@@ -1388,24 +1410,40 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                   anchorOf.has(`${WORKTREE_PREFIX}${props.focus.groupId}`)
                 ? `${WORKTREE_PREFIX}${props.focus.groupId}`
                 : "";
-    // A row shows its children once the person selected it or one under it,
-    // and the row on screen always stands open; nothing the document says
-    // about its folds is drawn here.
-    const opened = new Set([
-        ...(snapshot.rowsOpened?.rows ?? []),
-        ...rowPath(drawn.items, activeItemId),
-    ]);
+    // A row shows its children once the selection has opened it: the store
+    // keeps the one open tree, and nothing the document says about its folds
+    // is drawn here.
+    const opened = snapshot.rowsOpened?.rows;
     const openItems = drawn.items.map((item) =>
         item.collapsed === undefined || item.kind === "section"
             ? item
-            : { ...item, collapsed: !opened.has(item.id) },
+            : { ...item, collapsed: opened?.has(item.id) !== true },
     );
     const stories = props.stories;
-    const clock = props.clock;
-    const now = useSyncExternalStore(
+    /** Each top-level conversation row's last activity, which its time counts from. */
+    const activityAt = new Map<string, number>();
+    if (stories)
+        for (const item of openItems) {
+            const agentId = (item.depth ?? 0) > 0 ? undefined : rowAgentId(item.id);
+            const conversation =
+                agentId === undefined ? undefined : conversationOf(agentId, places);
+            if (conversation) activityAt.set(item.id, conversationActivityAt(conversation));
+        }
+    // The clock as the rows' times read it: it moves only when one of their
+    // labels changes, so the sidebar redraws then and not on every tick.
+    const clock = stories ? props.clock : undefined;
+    const clockRead = () => {
+        if (!clock) return props.now;
+        const now = clock.get();
+        let changed = Math.floor(now / 60_000) * 60_000;
+        for (const at of activityAt.values())
+            changed = Math.max(changed, localAgoTimeChangedAt(at, now));
+        return changed;
+    };
+    const clockNow = useSyncExternalStore(
         clock?.subscribe ?? clockSubscribeNone,
-        () => (clock ? clockMinuteOf(clock) : props.now),
-        () => (clock ? clockMinuteOf(clock) : props.now),
+        clockRead,
+        clockRead,
     );
     const items = stories
         ? openItems.map((item) => {
@@ -1413,7 +1451,15 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                   return item;
               if ((item.depth ?? 0) > 0) return storyNestedRow(item);
               const agentId = rowAgentId(item.id);
-              if (agentId !== undefined) return storyRow(item, agentId, places, stories, now);
+              const at = activityAt.get(item.id);
+              if (agentId !== undefined)
+                  return storyRow(
+                      item,
+                      agentId,
+                      places,
+                      stories,
+                      at === undefined ? undefined : localAgoTime(at, clockNow),
+                  );
               // A row with no conversation behind it keeps the same geometry
               // as its siblings, and says nothing.
               return { ...item, story: {} };
@@ -1541,7 +1587,6 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
     const open = (id: string) => {
         if (id === "search") return props.search?.onOpen();
         if (id === "create") return props.create?.onOpen();
-        props.store.rowsOpen(rowPath(items, id));
         const space = spaceOf(id);
         if (space === undefined) {
             if (id.startsWith("session:"))
@@ -1611,6 +1656,19 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                             }}
                         />
                     ) : null}
+                    {/* Every committed selection — a click, the keyboard, the
+                        palette or a link — lands here as the row on screen, and
+                        opens its tree in the store; rows that are gone leave it. */}
+                    <span
+                        hidden
+                        ref={(node) => {
+                            if (node)
+                                props.store.rowsOpen(
+                                    rowPath(drawn.items, activeItemId),
+                                    new Set(drawn.items.map((item) => item.id)),
+                                );
+                        }}
+                    />
                     {props.classic ? (
                         // Mounted with the sidebar and replaced when the folds
                         // change, so the store always holds the current ones.
@@ -1810,13 +1868,11 @@ export function HappyAgentSpacesSidebar(props: HappyAgentSpacesSidebarProps) {
                     );
                     // The person opened the row to show them, so its fold is
                     // theirs: the row's node, a space's or a session's.
-                    if (html !== undefined) {
+                    if (html !== undefined)
                         props.store.sidebarSessionsRevealWrite(
                             html,
                             key.slice(key.indexOf(":") + 1),
                         );
-                        props.store.rowsOpen(rowPath(items, item.id));
-                    }
                 } else if (actionId === MENU_SUBTASKS_HIDE) {
                     const key = anchorOf.get(item.id);
                     if (key)

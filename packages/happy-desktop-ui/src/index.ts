@@ -1094,7 +1094,7 @@ export {
 } from "./pages/settings/HappyAgentStoriesSettings";
 export { StoriesRow, type StoriesRowAuthor, type StoriesRowProps } from "./StoriesRow";
 export { StoryRing, type StoryRingProps, type StoryRingSegments } from "./StoryRing";
-export { localAgoTime, localListTime } from "./localTime";
+export { localAgoTime, localAgoTimeChangedAt, localListTime } from "./localTime";
 export {
     StoryCanvas,
     StoryOverlayView,

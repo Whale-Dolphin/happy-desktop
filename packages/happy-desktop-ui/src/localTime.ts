@@ -76,6 +76,21 @@ export function localAgoTime(at: number, now: number, zone: LocalTimeZone = {}):
 }
 
 /**
+ * The last moment, no later than `now`, at which `localAgoTime(at, ·)` turned
+ * to what it reads at `now`: a whole number of minutes after `at` within the
+ * hour, of hours after it within the day, and the minute itself after that,
+ * where the label waits on the calendar. A surface that redraws whenever the
+ * latest of these moves redraws when a label changes, and not otherwise.
+ */
+export function localAgoTimeChangedAt(at: number, now: number): number {
+    const elapsed = Math.max(0, now - at);
+    const step = elapsed < 3_600_000 ? 60_000 : elapsed < 86_400_000 ? 3_600_000 : undefined;
+    return step === undefined
+        ? Math.floor(now / 60_000) * 60_000
+        : at + Math.floor(elapsed / step) * step;
+}
+
+/**
  * When something happens, as it reads after "until": the exact local time,
  * with a day whenever it is not today. Tomorrow says so, the rest of the coming
  * week names its weekday, and anything else, including a day already past,

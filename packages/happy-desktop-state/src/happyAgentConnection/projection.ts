@@ -896,6 +896,7 @@ function projectAgent(
         cwd,
         effort: mode.effort,
         id: agent.id,
+        ...(agent.lastActivityAt === undefined ? {} : { lastActivityAt: agent.lastActivityAt }),
         modelId: mode.modelId,
         ownerInstanceId: endpoint,
         ...(agent.orderKey === null ? {} : { orderKey: agent.orderKey }),

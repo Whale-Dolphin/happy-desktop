@@ -269,11 +269,14 @@ export interface HappyAgentSpacesStore {
     sectionTailExpandedUpdate(sectionId: HappyAgentSpaceSectionId, expanded: boolean): void;
     olderExpandedUpdate(expanded: boolean): void;
     /**
-     * The person selected a row. `path` runs from its top-level row's ID down
-     * to its own, and every row on it shows its children. Within the tree
-     * already open this adds to what is open; another top-level row closes it.
+     * The sidebar's selection, as committed: `path` runs from the selected
+     * row's top-level row down to its own, empty when no row is selected, and
+     * every row on it shows its children. Within the tree already open this
+     * adds to what is open; another top-level row replaces it, so two trees
+     * are never open at once. `present` is every row the sidebar draws: an
+     * open row no longer among them was archived or removed, and is dropped.
      */
-    rowsOpen(path: readonly string[]): void;
+    rowsOpen(path: readonly string[], present: ReadonlySet<string>): void;
     /** Whether Happy's chat is on screen; opening it reads its note. */
     happyFocusUpdate(focused: boolean): void;
     /** Prioritizing's chat is on screen: the open proposal, as it is now, has been seen. */
@@ -1419,12 +1422,21 @@ export function happyAgentSpacesStoreCreate(deps: HappyAgentSpacesDeps): HappyAg
             if (snapshot.olderExpanded === expanded) return;
             publish({ olderExpanded: expanded });
         },
-        rowsOpen(path) {
-            const top = path[0];
-            if (top === undefined) return;
-            const opened = snapshot.rowsOpened?.top === top ? snapshot.rowsOpened : undefined;
-            if (opened && path.every((row) => opened.rows.has(row))) return;
-            publish({ rowsOpened: { top, rows: new Set([...(opened?.rows ?? []), ...path]) } });
+        rowsOpen(path, present) {
+            const current = snapshot.rowsOpened;
+            const top = path[0] ?? current?.top;
+            const kept = current !== null && current.top === top ? current.rows : [];
+            const rows = new Set([...kept, ...path].filter((row) => present.has(row)));
+            const next =
+                top === undefined || !present.has(top) || rows.size === 0 ? null : { top, rows };
+            const same =
+                next === null
+                    ? current === null
+                    : current !== null &&
+                      current.top === next.top &&
+                      current.rows.size === next.rows.size &&
+                      [...next.rows].every((row) => current.rows.has(row));
+            if (!same) publish({ rowsOpened: next });
         },
         proposalSeenRecord() {
             const proposal = snapshot.proposal;

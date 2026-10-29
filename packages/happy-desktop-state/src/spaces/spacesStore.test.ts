@@ -190,31 +190,43 @@ it("holds incoming sidebar versions through the saved drop", async () => {
     }
 });
 
-it("keeps the rows opened in one tree until another top-level row is selected, and never writes them", () => {
+it("keeps one tree of rows open, replaces it with another top-level row's, drops removed rows, and never writes them", () => {
     const daemon = fakeHappyAgentDaemonCreate();
     const sync = happyAgentSyncCreate();
     const store = happyAgentSpacesStoreCreate({ client: daemon.client, sync: sync.source });
+    const drawn = new Set(["space:release", "session:signing", "session:notes", "space:polish"]);
     const opened = () => {
         const rows = store.get().rowsOpened;
         return rows === null ? null : { top: rows.top, rows: [...rows.rows].sort() };
     };
     try {
         expect(opened()).toBeNull();
-        store.rowsOpen(["space:release"]);
-        store.rowsOpen(["space:release", "session:signing"]);
-        store.rowsOpen(["space:release", "session:notes"]);
+        store.rowsOpen(["space:release"], drawn);
+        store.rowsOpen(["space:release", "session:signing"], drawn);
+        store.rowsOpen(["space:release", "session:notes"], drawn);
         expect(opened()).toEqual({
             top: "space:release",
             rows: ["session:notes", "session:signing", "space:release"],
         });
-        // Selecting what is already open publishes nothing.
+        // The same selection again, or none, publishes nothing.
         const listener = vi.fn();
         const unsubscribe = store.subscribe(listener);
-        store.rowsOpen(["space:release", "session:signing"]);
+        store.rowsOpen(["space:release", "session:signing"], drawn);
+        store.rowsOpen([], drawn);
         expect(listener).not.toHaveBeenCalled();
         unsubscribe();
-        store.rowsOpen(["space:polish"]);
+        // An archived row leaves the tree; its top-level row leaving closes it.
+        drawn.delete("session:notes");
+        store.rowsOpen([], drawn);
+        expect(opened()).toEqual({
+            top: "space:release",
+            rows: ["session:signing", "space:release"],
+        });
+        store.rowsOpen(["space:polish"], drawn);
         expect(opened()).toEqual({ top: "space:polish", rows: ["space:polish"] });
+        drawn.delete("space:polish");
+        store.rowsOpen([], drawn);
+        expect(opened()).toBeNull();
         expect(daemon.callCount("updateSpaceSidebar")).toBe(0);
     } finally {
         store[Symbol.dispose]();

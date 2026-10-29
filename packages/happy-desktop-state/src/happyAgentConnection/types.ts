@@ -620,6 +620,8 @@ export interface GroupSession {
     cwd: string;
     effort?: string;
     id: string;
+    /** The agent's last important activity, its latest person message or status update. */
+    lastActivityAt?: number;
     lastMessageAt?: number;
     modelId: string;
     ownerInstanceId: string;

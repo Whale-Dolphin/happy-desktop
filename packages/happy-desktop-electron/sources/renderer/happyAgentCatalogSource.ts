@@ -375,6 +375,7 @@ function conversationProject(session: GroupSession): HappyAgentConversationSumma
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         ...(session.lastMessageAt === undefined ? {} : { lastMessageAt: session.lastMessageAt }),
+        ...(session.lastActivityAt === undefined ? {} : { lastActivityAt: session.lastActivityAt }),
     };
 }
 

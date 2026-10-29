@@ -18,6 +18,12 @@ export interface ConversationSummary {
     readonly activity: "running" | "awaitingInput" | "waiting" | "idle";
     /** Epoch milliseconds of the newest content, for relative timestamps. */
     readonly updatedAt: number;
+    /**
+     * Epoch milliseconds of the agent's last important activity, its latest
+     * person message or status update, as the daemon reports it; absent until
+     * it does.
+     */
+    readonly lastActivityAt?: number;
     readonly unread?: boolean;
     readonly mentions?: number;
     readonly avatarFileId?: string;

@@ -2366,29 +2366,53 @@
 /* ---- Story rows ------------------------------------------------------- */
 
 /*
- * A row while Stories are on reads as a messenger's chat list: the mark grown
- * into a 44px story ring, centred; the name on a first line with the time on
- * its baseline at the end; and one status line underneath. The row is 60px
- * and every box in it is fixed, so a ring, a status of any length, a time or
- * a signal arriving never moves the name or the row. The 8px inset, the ring
- * and the 10px gap put the text column 62px in (`SIDEBAR_STORY_TEXT_INSET`).
+ * A row while Stories are on reads as a messenger's chat list: a 44px round
+ * mark, centred; the name on a first line with the time on its baseline at
+ * the end; and one status line underneath. The row is 60px and every box in
+ * it is fixed, so a ring, a status of any length, a time or a signal arriving
+ * never moves the name or the row.
+ *
+ * The geometry is stated once, here; `Sidebar.tsx` only says how deep a
+ * nested row stands. The inset, the mark and the gap put the text column
+ * 64px in; a nested row puts its 20px mark there, and each level deeper
+ * starts under the name above it, one mark and gap (28px) further in. The
+ * separators start at that column because the text draws them.
  */
+.happy-sidebar {
+    --happy-sidebar-story-inset: 8px;
+    --happy-sidebar-story-mark: 44px;
+    --happy-sidebar-story-gap: 12px;
+    --happy-sidebar-story-text: calc(
+        var(--happy-sidebar-story-inset) + var(--happy-sidebar-story-mark) +
+            var(--happy-sidebar-story-gap)
+    );
+    --happy-sidebar-story-nested-mark: 20px;
+    --happy-sidebar-story-nested-gap: 8px;
+    --happy-sidebar-story-step: calc(
+        var(--happy-sidebar-story-nested-mark) + var(--happy-sidebar-story-nested-gap)
+    );
+    /* The corner signal's slot, and the lane a line keeps clear for it. */
+    --happy-sidebar-story-signal: 18px;
+    --happy-sidebar-story-signal-lane: 20px;
+    --happy-sidebar-story-rule: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
 .happy-sidebar__item[data-story] {
     height: 60px;
-    gap: 10px;
-    padding-left: 8px;
+    gap: var(--happy-sidebar-story-gap);
+    padding-left: var(--happy-sidebar-story-inset);
 }
 
 .happy-sidebar__item-leading[data-story] {
-    width: 44px;
-    height: 44px;
+    width: var(--happy-sidebar-story-mark);
+    height: var(--happy-sidebar-story-mark);
 }
 
-.happy-sidebar__item[data-story] .happy-avatar {
+.happy-sidebar__item[data-story]:not([data-depth]) .happy-avatar {
     border-radius: var(--happy-radius-pill);
 }
 
-/* Everything right of the ring: one line laid out as a plain row lays its
+/* Everything right of the mark: one line laid out as a plain row lays its
    only line, then the status. Stretched to the row's height, with the two
    blocks set from its top, so the name stands at the same height in every row. */
 .happy-sidebar__item-body {
@@ -2411,16 +2435,15 @@
     height: 20px;
 }
 
+/* The name stands on the line's baseline with what follows it, so the
+   optical lift a one-line row gives it would only part them. Unread is the
+   corner dot's to say: every name keeps one weight. */
 .happy-sidebar__item[data-story] .happy-sidebar__item-label {
     color: var(--text);
     font-size: 14px;
     font-weight: 600;
     line-height: 20px;
-}
-
-/* Unread is the corner dot's to say: the name keeps its weight. */
-.happy-sidebar__item[data-story][data-unread] .happy-sidebar__item-label {
-    font-weight: 600;
+    transform: none;
 }
 
 .happy-sidebar__item-time {
@@ -2433,27 +2456,12 @@
     white-space: nowrap;
 }
 
-/* The same fold column as a plain row's, from inside the first line. */
-.happy-sidebar__item[data-fold-placement="trailing"]
-    .happy-sidebar__item-line
-    > .happy-sidebar__item-fold {
-    position: static;
-    flex: none;
-    align-self: center;
-    width: 18px;
-    height: 18px;
-    margin-right: calc(var(--happy-sidebar-fold-inset) - var(--happy-panel-row-padding));
-    opacity: 1;
-}
-
-/* One line, kept whether the status is empty or full, then cut with
-   an ellipsis. Its right edge stays clear of the corner signal, so the text
-   never reflows when a signal comes or goes. */
+/* One line, then cut with an ellipsis. It keeps clear of the corner signal's
+   lane while there is one. */
 .happy-sidebar__item-subtitle {
     display: block;
     flex: none;
     height: 18px;
-    padding-right: 24px;
     overflow: hidden;
     color: var(--text-secondary);
     font-size: 13px;
@@ -2463,10 +2471,14 @@
     white-space: nowrap;
 }
 
-/* A hairline above each top-level story row that follows another story row,
-   whatever that one's depth: from the text column to the sidebar's right
-   edge. None against the selected or carried row, whose own fill already
-   parts it from its neighbours. */
+.happy-sidebar__item:has(> .happy-sidebar__item-corner) .happy-sidebar__item-subtitle {
+    padding-right: var(--happy-sidebar-story-signal-lane);
+}
+
+/* A hairline above every top-level story row that follows another story row,
+   at any depth: Telegram's separator, from the text column to the sidebar's
+   right edge. Nested rows are never parted, and the first row under a heading
+   has nothing above it to part from. */
 .happy-sidebar__item[data-story]
     + .happy-sidebar__item[data-story]:not([data-depth])
     > .happy-sidebar__item-body::before {
@@ -2475,11 +2487,13 @@
     right: calc(-1 * (var(--happy-panel-row-padding) + var(--happy-panel-inset)));
     left: 0;
     height: 1px;
-    background: var(--divider);
+    background: var(--happy-sidebar-story-rule);
     content: "";
     pointer-events: none;
 }
 
+/* The selected or carried row's own fill parts it already: only the
+   hairlines touching it go. */
 .happy-sidebar__item[data-story]:is([data-active], [data-dragging])
     + .happy-sidebar__item[data-story]
     > .happy-sidebar__item-body::before,
@@ -2488,22 +2502,39 @@
     display: none;
 }
 
+/* An open tree keeps the children's 10px rhythm: its row ends 4px under its
+   status, and its last child stands 6px clear of the hairline below, so the
+   rule sits 11px from the child and 11px from the next name. */
+.happy-sidebar__item[data-story]:not([data-depth])[aria-expanded="true"] {
+    height: 54px;
+}
+
+.happy-sidebar__item[data-story][data-depth]:has(
+    + .happy-sidebar__item[data-story]:not([data-depth])
+) {
+    margin-bottom: 6px;
+}
+
 .happy-sidebar__item-corner {
     /* Out of the row's flow on purpose: the corner is a badge on the row, so
-       a signal coming and going never takes width from the name. Centred on
-       the status line, 19px above the row's bottom. */
+       a signal coming and going never takes width from the name. Flush right
+       under the time and centred on the status line, 41px from the row's top
+       (the body's 10px, the 20px name, 2px, half the 18px status), which an
+       open tree's shorter row keeps. */
     position: absolute;
+    top: 41px;
     right: var(--happy-panel-row-padding);
-    bottom: 19px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    transform: translateY(50%);
+    justify-content: flex-end;
+    width: var(--happy-sidebar-story-signal);
+    height: var(--happy-sidebar-story-signal);
+    transform: translateY(-50%);
     pointer-events: none;
 }
 
+/* The brand colour: 10px beside a top-level row's status, 8px on a nested
+   line. */
 .happy-sidebar__item-corner[data-signal="unread"]::before {
     width: 10px;
     height: 10px;
@@ -2512,21 +2543,25 @@
     content: "";
 }
 
-.happy-sidebar__item-corner[data-signal="working"] {
+.happy-sidebar__item-corner[data-signal="working"] .happy-spinner {
     color: var(--text-secondary);
 }
 
 /* Nested under another row, a story row is one compact line: its 20px mark,
-   its name, its delta, and the corner signal centred at its end, in a lane
-   the delta never enters. */
+   its name, its delta, and the corner signal at its end, in a lane the delta
+   never enters. The name and the delta share one baseline. */
 .happy-sidebar__item[data-story][data-depth] {
     height: 28px;
-    gap: 8px;
+    gap: var(--happy-sidebar-story-nested-gap);
+    padding-left: calc(
+        var(--happy-sidebar-story-text) + var(--happy-sidebar-story-depth, 0) *
+            var(--happy-sidebar-story-step)
+    );
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-leading {
-    width: 20px;
-    height: 20px;
+    width: var(--happy-sidebar-story-nested-mark);
+    height: var(--happy-sidebar-story-nested-mark);
 }
 
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-body {
@@ -2534,19 +2569,67 @@
     padding-top: 0;
 }
 
-.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-line {
-    align-items: center;
-    padding-right: 24px;
+.happy-sidebar__item[data-story][data-depth]:has(> .happy-sidebar__item-corner)
+    .happy-sidebar__item-line {
+    padding-right: var(--happy-sidebar-story-signal-lane);
 }
 
+/* A child stays quieter than its parent's status until it is the one open. */
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-label {
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
     line-height: 20px;
 }
 
+.happy-sidebar__item[data-story][data-depth][data-active] .happy-sidebar__item-label {
+    color: var(--text);
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-trailing {
+    align-items: baseline;
+    height: auto;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-change-stats {
+    gap: 4px;
+    font-family: var(--happy-font-ui);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 20px;
+    translate: none;
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-change-stats [data-tone="added"] {
+    color: var(--git-added-text);
+}
+
+.happy-sidebar__item[data-story][data-depth] .happy-change-stats [data-tone="deleted"] {
+    color: var(--git-removed-text);
+}
+
 .happy-sidebar__item[data-story][data-depth] .happy-sidebar__item-corner {
-    bottom: 14px;
+    top: 13px;
+}
+
+.happy-sidebar__item[data-story][data-depth]
+    .happy-sidebar__item-corner[data-signal="unread"]::before {
+    width: 8px;
+    height: 8px;
+}
+
+/* A heading among story rows stands 16px under the rows above it and 8px
+   over the rows it heads, measured to its title's line. */
+.happy-sidebar__item[data-story] + .happy-sidebar__section-item {
+    margin-top: 8px;
+}
+
+.happy-sidebar__section:has(.happy-sidebar__item[data-story]) .happy-sidebar__section-item-label {
+    line-height: 16px;
+}
+
+.happy-sidebar__section:has(.happy-sidebar__item[data-story]) > .happy-sidebar__section-head {
+    margin-bottom: 2px;
 }
 
 /* Indentation and scale describe these children; a stem hanging from a story

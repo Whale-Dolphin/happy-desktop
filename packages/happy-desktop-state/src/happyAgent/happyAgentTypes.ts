@@ -798,6 +798,8 @@ export interface HappyAgentSessionSummary {
     readonly createdAt: number;
     readonly updatedAt: number;
     readonly lastMessageAt?: number;
+    /** The agent's last important activity, its latest person message or status update. */
+    readonly lastActivityAt?: number;
 }
 
 export interface HappyAgentSession {

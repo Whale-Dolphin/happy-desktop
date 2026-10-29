@@ -8,7 +8,7 @@ export const componentNumber = "C-009b";
 /** A project's picture, as the daemon hands one over: a square image. */
 const projectPicture = (from: string, to: string, letter: string) =>
     `data:image/svg+xml,${encodeURIComponent(
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="40" height="40" fill="url(#g)"/><text x="20" y="27" font-family="-apple-system,Helvetica,Arial" font-size="20" font-weight="700" fill="#fff" text-anchor="middle">${letter}</text></svg>`,
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="40" height="40" fill="url(#g)"/><text x="20" y="27" font-family="-apple-system,Helvetica,Arial" font-size="20" font-weight="600" fill="#fff" text-anchor="middle">${letter}</text></svg>`,
     )}`;
 const DESKTOP = projectPicture("#6d5dfc", "#b26cf6", "D");
 const AGENT = projectPicture("#0f9d7a", "#4cc38a", "A");
@@ -39,7 +39,8 @@ const nested = (
     kind: "agent",
     label,
     depth,
-    icon: "agents",
+    // The project's picture, initials or home glyph; else the agent glyph.
+    ...((extra.imageUrl ?? extra.initials ?? extra.icon) ? {} : { icon: "agents" as const }),
     story: {},
     ...extra,
 });
@@ -74,6 +75,10 @@ const list: SidebarItem[] = [
         signal: "unread",
     }),
     top("review", "Code review queue", "code-review", { subtitle: "Two left", time: "10/12" }),
+    top("long", "Investigate why the Windows installer loses its signature", "git", {
+        subtitle: "Comparing the two manifests line by line",
+        time: "Mon",
+    }),
 ];
 
 const tree: SidebarItem[] = [
@@ -99,13 +104,16 @@ const tree: SidebarItem[] = [
         changeStats: { added: 14, deleted: 3 },
         story: { signal: "unread" },
     }),
-    nested("notary", "Notary log reader", 2, { status: "ready" }),
+    // A project without a picture is named by its initials.
+    nested("notary", "Notary log reader", 2, { initials: "N" }),
     nested("notes", "Release notes", 1, {
         imageUrl: AGENT,
         changeStats: { added: 42, deleted: 0 },
         story: { signal: "unread" },
     }),
-    nested("check", "Crash report triage", 1, {}),
+    // The home project wears its glyph; work in no project, the agent glyph.
+    nested("home", "Tidy the downloads folder", 1, { icon: "home" }),
+    nested("check", "Crash report triage", 1, { story: { signal: "working" } }),
     top("polish", "Sidebar polish", "wip", {
         subtitle: "Waiting on review",
         time: "1h",
@@ -135,6 +143,37 @@ const headers: SidebarItem[] = [
         action: { icon: "plus", label: "New work in Finished" },
     },
     top("hidden", "Hidden work", "wip", {}),
+];
+
+const LONG_TITLE =
+    "Investigate why the Windows installer loses its signature after notarization on the release branch builds only";
+const LONG_STATUS =
+    "Rebuilt the installer twice; the signature survives locally but the notary service strips it, so I am comparing the two manifests line by line";
+
+const narrow: SidebarItem[] = [
+    top("long", LONG_TITLE, "pull-request", {
+        subtitle: LONG_STATUS,
+        time: "10/12",
+        signal: "unread",
+    }),
+    top(
+        "tree",
+        "Desktop release 0.42",
+        "project-kickoff",
+        { subtitle: LONG_STATUS, time: "now", signal: "working" },
+        { collapsed: false },
+    ),
+    nested("long-child", LONG_TITLE, 1, {
+        imageUrl: DESKTOP,
+        changeStats: { added: 12840, deleted: 977 },
+        story: { signal: "unread" },
+    }),
+    nested("short-child", "Release notes", 1, {
+        imageUrl: AGENT,
+        changeStats: { added: 42, deleted: 3 },
+        story: { signal: "working" },
+    }),
+    top("short", "Composer cleanup", "cleanup", { subtitle: "On main", time: "Tue" }),
 ];
 
 const scenes = { list, tree, headers } as const;
@@ -203,6 +242,27 @@ export function SidebarStoryRowsPage() {
                     </FullScreenSpecimen>
                 )),
             )}
+            <FullScreenSpecimen
+                number="04"
+                label="narrow"
+                detail="A 240px sidebar: long names, statuses and deltas end in an ellipsis"
+                screen="04-narrow-720x640"
+                window={{ width: 720, height: 640 }}
+            >
+                <div style={{ display: "flex", height: "100%", gap: 24, padding: 24 }}>
+                    {(["light", "dark"] as const).map((mode) => (
+                        <ThemeScope key={mode} mode={mode}>
+                            <Sidebar
+                                style={{ width: 240 }}
+                                activeItemId=""
+                                itemFoldControls={false}
+                                onItemSelect={() => {}}
+                                sections={[{ id: "work", items: narrow }]}
+                            />
+                        </ThemeScope>
+                    ))}
+                </div>
+            </FullScreenSpecimen>
         </ComponentPage>
     );
 }

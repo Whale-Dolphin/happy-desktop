@@ -91,6 +91,12 @@ it("holds the same title, row and sibling boxes as statuses, rings, times and co
                 expect(part(signal, "spinner-braille-canvas")).toBeTruthy();
             } else if (story.signal === "unread") {
                 expect(signal.dataset.signal).toBe("unread");
+                // The dot is 10px beside a status, 8px on a nested line, centred
+                // in the same 18px slot.
+                expect(getComputedStyle(signal, "::before").width).toBe(
+                    element === parent ? "10px" : "8px",
+                );
+                expect(signal.getBoundingClientRect().width).toBe(18);
                 expect(signal.querySelector(".happy-spinner")).toBeNull();
             } else expect(signal).toBeNull();
         }
@@ -111,6 +117,7 @@ it("aligns each nested mark with its parent's text without connectors, and parts
         { id: "grandchild", kind: "agent", label: "Review", depth: 2, story: {} },
         { id: "sibling", kind: "agent", label: "GitHub CLI login", depth: 1, story: {} },
         { id: "next", kind: "agent", label: "Next task", story: {} },
+        { id: "last", kind: "agent", label: "Last task", story: {} },
     ];
     const view = createRenderer().render(
         () => (
@@ -124,7 +131,7 @@ it("aligns each nested mark with its parent's text without connectors, and parts
                 sections={[{ id: "work", items }]}
             />
         ),
-        { width: 324, height: 300 },
+        { width: 324, height: 360 },
     );
     await view.ready();
     const root = view.$('[data-happy-desktop-ui="sidebar"]').element;
@@ -144,27 +151,37 @@ it("aligns each nested mark with its parent's text without connectors, and parts
     for (const [index, item] of items.entries()) {
         const element = row(root, item.id);
         expect(element.querySelector(".happy-sidebar__item-branch")).toBeNull();
+        // Rows stand 2px apart; the last child of an open tree keeps 6px more
+        // clear of the hairline over the next top-level row.
         if (index > 0)
             expect(
                 element.getBoundingClientRect().top -
                     row(root, items[index - 1]!.id).getBoundingClientRect().bottom,
-            ).toBe(2);
+            ).toBe(item.id === "next" ? 8 : 2);
     }
     for (const connector of root.querySelectorAll<HTMLElement>(".happy-sidebar__tree-connector"))
         expect(getComputedStyle(connector).visibility).toBe("hidden");
     // Without fold controls, the rows that hold others show no chevron.
     expect(root.querySelector('[data-happy-desktop-ui="sidebar-item-fold"]')).toBeNull();
-    // Only the next top-level row is parted from the tree above it, from its
-    // text column to the sidebar's right edge.
+    // A hairline stands over every top-level row but the first, after an open
+    // tree too, from the text column to the sidebar's right edge; nested rows
+    // are never parted.
     const hairline = (id: string) =>
         getComputedStyle(part(row(root, id), "sidebar-item-body"), "::before");
     for (const id of ["parent", "child", "grandchild", "sibling"])
         expect(hairline(id).content).toBe("none");
-    expect(hairline("next").content).not.toBe("none");
-    const body = part(row(root, "next"), "sidebar-item-body").getBoundingClientRect();
-    const label = part(row(root, "next"), "sidebar-item-label").getBoundingClientRect();
-    expect(body.left + parseFloat(hairline("next").left)).toBe(label.left);
-    expect(body.left + parseFloat(hairline("next").width)).toBe(root.getBoundingClientRect().right);
+    for (const id of ["next", "last"]) expect(hairline(id).content).not.toBe("none");
+    // An open tree keeps the children's 10px rhythm under its status.
+    expect(row(root, "parent").getBoundingClientRect().height).toBe(54);
+    const body = part(row(root, "last"), "sidebar-item-body").getBoundingClientRect();
+    const label = part(row(root, "last"), "sidebar-item-label").getBoundingClientRect();
+    expect(label.left - row(root, "last").getBoundingClientRect().left).toBe(64);
+    expect(body.left + parseFloat(hairline("last").left)).toBe(label.left);
+    expect(body.left + parseFloat(hairline("last").width)).toBe(root.getBoundingClientRect().right);
+    // Rows that hold others say whether they are open, though they draw no fold.
+    expect(row(root, "parent").getAttribute("aria-expanded")).toBe("true");
+    expect(row(root, "child").getAttribute("aria-expanded")).toBe("true");
+    expect(row(root, "grandchild").hasAttribute("aria-expanded")).toBe(false);
 });
 
 it("shows only folded arrows at rest and both controls on hover, without shifting either heading form", async () => {
