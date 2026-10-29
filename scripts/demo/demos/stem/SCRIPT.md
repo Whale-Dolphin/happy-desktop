@@ -4,8 +4,10 @@ The take opens on the model list, already open: Claude, Codex, Grok and Gemini
 (through the Antigravity harness). Opus 5.5 is picked, and the new work, a stem
 cell, names itself, grows its icon, and the sidebar files it.
 The agent does the work and shows a live preview. It then finds the teammate who
-reviews voice work and loops him in. Steve, a designer, answers from his phone, the
-agent fixes and ships, and once Steve signs off, Focus archives the task. Use
+reviews voice work and loops him in. Steve, a designer, asks from his phone for it a bit
+narrower and shipped; the agent does both, and Focus archives the shipped task. Then
+Create divides Happy: the app's own division animation peels a new cell off
+the Happy cell into the New row, which opens on Opus 5.5. Use
 today's UI with Settings → Experimental → Spaces sidebar and Stem cells turned
 on. Everything on screen is real product behavior. Fixtures are disclosed in
 `stem.evidence.json`.
@@ -20,8 +22,8 @@ The `team` composition keeps the desktop centre stage. The frame (1618×1000)
 is a golden rectangle; the recorded window is 880×600 CSS and carries macOS
 traffic lights. Desktop hints are drawn inside the app at its own resolution. The phone is off screen until Steve is looped in.
 It then rises from below, whole, over the window's right side under a "Steve's
-phone" label, and drops away once he signs off. Steve's two typing stretches
-play at 2×: the native driver performs one real key touch at a time (about
+phone" label, and drops away as the ship runs. Steve's typing plays
+at 2×: the native driver performs one real key touch at a time (about
 220 ms each), and the desktop is idle while he types. His typing is silent: a
 synthesized key tick read as fake. The poster is the first frame.
 
@@ -56,31 +58,31 @@ pnpm demo compose team --desktop <take>/stem.mp4 \
   to pair again.
 - Recording needs execution outside the sandbox (Chromium, simctl, Maestro).
 
-## Beats and cues (take `v29-team-r11`: 81.7s, composed 76.5s; times are r10's, within 0.7s)
+## Beats and cues (take `v40-team-r14`: 84.5s, composed 76.0s)
 
-Times are the take's own. The composition plays the two typing stretches at 2×.
+Times are the take's own. The composition plays Steve's typing and the offline ship at 2×.
 
-| s             | cue                                | what is on screen                                                                                             |
-| ------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 0             | picker-open                        | The poster: a new stem cell with its model list open. Claude, Codex, Grok and Antigravity's Gemini rows.      |
-| 3.27          | picker-chosen                      | Opus 5.5 is picked: "All new work starts with a stem cell".                                                   |
-| 6.17 / 9.52   | typing-started / work-started      | "Add an animated waveform to the voice agent."                                                                |
-| 10.55         | stem-named                         | The row names itself "Voice waveform".                                                                        |
-| 13.22         | stem-icon                          | It grows the clay waveform icon; the work waits until it has.                                                 |
-| 18.30         | stem-filed                         | Focus files the row under Voice: "Sidebar self-organizes".                                                    |
-| 20.35–26.80   | first-read … artifact-shown        | Reads, edits `waveformActive.ts` (+3 −1), and an inline animated preview (28 bars).                           |
-| 31.30         | looped-in                          | List teammates, Notify teammate, then "Looping in @Steve, our design expert." on its own line, @Steve in bold |
-| 34.63         | steve-joined                       | Steve's own Focus answered with `join_task`; his membership carries the `looped_in` mark.                     |
-| 35.25 / 36.17 | phone-enter / phone-row            | Steve's phone rises under its label: his Design rows, and Voice waveform highlighted as new.                  |
-| 38.75         | phone-session-open                 | He opens it: the mention and the live preview, inline.                                                        |
-| 41.92 / 48.33 | phone-typing-feedback / phone-sent | "Good, just a bit wide" on the real iOS keyboard, silent (2× in the composition).                             |
-| 51.20         | narrowed                           | "Narrowing it to five bars." and a new five-bar preview, on both screens.                                     |
-| 53.03 / 61.33 | ship-running / deployed            | The Bash ship ("Ship to production"), then "Shipped: five bars at most, live on main. @Steve". No confetti.   |
-| 63.47 / 66.80 | phone-typing-thanks / phone-thanks | Steve types "Great!" (2×).                                                                                    |
-| 68.22 / 69.77 | phone-exit / steve-thanks-visible  | The phone drops away; the agent thanks him.                                                                   |
-| 71.65         | moved-on                           | The person opens Voice notes; the pointer leaves the sidebar, so one row is highlighted.                      |
-| 72.67 / 74.82 | archiving / archived               | The owner's Focus calls `archive_shipped_task`; Voice waveform leaves.                                        |
-| 77.27         | outro                              | "Stem cells. For you and your whole team."                                                                    |
+| s             | cue                                | what is on screen                                                                                                    |
+| ------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 0             | picker-open                        | The poster: a new stem cell with its model list open. Claude, Codex, Grok and Antigravity's Gemini rows.             |
+| 3.27          | picker-chosen                      | Opus 5.5 is picked: "All new work starts with a stem cell".                                                          |
+| 6.17 / 9.55   | typing-started / work-started      | "Add an animated waveform to the voice agent."                                                                       |
+| 10.58         | stem-named                         | The row names itself "Voice waveform".                                                                               |
+| 13.25         | stem-icon                          | It grows the clay waveform icon; the work waits until it has.                                                        |
+| 17.63         | stem-filed                         | Focus files the row under Voice: "Sidebar self-organizes".                                                           |
+| 19.70–26.35   | first-read … artifact-shown        | Reads, edits `waveformActive.ts` (+3 −1), and an inline animated preview (28 bars).                                  |
+| 30.85         | looped-in                          | List teammates, Notify teammate, then "Looping in @Steve, our design expert." on its own line, @Steve in bold        |
+| 34.20         | steve-joined                       | Steve's own Focus answered with `join_task`; his membership carries the `looped_in` mark.                            |
+| 34.82 / 35.75 | phone-enter / phone-row            | Steve's phone rises under its label: his Design rows, and Voice waveform highlighted as new.                         |
+| 38.35         | phone-session-open                 | He opens it: the mention and the live preview, inline.                                                               |
+| 41.22 / 50.95 | phone-typing-feedback / phone-sent | "Make it a bit narrower and ship it." on the real iOS keyboard, silent (2× in the composition).                      |
+| 54.53         | narrowed                           | The same inline preview redraws narrower (28 bars to 16), on both screens.                                           |
+| 61.27         | ship-running / phone-exit          | The Bash ship ("Ship to production"); the phone drops away.                                                          |
+| 68.80         | deployed                           | "Shipped." No confetti.                                                                                              |
+| 70.53 / 72.48 | archiving / archived               | The owner's Focus calls `archive_shipped_task`; Voice waveform leaves the sidebar and its chat stays open, archived. |
+| 76.37         | create-clicked                     | Create, pressed at the row's right; the pointer leaves for the empty pane and hides. No caption.                     |
+| 76.92 / 77.13 | stem-born / divided                | Happy divides and the new cell slides into the New row; its composer reads Opus 5.5 1M Medium.                       |
+| 78.05 / 80.90 | team-caption / outro               | "Stem cells for you and your team.", then "Go divide and conquer :D".                                                |
 
 ## Verification the take enforces
 
@@ -99,6 +101,15 @@ Times are the take's own. The composition plays the two typing stretches at 2×.
 - `shippingVerify` confirms the fixture checkout was restored, read before
   the archive takes the workspace away.
 - The task is archived and its row is gone from the desktop sidebar.
+- Create's new row is the daemon's new space, found by ID. The app's division
+  overlay appears and goes, and from before the click to the end every model
+  the composer names is Opus 5.5.
+
+The final Create's composer opens on Opus 5.5 because, off screen just before
+it, the person's default model setting is set to the model picked on camera
+(the opening needs Astra as the default). The gym daemon's own default is Opus
+5.5 as well (`world.defaults`, which turns the gym's `openai/gym` model off),
+so work the daemon starts by itself never shows the gym model.
 
 ## Fixtures (disclosed in evidence)
 

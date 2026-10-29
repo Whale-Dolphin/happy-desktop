@@ -63,9 +63,11 @@ export default {
         { from: "ship-running", text: "and *ships it*" },
         {
             from: "archiving",
+            to: "create-clicked",
             text: "Finished work *archives itself*. It no longer needs your attention.",
         },
-        { from: "create-clicked", text: "*Stem cells* for you and your team." },
+        // No caption while Happy divides into the new row: the cell is the shot.
+        { from: "team-caption", text: "*Stem cells* for you and your team." },
         { from: "outro", text: "*Go divide and conquer* :D" },
     ],
     // The desktop's hints are drawn in the app itself, at its own resolution;

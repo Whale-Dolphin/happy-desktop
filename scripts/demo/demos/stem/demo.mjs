@@ -25,6 +25,7 @@ let framing;
 let checkout;
 let shippingFixture;
 let shippingEvidence;
+let divisionEvidence;
 let releaseCoordinator;
 const filing = {};
 const cues = [];
@@ -969,30 +970,110 @@ export default {
         await page.screenshot({ path: join(output, "archived.png") });
         await demo.hold(2400);
 
-        // ---- New work again: Create makes a fresh stem cell.
+        // ---- New work again: Create divides Happy, and the new cell peels off
+        // into the New row. The overlay is the app's own division; it is
+        // watched from before the click so even a quick one is seen.
+        // The person's default model becomes the one picked on camera, so the
+        // new cell's composer opens on it rather than on the opening's Astra.
+        await gym.client.saveUserSetting(defaultModelSetting, {
+            value: { providerId: world.defaults.providerId, modelId: world.defaults.modelId },
+            updatedAt: Date.now(),
+        });
+        const spacesBefore = new Set((await gym.client.listSpaces()).spaces.map(({ id }) => id));
+        // Every model the composer names from here on is kept too, so a
+        // passing wrong label fails the take rather than flashing by.
+        await page.evaluate(() => {
+            const seen = { appeared: false, gone: false, models: [] };
+            window.__stemDivision = seen;
+            window.__stemDivisionObserver = new MutationObserver(() => {
+                const overlay = document.querySelector(
+                    '[data-happy-desktop-ui="happy-cell-division"]',
+                );
+                if (overlay) seen.appeared = true;
+                else if (seen.appeared) seen.gone = true;
+                for (const trigger of document.querySelectorAll(
+                    '[data-happy-desktop-ui="composer-model-control-trigger"]',
+                )) {
+                    // Its text nodes joined with spaces, as innerText reads
+                    // them, without forcing a layout on every mutation.
+                    const words = [];
+                    const walker = document.createTreeWalker(trigger, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) words.push(walker.currentNode.data);
+                    const model = words.join(" ").replace(/\s+/g, " ").trim();
+                    if (model && seen.models.at(-1) !== model) seen.models.push(model);
+                }
+            });
+            window.__stemDivisionObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+        });
         const create = page.getByText("Create", { exact: true }).first();
+        const createBox = await create.boundingBox();
         await demo.pointerVisible(true);
-        await demo.moveTo(create, { duration: 800 });
+        // Create is pressed past its label, at the row's right, away from the
+        // cell column where Happy divides.
+        const press = {
+            x: framing.sidebarWidth * 0.6,
+            y: createBox.y + createBox.height / 2,
+        };
+        await demo.moveTo(press, { duration: 800 });
         await demo.hold(250);
-        await demo.click(create, { after: 0 });
+        await demo.click(press, { after: 0 });
         cue("create-clicked", demo, phone);
-        // The pointer leaves for the empty pane, clear of the new row and its cell.
-        await demo.moveTo(
-            { x: framing.sidebarWidth + 380, y: viewport.height - 70 },
-            { duration: 600 },
-        );
+        // The pointer leaves for the empty pane, below the new page's choices
+        // and above its composer, and hides there.
+        await demo.moveTo({ x: viewport.width - 120, y: 340 }, { duration: 500 });
         await demo.pointerVisible(false);
-        const fresh = page
-            .locator('[data-happy-desktop-ui="sidebar-item"]')
-            .filter({ hasText: /^\s*New\s*$/ })
-            .first();
+        const born = await until(
+            demo,
+            async () =>
+                (await gym.client.listSpaces()).spaces.find(({ id }) => !spacesBefore.has(id)),
+            "Create to make a stem cell",
+            15000,
+        );
+        const fresh = page.locator(
+            `[data-happy-desktop-ui="sidebar-item"][data-item-id="space:${born.id}"]`,
+        );
         await fresh.waitFor({ timeout: 15000 });
         cue("stem-born", demo, phone, await rectOf(fresh));
-        await demo.hold(3200);
+        divisionEvidence = await until(
+            demo,
+            () => page.evaluate(() => (window.__stemDivision.gone ? window.__stemDivision : null)),
+            "Happy's division to settle",
+            15000,
+        );
+        // The fresh stem cell starts on the model picked on camera, not the gym's.
+        divisionEvidence.space = born;
+        divisionEvidence.model = (
+            await page
+                .locator('[data-happy-desktop-ui="composer-model-control-trigger"]')
+                .filter({ visible: true })
+                .first()
+                .innerText()
+        )
+            .replace(/\s+/g, " ")
+            .trim();
+        const onlyOpus = (models) => {
+            const other = models.find((model) => !model.startsWith("Opus 5.5"));
+            if (other) throw new Error(`The new stem cell shows ${other}, not only Opus 5.5.`);
+        };
+        onlyOpus([divisionEvidence.model, ...divisionEvidence.models]);
+        cue("divided", demo, phone, await rectOf(fresh));
+        await demo.hold(900);
+        cue("team-caption", demo, phone);
+        await demo.hold(2800);
         await page.screenshot({ path: join(output, "created.png") });
         cue("outro", demo, phone);
         await demo.hold(3600);
         cue("end", demo, phone);
+        // Through the captions too, the composer named only Opus 5.5.
+        divisionEvidence.models = await page.evaluate(() => {
+            window.__stemDivisionObserver.disconnect();
+            return window.__stemDivision.models;
+        });
+        onlyOpus(divisionEvidence.models);
         await demo.finish();
         await writeFile(
             join(output, "shipping-verified.json"),
@@ -1023,7 +1104,7 @@ export default {
                     "Steve's message wakes the owner's Focus (a teammate wrote in their work). Once the agent has said Shipped, Focus reads the conversation with its real read_conversations and calls its real archive_shipped_task. The screenplay chooses both calls and gates the read until Shipped exists; the archive is released as soon as Focus reaches it.",
                 narrowing:
                     "The agent narrows the published waveform with a real edit_artifact_file (28 bars to 16), making the artifact's next version; the same inline preview redraws it.",
-                create: "Create at the end is the real sidebar action; the new stem cell is the app's own.",
+                create: "Create at the end is the real sidebar action: Happy divides into the new row (the app's own division animation), and the new stem cell is the app's own. Just before it, off screen, the person's default model setting is set through the API to Opus 5.5, the model picked on camera (the opening needed Astra as the default); the gym daemon's own default is Opus 5.5 too, so work the daemon starts by itself never shows the gym model.",
                 artifact:
                     "Real create_artifact and write_artifact_file through the daemon; the screenplay writes the page. Browser-local mode has no artifact page host, so the demo patch artifact-site.patch serves the daemon's own artifact files and renders them in an iframe, where Electron uses its own view.",
                 shipping:
@@ -1039,6 +1120,7 @@ export default {
             viewport,
             cues,
             shipping: shippingEvidence,
+            division: divisionEvidence,
             sidebar: await gym.client.getSpaceSidebar(),
             spaces: (await gym.client.listSpaces()).spaces,
             health: await gym.client.getHealth(),
