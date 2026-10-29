@@ -284,7 +284,8 @@ export function StoryViewer(props: StoryViewerProps) {
         node?.focus();
     }, []);
 
-    const paused = held || sheet !== undefined || typing || inPage;
+    // A note half written to the agent holds the story too, focused or not.
+    const paused = held || sheet !== undefined || typing || feedbackText !== "" || inPage;
     const duration = frame ? frameMs(frame, measured.get(frame.id)) : undefined;
     const segments = author?.stories.flatMap((each) =>
         each.frames.map((eachFrame, index) => ({ story: each, frame: eachFrame, index })),
