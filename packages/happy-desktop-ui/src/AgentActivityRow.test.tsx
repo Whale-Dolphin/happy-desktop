@@ -579,6 +579,28 @@ it("tells each call as what it did, in words, and keeps the raw call one click a
             call("t-telling", "notify_teammate", { userId: "u-steve" }, { status: "running" }),
         ],
         ["raw", execTool],
+        // Still being written: no diff or output yet, and maybe no path.
+        [
+            "editing",
+            call(
+                "t-editing",
+                "Edit",
+                { file_path: "src/voice/waveformActive.ts" },
+                { status: "running" },
+            ),
+        ],
+        ["editing-early", call("t-editing-early", "Edit", {}, { status: "running" })],
+        [
+            "shipping",
+            call(
+                "t-shipping",
+                "Bash",
+                { command: "pnpm release", description: "Ship to production" },
+                { status: "running" },
+            ),
+        ],
+        ["running", call("t-running", "Bash", {}, { status: "running" })],
+        ["reading-early", call("t-reading-early", "Read", {}, { status: "running" })],
     ];
     const view = createRenderer();
     view.render(
@@ -611,9 +633,23 @@ it("tells each call as what it did, in words, and keeps the raw call one click a
                     activity={{ kind: "tool", tool: rows[6]![1] }}
                     data-testid="ship-full"
                 />
+                {/* An artifact's file is not a workspace file to open. */}
+                <AgentActivityRow
+                    activity={{ kind: "tool", tool: rows[3]![1] }}
+                    data-testid="update-open"
+                    onFileOpen={() => undefined}
+                    references={references}
+                    singleLine
+                />
+                <AgentActivityRow
+                    activity={{ kind: "tool", tool: rows[0]![1] }}
+                    data-testid="read-open"
+                    onFileOpen={() => undefined}
+                    singleLine
+                />
             </div>
         ),
-        { width: 660, height: 560, padding: 16 },
+        { width: 660, height: 800, padding: 16 },
     );
     await view.ready();
     const part = (row: string, name: string) =>
@@ -631,6 +667,13 @@ it("tells each call as what it did, in words, and keeps the raw call one click a
     expect(said("tell")).toBe("Told Steve");
     expect(said("telling")).toBe("Telling Steve");
     expect(said("ship")).toBe("Ship to production");
+    expect(said("editing")).toBe("Editing waveformActive.ts");
+    expect(said("editing-early")).toBe("Editing a file");
+    expect(said("shipping")).toBe("Ship to production");
+    expect(said("running")).toBe("Running a command");
+    expect(said("reading-early")).toBe("Reading a file");
+    expect(part("read-open", "agent-activity-open")).not.toBeNull();
+    expect(part("update-open", "agent-activity-open")).toBeNull();
     // With no verb, its words start where a verb would.
     expect(part("ship", "agent-activity-text")!.getBoundingClientRect().x).toBe(
         part("read", "agent-activity-verb")!.getBoundingClientRect().x,

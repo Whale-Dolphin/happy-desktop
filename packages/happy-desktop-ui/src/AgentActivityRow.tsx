@@ -513,6 +513,24 @@ function argumentString(
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+/** The tools that write into an artifact, and what each did. Their `path` is a file of the artifact. */
+const ARTIFACT_FILE_VERBS: Readonly<Record<string, readonly [string, string]>> = {
+    write_artifact_file: ["Wrote", "Writing"],
+    edit_artifact_file: ["Edited", "Editing"],
+    edit_artifact_files: ["Edited", "Editing"],
+    update_artifact: ["Updated", "Updating"],
+};
+
+/** File tools whose result arrives as a diff; until it does, their own path says what they touch. */
+const FILE_WRITE_VERBS: Readonly<Record<string, readonly [string, string]>> = {
+    edit: ["Edited", "Editing"],
+    multiedit: ["Edited", "Editing"],
+    edit_file: ["Edited", "Editing"],
+    notebookedit: ["Edited", "Editing"],
+    write: ["Wrote", "Writing"],
+    write_file: ["Wrote", "Writing"],
+};
+
 /** What an artifact type is called in a sentence about it; nothing for one with no common name. */
 const ARTIFACT_NOUN: Readonly<Record<string, string>> = {
     html: "preview",
@@ -562,7 +580,24 @@ function toolAction(
     }
     if (presentation === undefined && /^(read|read_file|view)$/.test(lower)) {
         const file = argumentFilePath(tool.arguments);
-        if (file !== undefined) return said("Read", "Reading", fileName(file));
+        return said("Read", "Reading", file === undefined ? "a file" : fileName(file));
+    }
+    if (presentation === undefined && lower === "create_artifact") {
+        const title = argumentString(tool.arguments, "title");
+        return said("Created", "Creating", title ?? "an artifact");
+    }
+    // An edit or a command still being written, before its diff or output
+    // arrives, says what it is about from what its arguments hold so far.
+    const fileVerb = presentation === undefined ? FILE_WRITE_VERBS[lower] : undefined;
+    if (fileVerb !== undefined) {
+        const file = argumentFilePath(tool.arguments);
+        return said(fileVerb[0], fileVerb[1], file === undefined ? "a file" : fileName(file));
+    }
+    if (presentation === undefined && /^(bash|exec_command|shell)$/.test(lower)) {
+        const description = argumentString(tool.arguments, "description");
+        if (description !== undefined) return { verb: "", subject: description };
+        const command = argumentString(tool.arguments, "command");
+        return said("Ran", "Running", command === undefined ? "a command" : command);
     }
     if (presentation?.type === "artifact" && lower === "create_artifact") {
         const noun = ARTIFACT_NOUN[presentation.artifactType];
@@ -578,13 +613,7 @@ function toolAction(
             !title ? "an artifact" : noun === undefined ? title : `the ${title} ${noun}`,
         );
     }
-    const artifactVerbs: Readonly<Record<string, readonly [string, string]>> = {
-        write_artifact_file: ["Wrote", "Writing"],
-        edit_artifact_file: ["Edited", "Editing"],
-        edit_artifact_files: ["Edited", "Editing"],
-        update_artifact: ["Updated", "Updating"],
-    };
-    const artifactVerb = presentation === undefined ? artifactVerbs[lower] : undefined;
+    const artifactVerb = presentation === undefined ? ARTIFACT_FILE_VERBS[lower] : undefined;
     if (artifactVerb !== undefined) {
         const id = argumentString(tool.arguments, "artifactId");
         const view = id === undefined ? undefined : references?.view({ kind: "artifact", id });
@@ -619,6 +648,8 @@ const FILE_PATH_ARGUMENTS = ["file_path", "filePath", "path", "notebook_path"] a
  * report nothing rather than offering a click that goes nowhere.
  */
 function toolFilePath(tool: ConversationToolCall): string | undefined {
+    // An artifact's own files are not the workspace's; the artifact opens them.
+    if (ARTIFACT_FILE_VERBS[tool.toolName.toLowerCase()] !== undefined) return undefined;
     const presentation = tool.presentation;
     const candidate =
         presentation?.type === "fileDiff"
